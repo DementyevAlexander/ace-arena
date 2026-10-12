@@ -98,7 +98,7 @@ namespace Arena.View
         }
     }
 
-    /// <summary>Враг: призрак или топотун, полоска здоровья, иконки статусов, «!» и обозначение атаки.</summary>
+    /// <summary>Враг: Wastrel или Casket, полоска здоровья, иконки статусов, «!» и обозначение атаки.</summary>
     public sealed class EnemyView
     {
         public readonly Enemy E;
@@ -122,7 +122,7 @@ namespace Arena.View
             model.SetParent(Root, false);
             body = new GameObject("Body").transform;
             body.SetParent(model, false);
-            if (e.Kind == EnemyKind.Ghost) BuildGhost(); else BuildStomper(out legL, out legR);
+            if (e.Kind == EnemyKind.Wastrel) BuildWastrel(out legL, out legR); else BuildCasket();
             renderers = body.GetComponentsInChildren<Renderer>();
             flashMats = new Material[renderers.Length];
             baseColors = new Color[renderers.Length];
@@ -135,7 +135,7 @@ namespace Arena.View
             // полоска здоровья — смотрит в камеру
             var bar = new GameObject("Hp").transform;
             bar.SetParent(Root, false);
-            bar.localPosition = new Vector3(0f, e.Kind == EnemyKind.Ghost ? 1.9f : 1.25f, 0f);
+            bar.localPosition = new Vector3(0f, e.Kind == EnemyKind.Wastrel ? 1.95f : 2f, 0f);
             var bg = Art.Part(bar, MeshKit.Box(), Art.DecalMat(new Color(0.1f, 0.05f, 0.12f, 0.8f), -1, 20), Vector3.zero, new Vector3(0.9f, 0.1f, 0.01f), default, false);
             hpFill = Art.Part(bar, MeshKit.Box(), Art.DecalMat(new Color(1f, 0.3f, 0.4f, 1f), -1, 21), new Vector3(0f, 0f, -0.01f), new Vector3(0.86f, 0.07f, 0.01f), default, false).transform;
             bar.gameObject.AddComponent<Billboard>();
@@ -152,7 +152,7 @@ namespace Arena.View
             // «!» — заметил Ace
             alert = new GameObject("Alert").transform;
             alert.SetParent(Root, false);
-            alert.localPosition = new Vector3(0f, e.Kind == EnemyKind.Ghost ? 2.3f : 1.65f, 0f);
+            alert.localPosition = new Vector3(0f, e.Kind == EnemyKind.Wastrel ? 2.35f : 2.4f, 0f);
             var am = Art.LitMat(new Color(1f, 0.85f, 0.2f), 1.5f);
             Art.Part(alert, MeshKit.Box(), am, new Vector3(0f, 0.18f, 0f), new Vector3(0.1f, 0.3f, 0.1f), default, false);
             Art.Part(alert, MeshKit.Box(), am, new Vector3(0f, -0.06f, 0f), new Vector3(0.1f, 0.1f, 0.1f), default, false);
@@ -163,32 +163,40 @@ namespace Arena.View
             tele = new TelegraphView(parent);
         }
 
-        void BuildGhost()
+        /// <summary>Wastrel — сгорбленная тень-громила Эреба: широкие плечи, маленькая голова, тяжёлые кулаки, ходит.</summary>
+        void BuildWastrel(out Transform l, out Transform r)
         {
-            var pale = Art.LitMat(new Color(0.78f, 0.88f, 0.98f), 0.25f);
-            var dark = Art.LitMat(new Color(0.2f, 0.16f, 0.3f));
-            var eye = Art.LitMat(new Color(1f, 0.2f, 0.15f), 2.5f);
-            Art.Part(body, MeshKit.Ico(1, 0.06f, 3), pale, new Vector3(0f, 1.15f, 0f), new Vector3(0.75f, 0.8f, 0.7f));
-            Art.Part(body, MeshKit.Prism(7, 0.15f), pale, new Vector3(0f, 0.35f, 0f), new Vector3(0.7f, 0.85f, 0.65f), new Vector3(180f, 0f, 0f));
-            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.14f, 1.2f, 0.3f), new Vector3(0.12f, 0.08f, 0.06f));
-            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.14f, 1.2f, 0.3f), new Vector3(0.12f, 0.08f, 0.06f));
-            // когти-коса
-            Art.Part(body, MeshKit.Prism(4, 0f), dark, new Vector3(0.45f, 0.9f, 0.25f), new Vector3(0.12f, 0.7f, 0.12f), new Vector3(70f, 0f, -20f));
-            Art.Part(body, MeshKit.Prism(4, 0f), dark, new Vector3(-0.45f, 0.9f, 0.25f), new Vector3(0.12f, 0.7f, 0.12f), new Vector3(70f, 0f, 20f));
+            var hide = Art.LitMat(new Color(0.30f, 0.24f, 0.36f));
+            var dark = Art.LitMat(new Color(0.14f, 0.11f, 0.17f));
+            var eye = Art.LitMat(new Color(1f, 0.3f, 0.2f), 3f);
+            Art.Part(body, MeshKit.Ico(1, 0.08f, 3), hide, new Vector3(0f, 0.95f, 0f), new Vector3(0.95f, 0.85f, 0.75f));      // туловище
+            Art.Part(body, MeshKit.Ico(1, 0.1f, 4), hide, new Vector3(0f, 1.35f, 0.08f), new Vector3(1.05f, 0.45f, 0.6f));     // плечи-горб
+            Art.Part(body, MeshKit.Ico(0, 0.05f, 5), dark, new Vector3(0f, 1.3f, 0.38f), new Vector3(0.36f, 0.32f, 0.32f));    // голова низко
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.08f, 1.33f, 0.53f), Vector3.one * 0.07f, default, false);
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.08f, 1.33f, 0.53f), Vector3.one * 0.07f, default, false);
+            // руки до земли и кулаки
+            Art.Part(body, MeshKit.Prism(6, 0.8f), hide, new Vector3(-0.55f, 0.45f, 0.15f), new Vector3(0.22f, 0.8f, 0.22f), new Vector3(10f, 0f, -8f));
+            Art.Part(body, MeshKit.Prism(6, 0.8f), hide, new Vector3(0.55f, 0.45f, 0.15f), new Vector3(0.22f, 0.8f, 0.22f), new Vector3(10f, 0f, 8f));
+            Art.Part(body, MeshKit.Ico(0, 0.1f, 6), dark, new Vector3(-0.58f, 0.38f, 0.22f), Vector3.one * 0.34f);
+            Art.Part(body, MeshKit.Ico(0, 0.1f, 7), dark, new Vector3(0.58f, 0.38f, 0.22f), Vector3.one * 0.34f);
+            l = Art.Part(model, MeshKit.Prism(5), dark, new Vector3(-0.22f, 0f, 0f), new Vector3(0.2f, 0.45f, 0.2f)).transform;
+            r = Art.Part(model, MeshKit.Prism(5), dark, new Vector3(0.22f, 0f, 0f), new Vector3(0.2f, 0.45f, 0.2f)).transform;
         }
 
-        void BuildStomper(out Transform l, out Transform r)
+        /// <summary>Casket — парящий заклинатель-ларец: узкий балахон без ног, капюшон, светящаяся сфера-заряд перед собой.</summary>
+        void BuildCasket()
         {
-            var coral = Art.LitMat(new Color(0.98f, 0.5f, 0.42f));
-            var dark = Art.LitMat(new Color(0.45f, 0.2f, 0.2f));
-            var white = Art.LitMat(Color.white);
-            Art.Part(body, MeshKit.Ico(1, 0.05f, 5), coral, new Vector3(0f, 0.55f, 0f), new Vector3(0.72f, 0.62f, 0.72f));
-            Art.Part(body, MeshKit.Ico(0), white, new Vector3(-0.15f, 0.65f, 0.28f), Vector3.one * 0.16f);
-            Art.Part(body, MeshKit.Ico(0), white, new Vector3(0.15f, 0.65f, 0.28f), Vector3.one * 0.16f);
-            Art.Part(body, MeshKit.Ico(0), dark, new Vector3(-0.15f, 0.65f, 0.35f), Vector3.one * 0.07f);
-            Art.Part(body, MeshKit.Ico(0), dark, new Vector3(0.15f, 0.65f, 0.35f), Vector3.one * 0.07f);
-            l = Art.Part(model, MeshKit.Prism(5), dark, new Vector3(-0.17f, 0f, 0f), new Vector3(0.12f, 0.3f, 0.12f)).transform;
-            r = Art.Part(model, MeshKit.Prism(5), dark, new Vector3(0.17f, 0f, 0f), new Vector3(0.12f, 0.3f, 0.12f)).transform;
+            var robe = Art.LitMat(new Color(0.22f, 0.16f, 0.32f));
+            var trim = Art.LitMat(new Color(0.55f, 0.42f, 0.25f));
+            var glow = Art.LitMat(new Color(0.75f, 0.4f, 1f), 2.5f);
+            var eye = Art.LitMat(new Color(0.85f, 0.6f, 1f), 3f);
+            Art.Part(body, MeshKit.Prism(8, 0.45f), robe, new Vector3(0f, 0.25f, 0f), new Vector3(0.62f, 1.05f, 0.6f));      // балахон
+            Art.Part(body, MeshKit.Prism(8, 1.1f, false), trim, new Vector3(0f, 0.25f, 0f), new Vector3(0.64f, 0.1f, 0.62f));  // кайма
+            Art.Part(body, MeshKit.Prism(4, 0.9f), trim, new Vector3(0f, 0.95f, 0.05f), new Vector3(0.5f, 0.35f, 0.4f), new Vector3(0f, 45f, 0f)); // ларец-грудь
+            Art.Part(body, MeshKit.Ico(1, 0.08f, 2), robe, new Vector3(0f, 1.38f, -0.02f), new Vector3(0.42f, 0.46f, 0.44f));  // капюшон
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.07f, 1.38f, 0.19f), Vector3.one * 0.06f, default, false);
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.07f, 1.38f, 0.19f), Vector3.one * 0.06f, default, false);
+            Art.Part(body, MeshKit.Ico(1), glow, new Vector3(0f, 1f, 0.45f), Vector3.one * 0.2f, default, false);              // заряд
         }
 
         public void Sync(float dt, float time)
@@ -212,8 +220,8 @@ namespace Arena.View
             float scale = 1f;
             if (windup && e.Tele != null) scale = 1f + 0.3f * e.Tele.Progress; // AttackIncreaseScale 1.3 за время замаха
             if (e.Dead) scale = Mathf.Clamp01(e.DeathT / 0.8f);
-            float hover = e.Kind == EnemyKind.Ghost ? Mathf.Sin(t * 3f) * 0.08f : 0f;
-            float hop = e.Kind == EnemyKind.Stomper && (e.State is AiState.Chase or AiState.Wander) && e.Moved > 0.001f ? Mathf.Abs(Mathf.Sin(t * 16f)) * 0.08f : 0f;
+            float hover = e.Kind == EnemyKind.Casket ? 0.25f + Mathf.Sin(t * 3f) * 0.08f : 0f; // Casket парит
+            float hop = e.Kind == EnemyKind.Wastrel && e.Moved > 0.001f ? Mathf.Abs(Mathf.Sin(t * 8f)) * 0.05f : 0f;
             body.localPosition = new Vector3(0f, hover + hop, 0f);
             body.localScale = Vector3.one * scale;
             if (e.State == AiState.Strike) body.localEulerAngles = new Vector3(20f, 0f, 0f);

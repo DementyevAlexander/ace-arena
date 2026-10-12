@@ -158,31 +158,11 @@ namespace Arena.View
                     }
                     break;
                 }
-                case EffectKind.Barrel:
-                {
-                    // бочка и её круг падения: контур сразу, заливка растёт к моменту взрыва
-                    Add(Art.Part(root, MeshKit.Prism(10, 0.9f), Art.LitMat(Art.Night.Wood), Vector3.zero, new Vector3(0.45f, 0.55f, 0.45f), new Vector3(70f, 0f, 0f)));
-                    var om = Art.DecalInstance(Art.DangerEdge, 1, 2); owned.Add(om);
-                    var o = Art.Decal(root, MeshKit.FloorQuad(), om, 0.03f); o.transform.localScale = Vector3.one * f.R * 2f; Add(o);
-                    var fm = Art.DecalInstance(Art.Danger, 0, 3); owned.Add(fm);
-                    Add(Art.Decal(root, MeshKit.FloorQuad(), fm, 0.035f));
-                    var sm = Art.DecalInstance(new Color(0f, 0f, 0f, 0.45f), 3, 1); owned.Add(sm);
-                    var sh = Art.Decal(root, MeshKit.FloorQuad(), sm, 0.04f); sh.transform.localScale = Vector3.one * 0.6f; Add(sh);
+                case EffectKind.EnemyBolt:
+                    Add(Art.Part(root, MeshKit.Ico(1), Art.LitMat(new Color(0.75f, 0.4f, 1f), 3f), new Vector3(0f, 0.65f, 0f), Vector3.one * 0.32f, default, false));
+                    Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(new Color(1f, 0.9f, 1f), 4f), new Vector3(0f, 0.65f, 0f), Vector3.one * 0.16f, default, false));
+                    Trail(root, new Color(0.7f, 0.35f, 1f), 0.2f, 0.25f, 0.65f);
                     break;
-                }
-                case EffectKind.EnemyFire:
-                {
-                    var m = Art.DecalInstance(new Color(1f, 0.42f, 0.12f, 0.55f), 3, 4); owned.Add(m);
-                    var d = Art.Decal(root, MeshKit.FloorQuad(), m, 0.04f); d.transform.localScale = Vector3.one * f.R * 2.3f; Add(d);
-                    var flame = Art.LitMat(Art.Night.Fire, 2f);
-                    var rnd = new System.Random(f.Id);
-                    for (int i = 0; i < 7; i++)
-                    {
-                        float a = (float)rnd.NextDouble() * Mathf.PI * 2f, rr = Mathf.Sqrt((float)rnd.NextDouble()) * f.R * 0.8f;
-                        Add(Art.Part(root, MeshKit.Prism(5, 0f), flame, new Vector3(Mathf.Cos(a) * rr, 0f, Mathf.Sin(a) * rr), new Vector3(0.3f, 0.6f, 0.3f), default, false));
-                    }
-                    break;
-                }
                 case EffectKind.Tether:
                     line = root.gameObject.AddComponent<LineRenderer>();
                     line.sharedMaterial = Art.LitMat(new Color(1f, 0.92f, 0.5f), 3f);
@@ -254,32 +234,9 @@ namespace Arena.View
                     for (int i = 1; i < parts.Count; i++) parts[i].localPosition += Vector3.up * (Mathf.Sin(time * 2f + i) * 0.002f);
                     break;
                 }
-                case EffectKind.Barrel:
-                {
-                    // низкая дуга (LaunchAngle 15°): вершина ≈ d·tg15° / 4, но не ниже 0.6 — бочку должно быть видно
-                    float k = 1f - Mathf.Clamp01(f.T / Mathf.Max(f.Life, 0.0001f));
-                    float d = (f.To - f.Start).magnitude, h = Mathf.Max(0.6f, d * 0.067f) * 4f * k * (1f - k) + 0.3f;
-                    root.position = Art.W(f.Pos); root.rotation = Quaternion.identity;
-                    parts[0].localPosition = Vector3.up * h;
-                    parts[0].localEulerAngles = new Vector3(70f + time * 400f, 0f, 0f);
-                    var at = Art.W(f.To, Art.FloorTop);
-                    parts[1].position = at + Vector3.up * 0.03f; parts[2].position = at + Vector3.up * 0.035f;
-                    float p = f.Hold + (1f - f.Hold) * k;
-                    parts[2].localScale = Vector3.one * (f.R * 2f * p);
-                    float pulse = p > 0.75f ? (Mathf.Repeat(time * 14f, 1f) < 0.5f ? 1f : 0.65f) : 1f;
-                    owned[0].SetColor("_BaseColor", new Color(1f, 0.6f, 0.15f, (0.75f + 0.25f * p) * pulse));
-                    owned[1].SetColor("_BaseColor", new Color(1f, 0.15f, 0.08f, (0.45f + 0.4f * p) * pulse));
-                    parts[3].localPosition = new Vector3(0f, Art.FloorTop + 0.04f, 0f);
+                case EffectKind.EnemyBolt:
+                    parts[0].localScale = Vector3.one * (0.32f + 0.05f * Mathf.Sin(time * 30f));
                     break;
-                }
-                case EffectKind.EnemyFire:
-                {
-                    float fade = Mathf.Clamp01(f.Life) * Mathf.Clamp01(f.Age * 4f);
-                    root.localScale = Vector3.one * (0.4f + 0.6f * fade);
-                    for (int i = 1; i < parts.Count; i++)
-                        parts[i].localScale = new Vector3(0.3f, 0.45f + 0.35f * Mathf.PerlinNoise(time * 6f, i * 1.7f + f.Id), 0.3f);
-                    break;
-                }
                 case EffectKind.FireTrail:
                     SyncTrail(f, time);
                     root.position = Vector3.zero; root.rotation = Quaternion.identity;

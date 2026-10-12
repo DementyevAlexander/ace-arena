@@ -22,8 +22,8 @@ namespace Arena.Sim
 
             if (!UpdateStatuses(e, dt))
             {
-                if (e.Kind == EnemyKind.Ghost) UpdateGhost(e, dt);
-                else UpdateStomper(e, dt);
+                if (e.Kind == EnemyKind.Wastrel) UpdateWastrel(e, dt);
+                else UpdateCasket(e, dt);
             }
             CollideCircle(ref e.Pos, e.R, before);
             e.Moved = (e.Pos - before).magnitude;
@@ -51,7 +51,7 @@ namespace Arena.Sim
             if (e.Fear > 0f)
             {
                 e.Fear -= dt;
-                float speed = e.Kind == EnemyKind.Ghost ? GhostCfg.fearSpeed : StomperCfg.fearSpeed;
+                float speed = e.Kind == EnemyKind.Wastrel ? WastrelCfg.fearSpeed : CasketCfg.fearSpeed;
                 var away = -toPlayer.normalized;
                 e.Pos += away * (speed * dt);
                 e.Face = away;
@@ -90,14 +90,17 @@ namespace Arena.Sim
         void MakeAggro(Enemy e)
         {
             if (e.Aggro) return;
-            e.Aggro = true; e.State = AiState.Chase; e.Alert = 0.6f; e.T = 0f;
+            e.Aggro = true; e.Alert = 0.6f;
+            // Casket после того, как заметил, ещё AggroDuration стоит и смотрит (Enemy_Mage_Alert)
+            if (e.Kind == EnemyKind.Casket) { e.State = AiState.Alert; e.T = CasketCfg.aggroDuration; }
+            else { e.State = AiState.Chase; e.T = 0f; }
             Events.Add(new SimEvent { Kind = EventKind.EnemyAlert, Pos = e.Pos, Enemy = e });
             foreach (var o in Enemies)
             {
                 if (o == e || !o.Alive || o.Aggro || o.React >= 0f) continue;
-                float range = o.Kind == EnemyKind.Ghost ? GhostCfg.aggroRange : StomperCfg.aggroRange;
+                float range = o.Kind == EnemyKind.Wastrel ? WastrelCfg.aggroRange : CasketCfg.aggroRange;
                 if ((o.Pos - e.Pos).magnitude <= range)
-                    o.React = o.Kind == EnemyKind.Ghost ? Rand(GhostCfg.reactionMin, GhostCfg.reactionMax) : Rand(StomperCfg.reactionMin, StomperCfg.reactionMax);
+                    o.React = o.Kind == EnemyKind.Wastrel ? Rand(WastrelCfg.reactionMin, WastrelCfg.reactionMax) : Rand(CasketCfg.reactionMin, CasketCfg.reactionMax);
             }
         }
 
@@ -108,9 +111,9 @@ namespace Arena.Sim
 
         // ---------- Wastrel (Brawler): двухударное комбо ----------
 
-        void UpdateGhost(Enemy e, float dt)
+        void UpdateWastrel(Enemy e, float dt)
         {
-            var c = GhostCfg;
+            var c = WastrelCfg;
             if (!UpdateAggro(e, dt, c.aggroRange, c.reactionMin, c.reactionMax, c.wanderDistance, c.wanderInterval, c.speed)) return;
             var toPlayer = Player.Pos - e.Pos;
             float dist = toPlayer.magnitude;
@@ -166,7 +169,7 @@ namespace Arena.Sim
         /// удар 2 — дуга 190° вокруг себя, направление почти не меняется (PreAttackRotationDampening 0.02).</summary>
         void BeginBrawlerHit(Enemy e, int index)
         {
-            var c = GhostCfg;
+            var c = WastrelCfg;
             e.Strike = index;
             e.State = AiState.Windup;
             if (index == 1)
@@ -188,122 +191,134 @@ namespace Arena.Sim
             Events.Add(new SimEvent { Kind = EventKind.TelegraphStart, Pos = e.Tele.Center, Enemy = e });
         }
 
-        // ---------- Lubber (ZombieHeavyRanged): бочка по области, отход, толчок вблизи ----------
+        // ---------- Casket (Mage): HideAndPeekAI ----------
 
-        void UpdateStomper(Enemy e, float dt)
+        void UpdateCasket(Enemy e, float dt)
         {
-            var c = StomperCfg;
+            var c = CasketCfg;
             if (!UpdateAggro(e, dt, c.aggroRange, c.reactionMin, c.reactionMax, c.wanderDistance, c.wanderInterval, c.speed)) return;
             var toPlayer = Player.Pos - e.Pos;
             float dist = toPlayer.magnitude;
             var dirP = dist > 0.0001f ? toPlayer / dist : e.Face;
-
-            // SurroundAI: атакуют не больше MaxAttackers, место пересматривается раз в SurroundRefreshInterval
-            e.Refresh -= dt;
-            if (!e.Attacker && e.Refresh <= 0f)
-            {
-                e.Refresh = c.surroundRefresh;
-                int n = 0;
-                foreach (var o in Enemies) if (o.Alive && o.Kind == EnemyKind.Stomper && o.Attacker) n++;
-                if (n < c.maxAttackers) e.Attacker = true;
-            }
-
+            // отскок при выстрелах (FireTickSelfVelocity) затухает
+            e.Pos += e.Vel * dt;
+            e.Vel *= Mathf.Exp(-dt / c.kickDecay);
             switch (e.State)
             {
-                case AiState.Chase:
-                case AiState.Wait:
+                case AiState.Alert: // AggroDuration: заметил — пауза, смотрит на Смерть
                     e.Face = dirP;
-                    if (!e.Attacker) { e.State = AiState.Wait; break; } // ждёт своей очереди, глядя на Смерть
-                    e.State = AiState.Chase;
-                    if (Player.Hidden > 0f) break;
-                    // выбор оружия по Requirements: бросок — дальше MinPlayerDistance, толчок — ближе MaxPlayerDistance
-                    bool canToss = dist >= c.tossMinDistance, canShove = dist <= c.shoveMaxDistance;
-                    if (e.Strike == 0) e.Strike = canToss && (!canShove || Rand(0f, 1f) < 0.5f) ? 1 : 2;
-                    if (e.Strike == 1 && !canToss) e.Strike = 2;
-                    float range = e.Strike == 1 ? c.tossDistance : c.shoveDistance;
-                    if (dist > range) { e.Pos += Steer(e, dirP) * (c.speed * dt); break; }
-                    e.State = AiState.Windup;
-                    e.T = e.Strike == 1 ? c.tossWindup + c.tossRelease : c.shoveWindup;
-                    e.HitDone = false;
-                    e.Dir = dirP;
-                    e.Tele = e.Strike == 1
-                        ? new Telegraph { Shape = TeleShape.Ellipse, Center = TossTarget(e), Dir = Vector2.up, Forward = c.blastRadius, Side = c.blastRadius, Total = e.T + Flight(e), T = e.T + Flight(e) }
-                        : Trapezoid(e.Pos, e.Dir, c.shoveReach, c.shoveBaseHalf, c.shoveTipHalf, e.T);
-                    Events.Add(new SimEvent { Kind = EventKind.TelegraphStart, Pos = e.Tele.Center, Enemy = e });
+                    e.T -= dt;
+                    if (e.T <= 0f) BeginHide(e);
+                    break;
+                case AiState.Chase: // в бой без паузы (например, поставлен тестом) — сразу к укрытию
+                    BeginHide(e);
+                    break;
+                case AiState.Hide:
+                {
+                    // за ближайшее укрытие, с дальней от Смерти стороны (CoverHugDistance), TakeCoverDuration 1.5–2.2 с
+                    e.T -= dt;
+                    if (FindCover(e.Pos, out var cover, out float coverR))
+                    {
+                        var away = cover - Player.Pos;
+                        var spot = cover + (away.sqrMagnitude > 0.0001f ? away.normalized : Vector2.up) * (coverR + c.coverHug);
+                        var to = spot - e.Pos;
+                        if (to.magnitude > 0.38f) { var d = Steer(e, to.normalized); e.Pos += d * (c.speed * dt); e.Face = d; }
+                        else e.Face = dirP;
+                    }
+                    if (e.T > 0f) break;
+                    // выглянул: атакует, если атакующих меньше MaxAttackers, иначе прячется снова
+                    int attackers = 0;
+                    foreach (var o in Enemies) if (o.Alive && o.Kind == EnemyKind.Casket && o.Attacker) attackers++;
+                    if (attackers < c.maxAttackers) { e.Attacker = true; e.State = AiState.Approach; e.T = Rand(c.approachTimeoutMin, c.approachTimeoutMax); }
+                    else BeginHide(e);
+                    break;
+                }
+                case AiState.Approach:
+                    // MoveWithinRange: ближе AttackDistance и с прямой видимостью (RequireProjectileLoS)
+                    e.Face = dirP;
+                    e.T -= dt;
+                    if (Player.Hidden <= 0f && dist <= c.attackDistance && ClearShot(e.Pos, Player.Pos))
+                    {
+                        e.State = AiState.Windup; e.T = c.windup; e.Dir = dirP;
+                        e.Tele = new Telegraph { Shape = TeleShape.Lane, Center = e.Pos, Dir = dirP, Forward = Mathf.Min(dist, c.boltRange), Side = 0.18f, Total = c.windup, T = c.windup };
+                        Events.Add(new SimEvent { Kind = EventKind.TelegraphStart, Pos = e.Pos, Enemy = e });
+                        break;
+                    }
+                    if (e.T <= 0f) { e.Attacker = false; BeginHide(e); break; }
+                    e.Pos += Steer(e, dirP) * (c.speed * dt);
                     break;
                 case AiState.Windup:
-                    // TrackTargetDuringCharge / WaitForAngleTowardTarget: всё время замаха следит за Смертью
+                    // TrackTargetDuringCharge: прицел следует за Смертью весь замах
                     e.Dir = dirP; e.Face = dirP;
                     e.T -= dt;
-                    if (e.Strike == 1)
-                    {
-                        // заполнение — за весь замах и полёт: к падению бочки круг полон
-                        float flightNow = Flight(e);
-                        e.Tele.Center = TossTarget(e);
-                        e.Tele.Total = c.tossWindup + c.tossRelease + flightNow; e.Tele.T = Mathf.Max(0f, e.T) + flightNow;
-                        if (e.T <= 0f)
-                        {
-                            // бочка летит в точку, где Смерть стоит сейчас; обозначение переходит к бочке
-                            var target = e.Tele.Center;
-                            float flight = Flight(e);
-                            Add(new Effect
-                            {
-                                Kind = EffectKind.Barrel, Pos = e.Pos, Start = e.Pos, To = target, Life = flight, T = flight, R = c.blastRadius, Damage = c.damage,
-                                Hold = e.Tele.Progress, // доля обозначения, заполненная к броску
-                            });
-                            e.Tele = null;
-                            e.State = AiState.Recover; e.T = c.tossRecovery;
-                        }
-                    }
-                    else
-                    {
-                        e.Tele.Center = e.Pos; e.Tele.Dir = e.Dir; e.Tele.T = e.T;
-                        if (e.T <= 0f) { e.State = AiState.Strike; e.T = 0f; }
-                    }
+                    e.Tele.Center = e.Pos; e.Tele.Dir = dirP; e.Tele.Forward = Mathf.Min(dist, c.boltRange); e.Tele.T = e.T;
+                    if (e.T <= 0f) { e.Tele = null; e.State = AiState.Strike; e.Strike = 0; e.T = 0f; }
                     break;
-                case AiState.Strike: // толчок
-                    e.T += dt;
-                    if (!e.HitDone && e.T <= c.shoveActive && e.Tele.Contains(Player.Pos, PlayerCfg.radius))
+                case AiState.Strike:
+                    // FireTicks 3 через FireInterval 0.17 с, после каждого — отскок назад, слабее с каждым разом
+                    e.T -= dt;
+                    if (e.T > 0f) break;
+                    e.Face = dirP;
+                    Add(new Effect
                     {
-                        e.HitDone = true;
-                        HurtPlayer(c.damage, e.Pos);
-                    }
-                    if (e.T - dt <= 0f) Events.Add(new SimEvent { Kind = EventKind.Attack, Pos = e.Pos + e.Dir * (c.shoveReach * 0.5f), To = e.Dir, Enemy = e, Radius = c.shoveTipHalf });
-                    if (e.T >= c.shoveFire) { e.Tele = null; e.State = AiState.Recover; e.T = c.shoveRecovery; }
+                        Kind = EffectKind.EnemyBolt, Pos = e.Pos + dirP * 0.42f, Dir = dirP, Speed = c.boltSpeed, Life = c.boltLife,
+                        R = c.boltRadius, Damage = c.damage,
+                    });
+                    e.Vel = -dirP * (c.kickSpeed * Mathf.Pow(c.kickFalloff, e.Strike));
+                    Events.Add(new SimEvent { Kind = EventKind.Attack, Pos = e.Pos + dirP * 0.42f, To = dirP, Enemy = e, Radius = 0.3f });
+                    e.Strike++;
+                    if (e.Strike < c.shots) e.T = c.shotInterval;
+                    else { e.State = AiState.Recover; e.T = Rand(c.recoveryMin, c.recoveryMax); }
                     break;
                 case AiState.Recover:
                     e.Face = dirP;
                     e.T -= dt;
-                    if (e.T > 0f) break;
-                    // RetreatAfterAttackChance 1.0 — после броска отходит; после толчка — снова в бой
-                    if (e.Strike == 1) { e.State = AiState.Retreat; e.T = Rand(c.retreatTimeMin, c.retreatTimeMax); }
-                    else e.State = AiState.Chase;
-                    e.Strike = 0;
-                    break;
-                case AiState.Retreat:
-                    e.T -= dt;
-                    if (dist >= c.retreatDistance || e.T <= 0f) { e.State = AiState.Chase; break; }
-                    var away = Steer(e, -dirP);
-                    e.Pos += away * (c.speed * dt);
-                    e.Face = away;
+                    if (e.T <= 0f) { e.Attacker = false; BeginHide(e); }
                     break;
                 default:
-                    e.State = AiState.Chase;
+                    BeginHide(e);
                     break;
             }
         }
 
-        /// <summary>Точка падения бочки: Смерть сейчас, но не ближе MinRange и не дальше Range от Lubber (без упреждения).</summary>
-        Vector2 TossTarget(Enemy e)
+        void BeginHide(Enemy e)
         {
-            var c = StomperCfg;
-            var d = Player.Pos - e.Pos;
-            float l = d.magnitude;
-            var dir = l > 0.0001f ? d / l : e.Face;
-            return e.Pos + dir * Mathf.Clamp(l, c.tossMinRange, c.tossMaxRange);
+            e.State = AiState.Hide;
+            e.T = Rand(CasketCfg.coverMin, CasketCfg.coverMax);
+            e.Tele = null;
         }
 
-        float Flight(Enemy e) => (TossTarget(e) - e.Pos).magnitude / StomperCfg.barrelSpeed;
+        /// <summary>Ближайшее к точке укрытие: стоящий предмет, который держит снаряды (группа Standing и
+        /// StopsProjectiles в Hades) — колонны, здания, стены, бочки, ящики, амфоры, обломки, деревья.</summary>
+        bool FindCover(Vector2 from, out Vector2 center, out float radius)
+        {
+            center = default; radius = 0f;
+            float best = float.MaxValue;
+            foreach (var o in Obstacles)
+            {
+                float d = (o.Pos - from).sqrMagnitude;
+                if (d < best) { best = d; center = o.Pos; radius = o.R; }
+            }
+            if (Layout != null)
+                foreach (var w in Layout.walls)
+                {
+                    if (!w.projectiles || w.kind is "wall" or "gap" or "door") continue;
+                    var c = (w.Min + w.Max) * 0.5f;
+                    float d = (c - from).sqrMagnitude;
+                    if (d < best) { best = d; center = c; radius = (w.Max - w.Min).magnitude * 0.5f; }
+                }
+            return best < float.MaxValue;
+        }
+
+        /// <summary>Прямая видимость для снаряда: на отрезке нет препятствий, которые его остановят.</summary>
+        bool ClearShot(Vector2 a, Vector2 b)
+        {
+            var d = b - a;
+            float len = d.magnitude;
+            for (float t = 0.4f; t < len - 0.3f; t += 0.25f)
+                if (BlocksShot(a + d * (t / len), 0.05f)) return false;
+            return true;
+        }
 
         /// <summary>Простое обтекание: колонна впереди — уходим вбок, стена арены впереди — поворачиваем к свободному направлению.</summary>
         Vector2 Steer(Enemy e, Vector2 dir)

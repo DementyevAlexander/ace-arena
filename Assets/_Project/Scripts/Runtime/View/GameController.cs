@@ -223,9 +223,6 @@ namespace Arena.View
                         hud.HurtFlash();
                         effects.Puff(ev.Pos, 0.9f, new Color(1f, 0.3f, 0.3f), 0.2f);
                         break;
-                    case EventKind.PlayerBurn:
-                        hud.Number(ev.Pos, ev.Value, false, new Color(1f, 0.55f, 0.2f));
-                        break;
                     case EventKind.PlayerBlocked:
                         effects.Ring(ev.Pos, 1f, new Color(1f, 0.9f, 0.4f, 0.9f));
                         break;

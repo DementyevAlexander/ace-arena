@@ -170,18 +170,8 @@ namespace Arena.Sim
             Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = center, Radius = radius, Color = color });
         }
 
-        /// <summary>Ожог от огня: без неуязвимости после удара, отброса и прерывания каста; щит не спасает.</summary>
-        public void BurnPlayer(float dmg)
-        {
-            var p = Player;
-            if (GameOver || p.BuffInvuln > 0f || p.Hidden > 0f) return;
-            p.Hp -= dmg;
-            Events.Add(new SimEvent { Kind = EventKind.PlayerBurn, Pos = p.Pos, Value = dmg });
-            if (p.Hp <= 0f) { p.Hp = 0f; GameOver = true; }
-        }
-
-        /// <summary>Удар по Ace. Возвращает true, если урон прошёл.</summary>
-        public bool HurtPlayer(float dmg, Vector2 from)
+        /// <summary>Удар по Смерти. Возвращает true, если урон прошёл. knock — короткий отброс от удара.</summary>
+        public bool HurtPlayer(float dmg, Vector2 from, bool knock = true)
         {
             var p = Player;
             if (GameOver) return false;
@@ -195,9 +185,12 @@ namespace Arena.Sim
             }
             p.Hp -= dmg;
             p.HitInvuln = PlayerCfg.hitInvulnerability;
-            var k = p.Pos - from;
-            p.KnockVel = (k.sqrMagnitude > 0.0001f ? k.normalized : Vector2.down) * 6f;
-            p.KnockT = 0.12f;
+            if (knock)
+            {
+                var k = p.Pos - from;
+                p.KnockVel = (k.sqrMagnitude > 0.0001f ? k.normalized : Vector2.down) * 6f;
+                p.KnockT = 0.12f;
+            }
             if (p.Cast != null && Slots[p.Cast.Slot].Card.Interruptible && p.Cast.Phase != CastPhase.Recovery) p.Cast = null;
             Events.Add(new SimEvent { Kind = EventKind.PlayerHit, Pos = p.Pos, Value = dmg });
             if (p.Hp <= 0f) { p.Hp = 0f; GameOver = true; }

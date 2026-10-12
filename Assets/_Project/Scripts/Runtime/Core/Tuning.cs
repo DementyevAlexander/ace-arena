@@ -15,15 +15,28 @@ namespace Arena.Core
         public float speed = 4.1f;
     }
 
-    /// <summary>Враг 1 — поведение Wastrel (Brawler) из Hades II: начальный ближний боец Эреба. Медленно подходит,
-    /// бьёт комбо из двух ударов (BrawlerMelee с выпадом → BrawlerMeleeClose дугой) и сразу повторяет, если Смерть рядом.
-    /// HP и урон — Enraged Ghost из DandyAce. Источники: EnemyData_Brawler.lua, EnemyData.lua (BaseVulnerableEnemy),
-    /// Units/Enemies.sjson, Projectiles/Enemy_BiomeF_Projectiles.sjson. 1 пиксель Hades = 4.1 / 540 юнита.</summary>
-    [Serializable]
-    public sealed class GhostTuning
+    /// <summary>Перевод чисел Hades II в масштаб Ace Arena.</summary>
+    public static class HadesScale
     {
-        public float hp = Tier1.EnemyHp[Tier1.StrongMinus];      // 975
-        public float damage = Tier1.EnemyDamage[Tier1.WeakPlus]; // 50 за удар
+        /// <summary>Пиксели Hades → юниты: Мелиноя бежит 540 пикс/с, Смерть — 4.1 юнит/с.</summary>
+        public const float Unit = 4.1f / 540f;
+        /// <summary>HP врагов → под наш урон: одно нажатие основной атаки у нас — Twin Daggers 2 × 100 = 200,
+        /// у Мелинои — удар посоха, в среднем по комбо (20 + 25 + 60) / 3 = 35 (ProjectileStaffSwing1–3).
+        /// Враг умирает за то же число нажатий, что и в Hades.</summary>
+        public const float Hp = 200f / 35f;
+        /// <summary>Урон врагов по Смерти: Wastrel бьёт на 50 (как прежний враг), в Hades BrawlerMelee — 9.</summary>
+        public const float Damage = 50f / 9f;
+    }
+
+    /// <summary>Враг 1 — Wastrel (Brawler) из Hades II: начальный ближний боец Эреба (первый бой — FIntroFight).
+    /// Медленно подходит, бьёт комбо из двух ударов (BrawlerMelee с выпадом → BrawlerMeleeClose дугой) и сразу
+    /// повторяет, если Смерть рядом. Источники: EnemyData_Brawler.lua, EnemyData.lua (BaseVulnerableEnemy),
+    /// Units/Enemies.sjson, Projectiles/Enemy_BiomeF_Projectiles.sjson. Расстояния — × HadesScale.Unit.</summary>
+    [Serializable]
+    public sealed class WastrelTuning
+    {
+        public float hp = 255f * HadesScale.Hp; // MaxHealth 255 → ≈ 1457
+        public float damage = 50f;             // за удар; в Hades 9 и 7 — оставлен прежний урон
         public float radius = 0.35f;
         public float fearSpeed = 2.5f;
         public float aggroRange = 4.55f;       // AIAggroRange 600
@@ -57,54 +70,49 @@ namespace Arena.Core
         public float hit2Active = 0.19f;       // взмах 190° со скоростью 1000°/с
     }
 
-    /// <summary>Враг 2 — поведение Lubber (ZombieHeavyRanged) из Hades II: начальный враг Эфиры, бьющий по области.
-    /// Подходит на дистанцию броска, долго замахивается, следя за Смертью, и кидает бочку туда, где она стоит: взрыв,
-    /// затем огонь на 30 с. После броска отходит. Вблизи — толчок. Атакуют одновременно не больше трёх (SurroundAI).
-    /// HP и урон — Bunny Butler из DandyAce. Источники: EnemyData_ZombieHeavyRanged.lua, WeaponData_Zombie.lua,
-    /// ProjectileData_EnemyN.lua, Projectiles/Enemy_BiomeN_Projectiles.sjson, Units/Enemies.sjson.</summary>
+    /// <summary>Враг 2 — Casket (Mage) из Hades II: начальный дальний враг Эреба (первый бой — FIntroFight).
+    /// HideAndPeekAI: прячется за ближайшим укрытием, затем выходит на дистанцию выстрела с прямой видимостью,
+    /// замахивается, следя за Смертью, и пускает 3 самонаводящихся снаряда, отскакивая назад; потом снова прячется.
+    /// Источники: EnemyData_Mage.lua, WeaponData_Mage.lua, EnemyAILogic.lua (HideAndPeekAI, DoAttackerAILoop),
+    /// Units/Enemies.sjson, Projectiles/Enemy_BiomeF_Projectiles.sjson.</summary>
     [Serializable]
-    public sealed class StomperTuning
+    public sealed class CasketTuning
     {
-        public float hp = Tier1.EnemyHp[Tier1.Mid];              // 725
-        public float damage = Tier1.EnemyDamage[Tier1.MidMinus]; // 59 — взрыв бочки и толчок
+        public float hp = 80f * HadesScale.Hp;  // MaxHealth 80 → ≈ 457
+        public float damage = 4f * HadesScale.Damage; // снаряд MageRanged: Damage 4 → ≈ 22
         public float radius = 0.33f;
         public float fearSpeed = 2.5f;
-        public float aggroRange = 8.35f;       // AIAggroRange 1100
+        public float aggroRange = 9.49f;       // AIAggroRange 1250
+        public float aggroDuration = 0.7f;     // AggroDuration — пауза после того, как заметил
         public float reactionMin = 0.05f;
         public float reactionMax = 0.2f;
         public float wanderDistance = 1.52f;
         public float wanderInterval = 1.5f;
-        public float speed = 1.33f;            // Speed 175
-        public int maxAttackers = 3;           // SurroundAI MaxAttackers
-        public float surroundRefresh = 1.5f;   // SurroundRefreshInterval
-        // бросок — ZombieHeavyRangedToss
-        public float tossMinDistance = 2.66f;  // Requirements.MinPlayerDistance 350
-        public float tossDistance = 7.67f;     // AttackDistance 1010
-        public float tossWindup = 2.1f;        // PreAttackDuration, TrackTargetDuringCharge
-        public float tossRelease = 0.165f;     // FireProjectileStartDelay
-        public float tossRecovery = 1.75f;     // PostAttackDuration
-        public float tossMinRange = 2.88f;     // MinRange 380
-        public float tossMaxRange = 7.59f;     // Range 1000
-        public float barrelSpeed = 7.59f;      // MaxSpeed 1000
-        public float blastRadius = 2.28f;      // DamageRadius 300, ScaleY 0.5 — круг на полу
-        public float fireRadius = 1.52f;       // ZombieHRFire DamageRadius 200
-        public float fireLife = 30f;           // TotalFuse
-        public float fireTick = 0.2f;          // Fuse
-        public float fireRamp = 0.5f;          // DamagePerConsecutiveHit: n-й тик подряд — ⌊0.5·n⌋ урона Hades
-        public float hadesTossDamage = 15f;    // урон бочки в Hades: огонь переводится в наш урон множителем damage / 15
-        public float retreatDistance = 7.59f;  // RetreatBufferDistance 1000
-        public float retreatTimeMin = 2f;      // RetreatTimeoutMin
-        public float retreatTimeMax = 3f;      // RetreatTimeoutMax
-        // толчок — ZombieHeavyRangedShove
-        public float shoveMaxDistance = 3.45f; // Requirements.MaxPlayerDistance 455
-        public float shoveDistance = 2.66f;    // AttackDistance 350
-        public float shoveWindup = 1f;         // PreAttackDuration
-        public float shoveFire = 0.4f;         // FireDuration
-        public float shoveRecovery = 1.1f;     // PostAttackDuration
-        public float shoveReach = 2.13f;       // Points (−10, ±40) … (280, ±90)
-        public float shoveBaseHalf = 0.3f;
-        public float shoveTipHalf = 0.68f;
-        public float shoveActive = 0.2f;       // Fuse
+        public float speed = 2.13f;            // Speed 280
+        public int maxAttackers = 6;           // MaxAttackers
+        // укрытие
+        public float coverMin = 1.5f;          // TakeCoverDurationMin
+        public float coverMax = 2.2f;          // TakeCoverDurationMax
+        public float coverHug = 1.9f;          // CoverHugDistance 250 — встаёт за укрытием с дальней от Смерти стороны
+        // выстрел — MageRanged
+        public float attackDistance = 7.97f;   // AttackDistance 1050 (ScaleY 0.48 — круг на полу)
+        public float approachTimeoutMin = 7f;  // MoveWithinRangeTimeoutMin
+        public float approachTimeoutMax = 10f; // MoveWithinRangeTimeoutMax
+        public float windup = 1f;              // PreAttackDuration, TrackTargetDuringCharge
+        public int shots = 3;                  // FireTicks
+        public float shotInterval = 0.17f;     // FireInterval 0.085 × 2
+        public float kickSpeed = 3.04f;        // FireTickSelfVelocity 400, назад (AngleOffset 180)
+        public float kickFalloff = 0.95f;      // FireTickSelfVelocityConsecutiveMultiplier
+        public float kickDecay = 0.1f;         // оценка: как быстро гаснет отскок
+        public float recoveryMin = 0.7f;       // PostAttackDurationMin
+        public float recoveryMax = 0.9f;       // PostAttackDurationMax
+        public float boltSpeed = 4.25f;        // Speed 560
+        public float boltRange = 12.15f;       // Range 1600
+        public float boltLife = 5f;            // Fuse
+        public float boltRadius = 0.2f;        // Points: треугольник ±24
+        public float boltTurn = 90f;           // оценка: HOMING без MaxAdjustRate, градусов в секунду
+        public float slow = 0.7f;              // HeroOnHitStun: скорость × 0.7
+        public float slowTime = 0.2f;          // Duration
     }
 
     [Serializable]

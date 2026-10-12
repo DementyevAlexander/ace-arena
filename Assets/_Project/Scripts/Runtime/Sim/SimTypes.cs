@@ -23,7 +23,7 @@ namespace Arena.Sim
     public enum EventKind
     {
         EnemyHit, EnemyDied, EnemySpawned, EnemyAlert, PlayerHit, PlayerBlocked,
-        Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak, PlayerBurn,
+        Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak,
     }
 
     public struct SimEvent
@@ -111,6 +111,7 @@ namespace Arena.Sim
         public float HitInvuln;
         public float BuffInvuln;
         public float Haste;
+        public float Slow; // замедление от снаряда Casket (HeroOnHitStun: скорость × 0.7)
         public float Shoes;
         public float Shield;
         public float Hidden;
@@ -131,9 +132,9 @@ namespace Arena.Sim
         public bool Invulnerable => HitInvuln > 0f || BuffInvuln > 0f || Hidden > 0f;
     }
 
-    public enum EnemyKind { Ghost, Stomper }
+    public enum EnemyKind { Wastrel, Casket }
 
-    public enum AiState { Spawn, Wander, Alert, Chase, Windup, Strike, Recover, Lunge, Retreat, Wait }
+    public enum AiState { Spawn, Wander, Alert, Chase, Windup, Strike, Recover, Hide, Approach }
 
     /// <summary>Ellipse — эллипс (круг) с центром Center; Lane — полоса; Trapezoid — от Center вперёд, ширина растёт
     /// от Base до Side; Fan — сектор радиуса Forward с полууглом Angle (градусы).</summary>
@@ -193,8 +194,7 @@ namespace Arena.Sim
         public Vector2 Home;       // точка появления — вокруг неё бродит, пока не заметил (AIWanderDistance)
         public bool Aggro;
         public float React = -1f;  // задержка реакции перед агрессией (AggroReactionTime), −1 — ещё не заметил
-        public bool Attacker;      // Lubber: занял место атакующего (SurroundAI MaxAttackers)
-        public float Refresh;
+        public bool Attacker;      // Casket: сейчас атакует (MaxAttackers)
         public bool Dead;
         public float DeathT;
         public float SpawnInvuln;
@@ -215,7 +215,7 @@ namespace Arena.Sim
     public enum EffectKind
     {
         Dagger, FiveCard, WildCard, Missile, Rose, Bat, BlackHole, Cone, DashHit, FireTrail, Cloud, Tether, AegisShield,
-        Barrel, EnemyFire, // бочка Lubber и огонь после неё
+        EnemyBolt, // самонаводящийся снаряд Casket
     }
 
     /// <summary>Чем нанесён удар: главная карта, её улучшение и собственный эффект.</summary>

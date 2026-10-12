@@ -32,9 +32,9 @@ namespace Arena.Tests
             // ставим призрака и топотуна рядом с Ace и даём начать замах — проверяем обозначения
             var p = gc.Sim.Player.Pos;
             foreach (var e in gc.Sim.Enemies) e.Pos = p + new Vector2(6f, 5f);
-            var g = gc.Sim.SpawnEnemy(EnemyKind.Ghost, p + new Vector2(0f, 2.4f));
+            var g = gc.Sim.SpawnEnemy(EnemyKind.Wastrel, p + new Vector2(0f, 2.4f));
             g.State = AiState.Chase; g.Cd = 0f;
-            var st = gc.Sim.SpawnEnemy(EnemyKind.Stomper, p + new Vector2(1.5f, -0.5f));
+            var st = gc.Sim.SpawnEnemy(EnemyKind.Casket, p + new Vector2(1.5f, -0.5f));
             st.State = AiState.Chase; st.Cd = 0f;
             gc.Sim.Player.BuffInvuln = 5f;
             // ждём по игровому времени: в batch-режиме кадры медленные, а шаг кадра в симуляции ограничен

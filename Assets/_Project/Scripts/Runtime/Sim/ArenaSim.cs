@@ -9,8 +9,8 @@ namespace Arena.Sim
     public sealed partial class ArenaSim
     {
         public readonly PlayerTuning PlayerCfg;
-        public readonly GhostTuning GhostCfg;
-        public readonly StomperTuning StomperCfg;
+        public readonly WastrelTuning WastrelCfg;
+        public readonly CasketTuning CasketCfg;
         public readonly ArenaTuning ArenaCfg;
         /// <summary>Арена из Hades II; null — классическая прямоугольная комната 20×14 с четырьмя колоннами.</summary>
         public readonly ArenaLayout Layout;
@@ -32,13 +32,13 @@ namespace Arena.Sim
         int nextId = 1;
         readonly System.Random rng;
 
-        public ArenaSim(int seed = 1, PlayerTuning player = null, GhostTuning ghost = null, StomperTuning stomper = null, ArenaTuning arena = null,
+        public ArenaSim(int seed = 1, PlayerTuning player = null, WastrelTuning wastrel = null, CasketTuning casket = null, ArenaTuning arena = null,
             ArenaLayout layout = null)
         {
             rng = new System.Random(seed);
             PlayerCfg = player ?? new PlayerTuning();
-            GhostCfg = ghost ?? new GhostTuning();
-            StomperCfg = stomper ?? new StomperTuning();
+            WastrelCfg = wastrel ?? new WastrelTuning();
+            CasketCfg = casket ?? new CasketTuning();
             ArenaCfg = arena ?? new ArenaTuning();
             Layout = layout;
             SetDefaultDeck();
@@ -63,7 +63,7 @@ namespace Arena.Sim
             p.Pos = Layout != null ? Layout.playerStart : new Vector2(0f, -3.5f);
             p.Face = Layout != null && p.Pos.sqrMagnitude > 0.01f ? -p.Pos.normalized : new Vector2(0f, 1f); // лицом к центру комнаты
             p.Aim = p.Face;
-            p.Hp = PlayerCfg.hp; p.HitInvuln = p.BuffInvuln = p.Haste = p.Shoes = p.Shield = p.Hidden = 0f;
+            p.Hp = PlayerCfg.hp; p.HitInvuln = p.BuffInvuln = p.Haste = p.Slow = p.Shoes = p.Shield = p.Hidden = 0f;
             p.Cast = null; p.Buffer = -1; p.Lock = null; p.Dashing = false; p.KnockT = 0f; p.ShoeTrail = null;
             foreach (var s in Slots) s.Reset();
             Enemies.Clear(); Effects.Clear(); Events.Clear();
@@ -84,7 +84,6 @@ namespace Arena.Sim
             for (int i = 0; i < Enemies.Count; i++) UpdateEnemy(Enemies[i], dt);
             Separate();
             UpdateEffects(dt);
-            UpdateBurn(dt);
             Enemies.RemoveAll(e => e.Dead && e.DeathT <= 0f);
             Effects.RemoveAll(f => f.Done);
             if (WavesEnabled) UpdateWaves(dt);
@@ -137,7 +136,7 @@ namespace Arena.Sim
         void UpdatePlayer(float dt, SimInput input)
         {
             var p = Player;
-            p.HitInvuln -= dt; p.BuffInvuln -= dt; p.Haste -= dt; p.Shoes -= dt;
+            p.HitInvuln -= dt; p.BuffInvuln -= dt; p.Haste -= dt; p.Slow -= dt; p.Shoes -= dt;
             if (p.Hidden > 0f)
             {
                 p.Hidden -= dt;
@@ -186,7 +185,7 @@ namespace Arena.Sim
             {
                 // Hades: скорость сразу полная, наклон стика её не меняет
                 var dir = input.Move.normalized;
-                float speed = PlayerCfg.speed * (p.Haste > 0f ? 1.5f : 1f);
+                float speed = PlayerCfg.speed * (p.Haste > 0f ? 1.5f : 1f) * (p.Slow > 0f ? CasketCfg.slow : 1f);
                 p.Pos += dir * (speed * dt);
                 p.Moving = true;
                 if (p.Lock == null || !p.Lock.Alive) p.Face = dir;
@@ -419,9 +418,9 @@ namespace Arena.Sim
             if (waveTimer > 0f) return;
             waveTimer = ArenaCfg.waveDelay;
             Wave++;
-            int stompers = Mathf.Min(1 + Wave, 6), ghosts = Mathf.Min(Wave, 4);
-            for (int i = 0; i < stompers; i++) SpawnEnemy(EnemyKind.Stomper, RandomSpawn(), i * 0.15f);
-            for (int i = 0; i < ghosts; i++) SpawnEnemy(EnemyKind.Ghost, RandomSpawn(), 0.3f + i * 0.15f);
+            int caskets = Mathf.Min(1 + Wave, 6), wastrels = Mathf.Min(Wave, 4);
+            for (int i = 0; i < caskets; i++) SpawnEnemy(EnemyKind.Casket, RandomSpawn(), i * 0.15f);
+            for (int i = 0; i < wastrels; i++) SpawnEnemy(EnemyKind.Wastrel, RandomSpawn(), 0.3f + i * 0.15f);
             Events.Add(new SimEvent { Kind = EventKind.WaveStart, Value = Wave });
         }
 
@@ -462,10 +461,10 @@ namespace Arena.Sim
             var e = new Enemy
             {
                 Id = nextId++, Kind = kind, Pos = pos, Home = pos, State = AiState.Spawn, T = ArenaCfg.spawnTime + delay,
-                R = kind == EnemyKind.Ghost ? GhostCfg.radius : StomperCfg.radius,
+                R = kind == EnemyKind.Wastrel ? WastrelCfg.radius : CasketCfg.radius,
                 Cd = Rand(0.3f, 1f),
             };
-            e.MaxHp = e.Hp = kind == EnemyKind.Ghost ? GhostCfg.hp : StomperCfg.hp;
+            e.MaxHp = e.Hp = kind == EnemyKind.Wastrel ? WastrelCfg.hp : CasketCfg.hp;
             Enemies.Add(e);
             Events.Add(new SimEvent { Kind = EventKind.EnemySpawned, Pos = pos, Enemy = e });
             return e;
