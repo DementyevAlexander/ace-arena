@@ -64,6 +64,22 @@ namespace Arena.View
             if (Sim.Layout != null) hud.ShowBanner(Sim.Layout.title, 2f);
         }
 
+        /// <summary>Проверка билда без участия человека: -arenaShot &lt;файл.png&gt; — взять первую карточку, через 6 с сохранить
+        /// кадр (с интерфейсом) и выйти.</summary>
+        System.Collections.IEnumerator Start()
+        {
+            var args = System.Environment.GetCommandLineArgs();
+            string shot = null;
+            for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "-arenaShot") shot = args[i + 1];
+            if (shot == null) yield break;
+            yield return new WaitForSecondsRealtime(1.5f);
+            if (Sim.RewardPending) Sim.TakeOffer(0, Sim.Offers[0].Form == FormKind.Dash ? ArenaSim.DashSlot : 1);
+            yield return new WaitForSecondsRealtime(6f);
+            ScreenCapture.CaptureScreenshot(shot);
+            yield return new WaitForSecondsRealtime(1f);
+            Application.Quit();
+        }
+
         void SetupCamera(bool night)
         {
             var cam = Camera.main;
@@ -158,9 +174,12 @@ namespace Arena.View
                 if (viewSkills) viewSkills = false;
                 else if (!Sim.RewardPending) pauseMenu = !pauseMenu;
             }
-            if (input.RestartPressed || (Sim.GameOver && wasGameOver && input.PausePressed)) Restart();
+            else if (viewSkills && input.NavBack) viewSkills = false; // B — закрыть просмотр
+            else if (pauseMenu && input.NavBack) pauseMenu = false;   // B — продолжить
+            // заново: R; с геймпада — Y в паузе, Menu после смерти
+            if (input.RestartPressed || (pauseMenu && input.NavAlt) || (Sim.GameOver && wasGameOver && input.PausePressed)) Restart();
             bool wasPaused = Paused;
-            reward.Sync(viewSkills);
+            reward.Sync(viewSkills, input);
             Paused = pauseMenu || reward.Visible;
             if (wasPaused && !Paused) input.Flush(); // клик по карточке не должен стать выстрелом
 
@@ -183,7 +202,7 @@ namespace Arena.View
                         HandleEvents();
                     }
                 SimMs = (float)watch.Elapsed.TotalMilliseconds;
-                if (Sim.GameOver && !wasGameOver) hud.ShowBanner("Смерть повержена — R, чтобы начать заново", 999f);
+                if (Sim.GameOver && !wasGameOver) hud.ShowBanner(input.UseMouse ? "Смерть повержена — R, чтобы начать заново" : "Смерть повержена — Menu, чтобы начать заново", 999f);
                 wasGameOver = Sim.GameOver;
             }
 
@@ -194,7 +213,7 @@ namespace Arena.View
             watch.Restart();
             using (HudMarker.Auto()) hud.Sync(Sim, Rig.Cam, input.UseMouse, dt, Paused);
             HudMs = (float)watch.Elapsed.TotalMilliseconds;
-            if (pauseMenu) hud.ShowBanner("Пауза", 0.1f);
+            if (pauseMenu) hud.ShowBanner(input.UseMouse ? "Пауза · Esc — продолжить · R — заново" : "Пауза · Menu или B — продолжить · Y — заново", 0.1f);
         }
 
         void Restart()

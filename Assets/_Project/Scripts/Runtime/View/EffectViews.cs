@@ -89,9 +89,9 @@ namespace Arena.View
             }
             fl.Go.transform.position = at;
             fl.Go.transform.localScale = from;
+            if (kind == 2) color = new Color(color.r * 2.5f, color.g * 2.5f, color.b * 2.5f, color.a); // сфера светится (bloom)
             fl.Color = color; fl.Life = life; fl.T = 0f; fl.From = from; fl.To = to;
             fl.Mat.SetColor("_BaseColor", color);
-            if (kind == 2) fl.Mat.SetColor("_EmissionColor", color * 2f);
             flashes.Add(fl);
         }
 

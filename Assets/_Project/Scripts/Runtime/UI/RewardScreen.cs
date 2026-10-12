@@ -9,7 +9,8 @@ namespace Arena.UI
 {
     /// <summary>Выбор карточки (после каждой второй волны) и просмотр скиллов (Tab). Сверху — три карточки «форма + свойство»,
     /// снизу — четыре слота. Выбрал карточку — у каждого слота две кнопки: поставить её в слот (прежняя карта пропадёт)
-    /// или влить её душу — свойство перейдёт к карте слота, форма останется от неё.</summary>
+    /// или влить её душу — свойство перейдёт к карте слота, форма останется от неё.
+    /// Геймпад: стик или крестовина — выбор, A — взять карточку, затем на слоте A — поставить, Y — влить душу, B — назад.</summary>
     public sealed class RewardScreen
     {
         static readonly string[] Keys = { "ЛКМ / X", "ПКМ / Y", "Q / B", "Space / A" };
@@ -22,6 +23,12 @@ namespace Arena.UI
         int selected = -1;
         string hoverText;
         bool viewOnly;
+        // геймпад: ряд (0 — карточки, 1 — слоты), что в фокусе; первые 0.35 с нажатия не принимаются — чтобы рывок,
+        // зажатый в бою, не выбрал карточку случайно
+        int row, focusOffer, focusSlot;
+        bool pad;
+        float openedAt;
+        const float InputDelay = 0.35f;
 
         public bool Visible => canvas.enabled;
 
@@ -41,20 +48,68 @@ namespace Arena.UI
         }
 
         /// <summary>Показывает выбор, пока он не сделан; Tab — просмотр скиллов без выбора.</summary>
-        public void Sync(bool viewRequested)
+        public void Sync(bool viewRequested, InputReader input)
         {
             bool want = sim.RewardPending || viewRequested;
-            if (want != canvas.enabled) { canvas.enabled = want; selected = -1; hoverText = null; }
+            if (want != canvas.enabled)
+            {
+                canvas.enabled = want; selected = -1; hoverText = null;
+                row = 0; focusOffer = 0; focusSlot = 0; openedAt = Time.unscaledTime;
+            }
             if (!want) return;
             viewOnly = !sim.RewardPending;
+            pad = !input.UseMouse;
             if (selected >= sim.Offers.Count) selected = -1;
+            if (Time.unscaledTime - openedAt >= InputDelay)
+            {
+                if (!viewOnly) Navigate(input);
+                else if (input.NavX != 0) focusSlot = Mathf.Clamp(focusSlot + input.NavX, 0, 3);
+            }
             title.text = viewOnly ? "Скиллы" : sim.Rewards == 0 ? "Первая душа" : "Души павших";
             sub.text = viewOnly
-                ? "Tab или Esc — вернуться в бой"
-                : "Выбери карточку, затем слот: «Поставить» — карточка займёт слот, «Влить душу» — её свойство перейдёт к карте слота";
-            for (int i = 0; i < 3; i++) offers[i].Sync(viewOnly || i >= sim.Offers.Count ? null : sim.Offers[i], i == selected);
-            for (int i = 0; i < 4; i++) slots[i].Sync();
-            info.text = hoverText ?? (viewOnly ? "" : selected < 0 ? "Наведи на карточку, чтобы прочитать её" : "Наведи на кнопку слота — увидишь, что получится");
+                ? (pad ? "B или View — вернуться в бой" : "Tab или Esc — вернуться в бой")
+                : pad
+                    ? "Стик — выбор · A — взять карточку · на слоте: A — поставить, Y — влить душу · B — назад к карточкам"
+                    : "Выбери карточку, затем слот: «Поставить» — карточка займёт слот, «Влить душу» — её свойство перейдёт к карте слота";
+            for (int i = 0; i < 3; i++)
+                offers[i].Sync(viewOnly || i >= sim.Offers.Count ? null : sim.Offers[i], i == selected, pad && row == 0 && i == focusOffer);
+            for (int i = 0; i < 4; i++) slots[i].Sync(pad && (row == 1 || viewOnly) && i == focusSlot);
+            info.text = pad && !viewOnly ? PadInfo() : hoverText ?? (viewOnly ? "" : selected < 0 ? "Наведи на карточку, чтобы прочитать её" : "Наведи на кнопку слота — увидишь, что получится");
+        }
+
+        void Navigate(InputReader input)
+        {
+            int n = sim.Offers.Count;
+            if (n == 0) return;
+            focusOffer = Mathf.Clamp(focusOffer, 0, n - 1);
+            if (row == 0)
+            {
+                if (input.NavX != 0) focusOffer = Mathf.Clamp(focusOffer + input.NavX, 0, n - 1);
+                if (input.NavConfirm || input.NavY < 0) { selected = focusOffer; row = 1; focusSlot = BestSlot(selected); }
+                return;
+            }
+            if (input.NavX != 0) focusSlot = Mathf.Clamp(focusSlot + input.NavX, 0, 3);
+            if (input.NavBack || input.NavY > 0) { row = 0; return; }
+            if (input.NavConfirm) Take(focusSlot);
+            else if (input.NavAlt) Fuse(focusSlot);
+        }
+
+        /// <summary>С какого слота начать: рывок — Space; иначе пустой подходящий слот, иначе первый, куда можно влить душу.</summary>
+        int BestSlot(int offer)
+        {
+            for (int i = 0; i < 4; i++) if (sim.CanTake(offer, i) && sim.Forms[i].Card == null) return i;
+            for (int i = 0; i < 4; i++) if (sim.CanFuse(offer, i)) return i;
+            for (int i = 0; i < 4; i++) if (sim.CanTake(offer, i)) return i;
+            return 0;
+        }
+
+        string PadInfo()
+        {
+            if (row == 0)
+                return focusOffer < sim.Offers.Count ? $"A — взять «{sim.Offers[focusOffer].Name}»" : "";
+            var s = slots[focusSlot];
+            string take = s.TakePreview(), fuse = s.FusePreview();
+            return $"<b>A</b> — {take}\n<b>Y</b> — {fuse}";
         }
 
         void Select(int i) { if (!viewOnly && i < sim.Offers.Count) selected = selected == i ? -1 : i; }
@@ -123,12 +178,13 @@ namespace Arena.UI
                 btn.onClick.AddListener(() => screen.Select(index));
             }
 
-            public void Sync(SkillCard c, bool selected)
+            public void Sync(SkillCard c, bool selected, bool focused)
             {
                 root.gameObject.SetActive(c != null);
                 if (c == null) return;
                 var col = Art.CardTint(c);
-                frame.color = selected ? Color.white : col * 0.75f;
+                float pulse = 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 8f);
+                frame.color = selected ? Color.white : focused ? Color.Lerp(col, Color.white, 0.6f) * pulse + new Color(0f, 0f, 0f, 1f) : col * 0.75f;
                 header.color = col;
                 name.text = c.Name;
                 glyph.text = FormText.Glyph(c.Form);
@@ -168,7 +224,7 @@ namespace Arena.UI
                 Hover(fuse.gameObject, () => screen.hoverText = FusePreview(), () => screen.hoverText = null);
             }
 
-            string TakePreview()
+            public string TakePreview()
             {
                 var sim = screen.sim;
                 int o = screen.selected;
@@ -178,7 +234,7 @@ namespace Arena.UI
                 return cur == null ? $"«{sim.Offers[o].Name}» займёт пустой слот" : $"«{sim.Offers[o].Name}» заменит «{cur.Name}» — её души пропадут";
             }
 
-            string FusePreview()
+            public string FusePreview()
             {
                 var sim = screen.sim;
                 int o = screen.selected;
@@ -191,11 +247,14 @@ namespace Arena.UI
                 return $"{FormText.Name(cur.Form)} получит <color=#{Hex(Art.TraitColor(t))}><b>{FormText.Name(t)}{(lvl > 1 ? $" ×{lvl}" : "")}</b></color> — {FormText.Cell(t, cur.Form)}";
             }
 
-            public void Sync()
+            public void Sync(bool focused)
             {
                 var sim = screen.sim;
                 var card = sim.Forms[index].Card;
-                frame.color = Art.CardTint(card) * (card != null ? 0.7f : 0.25f);
+                float pulse = 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 8f);
+                frame.color = focused ? new Color(pulse, pulse, pulse, 1f) : Art.CardTint(card) * (card != null ? 0.7f : 0.25f);
+                takeText.text = screen.pad ? "Поставить (A)" : "Поставить";
+                fuseText.text = screen.pad ? "Влить душу (Y)" : "Влить душу";
                 name.text = card == null ? "— пусто —" : FormText.Name(card.Form);
                 body.text = card == null ? (index == DashSlotIndex ? "Сюда — только рывок." : "Сюда можно поставить снаряд, зону, призыв или барьер.")
                     : CardText(card) + $"\n\nДуши: {card.Souls.Count} / {SkillCard.SoulCells}";
