@@ -89,7 +89,7 @@ namespace Arena.Sim
         /// <summary>Контроль срывает замах: обозначение исчезает, удар не наступает.</summary>
         void InterruptAttack(Enemy e)
         {
-            if (e.State is AiState.Windup or AiState.Strike or AiState.Lunge)
+            if (e.State is AiState.Windup or AiState.Strike)
             {
                 e.Tele = null;
                 e.State = AiState.Chase;
@@ -168,6 +168,16 @@ namespace Arena.Sim
                 if (e.Alive && (e.Pos - center).magnitude <= radius + e.R) HitEnemy(e, src);
             }
             Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = center, Radius = radius, Color = color });
+        }
+
+        /// <summary>Ожог от огня: без неуязвимости после удара, отброса и прерывания каста; щит не спасает.</summary>
+        public void BurnPlayer(float dmg)
+        {
+            var p = Player;
+            if (GameOver || p.BuffInvuln > 0f || p.Hidden > 0f) return;
+            p.Hp -= dmg;
+            Events.Add(new SimEvent { Kind = EventKind.PlayerBurn, Pos = p.Pos, Value = dmg });
+            if (p.Hp <= 0f) { p.Hp = 0f; GameOver = true; }
         }
 
         /// <summary>Удар по Ace. Возвращает true, если урон прошёл.</summary>

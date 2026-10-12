@@ -141,6 +141,17 @@ namespace Arena.View
             return m;
         });
 
+        /// <summary>Трапеция на полу: от z = 0 (полуширина r) до z = 1 (полуширина 1), UV как у полосы.</summary>
+        public static Mesh FloorTrapezoid(float r) => Cached($"trap{r:0.00}", () =>
+        {
+            var m = new Mesh { name = "FloorTrapezoid" };
+            m.vertices = new[] { new Vector3(-r, 0, 0), new Vector3(-1, 0, 1), new Vector3(1, 0, 1), new Vector3(r, 0, 0) };
+            m.uv = new[] { new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0) };
+            m.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+            m.RecalculateNormals(); m.RecalculateBounds();
+            return m;
+        });
+
         /// <summary>Сектор на полу радиуса 1 с полууглом half (градусы), вершина в центре, ось — +Z.</summary>
         public static Mesh FloorFan(float half) => Cached($"fan{half}", () =>
         {
@@ -160,6 +171,62 @@ namespace Arena.View
             m.RecalculateNormals(); m.RecalculateBounds();
             return m;
         });
+
+        /// <summary>Многоугольник препятствия арены (x, z против часовой стрелки), поднятый на высоту h: стенки и крыша.
+        /// Не кэшируется — у каждого препятствия своя форма. Многоугольник может быть невыпуклым.</summary>
+        public static Mesh Extrude(IReadOnlyList<Vector2> poly, float h, bool sides = true, bool top = true)
+        {
+            var v = new List<Vector3>();
+            var t = new List<int>();
+            void Tri(Vector3 a, Vector3 b, Vector3 c) { int i = v.Count; v.Add(a); v.Add(b); v.Add(c); t.Add(i); t.Add(i + 1); t.Add(i + 2); }
+            if (sides)
+                for (int i = 0; i < poly.Count; i++)
+                {
+                    var a = poly[i]; var b = poly[(i + 1) % poly.Count];
+                    Vector3 a0 = new(a.x, 0f, a.y), b0 = new(b.x, 0f, b.y), a1 = a0 + Vector3.up * h, b1 = b0 + Vector3.up * h;
+                    // снаружи ребро a→b идёт слева направо: по часовой — a0, a1, b1, b0
+                    Tri(a0, a1, b1); Tri(a0, b1, b0);
+                }
+            if (top)
+                foreach (var (a, b, c) in Triangulate(poly))
+                    Tri(new Vector3(a.x, h, a.y), new Vector3(c.x, h, c.y), new Vector3(b.x, h, b.y)); // сверху — по часовой
+            var m = new Mesh { name = "Extrude", indexFormat = v.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16 };
+            m.SetVertices(v); m.SetTriangles(t, 0);
+            m.RecalculateNormals(); m.RecalculateBounds();
+            return m;
+        }
+
+        /// <summary>Разбиение многоугольника (против часовой стрелки) на треугольники отсечением ушей.</summary>
+        static IEnumerable<(Vector2, Vector2, Vector2)> Triangulate(IReadOnlyList<Vector2> poly)
+        {
+            var idx = new List<int>();
+            for (int i = 0; i < poly.Count; i++) idx.Add(i);
+            static float Cross(Vector2 o, Vector2 a, Vector2 b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+            int guard = 0;
+            while (idx.Count > 3 && guard++ < 4 * poly.Count)
+            {
+                bool cut = false;
+                for (int k = 0; k < idx.Count; k++)
+                {
+                    Vector2 a = poly[idx[(k + idx.Count - 1) % idx.Count]], b = poly[idx[k]], c = poly[idx[(k + 1) % idx.Count]];
+                    if (Cross(a, b, c) <= 0f) continue; // вогнутый угол
+                    bool empty = true;
+                    foreach (int j in idx)
+                    {
+                        var p = poly[j];
+                        if (p == a || p == b || p == c) continue;
+                        if (Cross(a, b, p) >= 0f && Cross(b, c, p) >= 0f && Cross(c, a, p) >= 0f) { empty = false; break; }
+                    }
+                    if (!empty) continue;
+                    yield return (a, b, c);
+                    idx.RemoveAt(k);
+                    cut = true;
+                    break;
+                }
+                if (!cut) break; // самопересечение — остаток веером
+            }
+            for (int k = 1; k + 1 < idx.Count; k++) yield return (poly[idx[0]], poly[idx[k]], poly[idx[k + 1]]);
+        }
 
         /// <summary>Треугольник-крыло (для мыши Dio и стрелки прицела).</summary>
         public static Mesh Wedge() => Cached("wedge", () =>

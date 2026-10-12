@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Arena.Core;
 using Arena.Sim;
 using Arena.UI;
 using UnityEngine;
@@ -31,11 +32,13 @@ namespace Arena.View
         void Awake()
         {
             Application.targetFrameRate = 120;
-            Sim = new ArenaSim(System.Environment.TickCount);
+            // подключённая арена — Resources/Arenas/index.json (active); без неё — классическая комната
+            Sim = new ArenaSim(System.Environment.TickCount, layout: ArenaCatalog.LoadActive());
             world = new GameObject("World").transform;
-            SetupCamera();
-            SetupLight();
-            SetupVolume();
+            bool night = Sim.Layout != null; // арены Hades — ночной город, классическая комната — дневная поляна
+            SetupCamera(night);
+            SetupLight(night);
+            SetupVolume(night);
             RoomView.Build(Sim).SetParent(world, false);
             player = new PlayerView(world);
             effects = new EffectViews(world);
@@ -44,9 +47,10 @@ namespace Arena.View
             hud = new Hud();
             deck = new DeckScreen(Sim);
             Rig.Snap(Art.W(Sim.Player.Pos));
+            if (Sim.Layout != null) hud.ShowBanner(Sim.Layout.title, 2f);
         }
 
-        void SetupCamera()
+        void SetupCamera(bool night)
         {
             var cam = Camera.main;
             if (cam == null)
@@ -55,16 +59,32 @@ namespace Arena.View
                 cam = go.AddComponent<Camera>();
             }
             Rig = new CameraRig(cam);
+            if (night) cam.backgroundColor = Art.Night.Sky;
             var data = cam.GetUniversalAdditionalCameraData();
             data.renderPostProcessing = true;
             data.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
         }
 
-        static void SetupLight()
+        static void SetupLight(bool night)
         {
             var sun = FindFirstObjectByType<Light>();
             if (sun == null) sun = new GameObject("Sun").AddComponent<Light>();
             sun.type = LightType.Directional;
+            if (night)
+            {
+                // Луна: холодный слабый свет, тени мягкие. Основной свет — тёплые жаровни комнаты (RoomView).
+                sun.color = new Color(0.55f, 0.6f, 0.9f);
+                sun.intensity = 0.42f;
+                sun.shadows = LightShadows.Soft;
+                sun.shadowStrength = 0.8f;
+                sun.transform.rotation = Quaternion.Euler(58f, -30f, 0f);
+                RenderSettings.ambientMode = AmbientMode.Trilight;
+                RenderSettings.ambientSkyColor = new Color(0.20f, 0.17f, 0.27f);
+                RenderSettings.ambientEquatorColor = new Color(0.15f, 0.11f, 0.13f);
+                RenderSettings.ambientGroundColor = new Color(0.06f, 0.05f, 0.06f);
+                RenderSettings.fog = false;
+                return;
+            }
             sun.color = new Color(1f, 0.93f, 0.82f);
             sun.intensity = 1.35f;
             sun.shadows = LightShadows.Soft;
@@ -78,7 +98,7 @@ namespace Arena.View
             RenderSettings.fog = false;
         }
 
-        void SetupVolume()
+        void SetupVolume(bool night)
         {
             var go = new GameObject("PostFX");
             var vol = go.AddComponent<Volume>();
@@ -89,10 +109,20 @@ namespace Arena.View
             var tone = profile.Add<Tonemapping>(true);
             tone.mode.Override(TonemappingMode.Neutral);
             var color = profile.Add<ColorAdjustments>(true);
-            color.saturation.Override(12f); color.contrast.Override(6f); color.postExposure.Override(0.15f);
-            color.colorFilter.Override(new Color(1f, 0.98f, 0.95f));
+            if (night)
+            {
+                bloom.intensity.Override(1.1f); bloom.threshold.Override(0.85f);
+                color.saturation.Override(4f); color.contrast.Override(16f); color.postExposure.Override(0.5f);
+                color.colorFilter.Override(new Color(1f, 0.93f, 0.92f));
+            }
+            else
+            {
+                color.saturation.Override(12f); color.contrast.Override(6f); color.postExposure.Override(0.15f);
+                color.colorFilter.Override(new Color(1f, 0.98f, 0.95f));
+            }
             var vig = profile.Add<Vignette>(true);
-            vig.intensity.Override(0.22f); vig.smoothness.Override(0.5f);
+            vig.intensity.Override(night ? 0.4f : 0.22f); vig.smoothness.Override(0.5f);
+            if (night) vig.color.Override(new Color(0.08f, 0.0f, 0.04f));
             // Лёгкий tilt-shift: дальний план размыт, игровая площадка — в фокусе
             var dof = profile.Add<DepthOfField>(true);
             dof.mode.Override(DepthOfFieldMode.Gaussian);
@@ -131,7 +161,7 @@ namespace Arena.View
                     first = false;
                     HandleEvents();
                 }
-                if (Sim.GameOver && !wasGameOver) hud.ShowBanner("Ace повержен — R, чтобы начать заново", 999f);
+                if (Sim.GameOver && !wasGameOver) hud.ShowBanner("Смерть повержена — R, чтобы начать заново", 999f);
                 wasGameOver = Sim.GameOver;
             }
 
@@ -192,6 +222,9 @@ namespace Arena.View
                         Rig.Shake(0.25f);
                         hud.HurtFlash();
                         effects.Puff(ev.Pos, 0.9f, new Color(1f, 0.3f, 0.3f), 0.2f);
+                        break;
+                    case EventKind.PlayerBurn:
+                        hud.Number(ev.Pos, ev.Value, false, new Color(1f, 0.55f, 0.2f));
                         break;
                     case EventKind.PlayerBlocked:
                         effects.Ring(ev.Pos, 1f, new Color(1f, 0.9f, 0.4f, 0.9f));

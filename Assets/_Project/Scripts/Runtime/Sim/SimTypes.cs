@@ -23,7 +23,7 @@ namespace Arena.Sim
     public enum EventKind
     {
         EnemyHit, EnemyDied, EnemySpawned, EnemyAlert, PlayerHit, PlayerBlocked,
-        Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak,
+        Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak, PlayerBurn,
     }
 
     public struct SimEvent
@@ -89,7 +89,8 @@ namespace Arena.Sim
         }
     }
 
-    public enum CastPhase { Casting, Hold, Recovery }
+    /// <summary>Charge — кнопка зажата, идёт прицеливание (удар по отпусканию); Casting — замах; Recovery — восстановление.</summary>
+    public enum CastPhase { Charge, Casting, Recovery }
 
     public sealed class Cast
     {
@@ -132,9 +133,11 @@ namespace Arena.Sim
 
     public enum EnemyKind { Ghost, Stomper }
 
-    public enum AiState { Spawn, Wander, Alert, Chase, Windup, Strike, Recover, Lunge }
+    public enum AiState { Spawn, Wander, Alert, Chase, Windup, Strike, Recover, Lunge, Retreat, Wait }
 
-    public enum TeleShape { Ellipse, Lane }
+    /// <summary>Ellipse — эллипс (круг) с центром Center; Lane — полоса; Trapezoid — от Center вперёд, ширина растёт
+    /// от Base до Side; Fan — сектор радиуса Forward с полууглом Angle (градусы).</summary>
+    public enum TeleShape { Ellipse, Lane, Trapezoid, Fan }
 
     /// <summary>Обозначение будущей атаки на земле. Заполняется от 0 до 1 к моменту удара; удар бьёт ровно эту фигуру.</summary>
     public sealed class Telegraph
@@ -143,7 +146,9 @@ namespace Arena.Sim
         public Vector2 Center;
         public Vector2 Dir;
         public float Forward; // эллипс: полуось вдоль Dir; полоса: длина
-        public float Side;    // эллипс: полуось поперёк; полоса: полуширина
+        public float Side;    // эллипс: полуось поперёк; полоса: полуширина; трапеция: полуширина на конце
+        public float Base;    // трапеция: полуширина у начала
+        public float Angle;   // сектор: полуугол, градусы
         public float Total;
         public float T;
 
@@ -157,6 +162,19 @@ namespace Arena.Sim
             {
                 float a = Forward + pad, b = Side + pad;
                 return f * f / (a * a) + s * s / (b * b) <= 1f;
+            }
+            if (Shape == TeleShape.Trapezoid)
+            {
+                float half = Mathf.Lerp(Base, Side, Mathf.Clamp01(f / Mathf.Max(Forward, 0.001f)));
+                return f >= -pad && f <= Forward + pad && Mathf.Abs(s) <= half + pad;
+            }
+            if (Shape == TeleShape.Fan)
+            {
+                float r = d.magnitude;
+                if (r > Forward + pad) return false;
+                if (r <= pad) return true;
+                // запас по краю сектора — на ширину тела
+                return Vector2.Angle(Dir, d) <= Angle + Mathf.Rad2Deg * Mathf.Asin(Mathf.Clamp01(pad / r));
             }
             return f >= -pad && f <= Forward + pad && Mathf.Abs(s) <= Side + pad;
         }
@@ -172,6 +190,11 @@ namespace Arena.Sim
         public AiState State;
         public float T, Cd, Lost, Alert;
         public int Strike;
+        public Vector2 Home;       // точка появления — вокруг неё бродит, пока не заметил (AIWanderDistance)
+        public bool Aggro;
+        public float React = -1f;  // задержка реакции перед агрессией (AggroReactionTime), −1 — ещё не заметил
+        public bool Attacker;      // Lubber: занял место атакующего (SurroundAI MaxAttackers)
+        public float Refresh;
         public bool Dead;
         public float DeathT;
         public float SpawnInvuln;
@@ -192,6 +215,7 @@ namespace Arena.Sim
     public enum EffectKind
     {
         Dagger, FiveCard, WildCard, Missile, Rose, Bat, BlackHole, Cone, DashHit, FireTrail, Cloud, Tether, AegisShield,
+        Barrel, EnemyFire, // бочка Lubber и огонь после неё
     }
 
     /// <summary>Чем нанесён удар: главная карта, её улучшение и собственный эффект.</summary>
@@ -214,7 +238,7 @@ namespace Arena.Sim
     {
         public int Id;
         public EffectKind Kind;
-        public Vector2 Pos, Dir, Start;
+        public Vector2 Pos, Dir, Start, To;
         public float Speed, Life, Age, R, T, Hold, Tick;
         public int Phase;
         public bool Done;

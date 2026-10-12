@@ -25,16 +25,23 @@ namespace Arena.Sim
             StartCast(i, input);
         }
 
-        void ReleaseSlot(int i, SimInput input)
-        {
-            var c = Player.Cast;
-            if (c != null && c.Slot == i && c.Phase == CastPhase.Hold) FireHold(input);
-        }
+        // Отпускание обрабатывает UpdateCast: заряд ждёт, пока кнопка не будет отпущена (FireOnRelease).
+        void ReleaseSlot(int i, SimInput input) { }
 
+        /// <summary>Hades II, WeaponStaffBall (Спецатака): прицельная карта по нажатию начинает заряд, Смерть стоит
+        /// (BlockMoveInput), прицел следует за мышью/стиком, удар — по отпусканию (FireOnRelease) в направлении на момент
+        /// отпускания (SetCompleteAngleOnFire). Короткое нажатие всё равно заряжается MinCharge = 0.1 с
+        /// (MinChargeToFire, LockTriggerForMinCharge). Карты без прицела (синие рывки, баффы на себя) срабатывают
+        /// по нажатию, как рывок (WeaponBlink) и Каст в Hades.</summary>
         void StartCast(int i, SimInput input)
         {
             var card = Slots[i].Card;
-            Player.Cast = new Cast { Slot = i, Phase = CastPhase.Casting, T = card.Casting, Dir = AimFor(card, input) };
+            bool charge = ChargesOnHold(card);
+            Player.Cast = new Cast
+            {
+                Slot = i, Phase = charge ? CastPhase.Charge : CastPhase.Casting, T = charge ? 0f : card.Casting,
+                Dir = AimFor(card, input),
+            };
             Player.Buffer = -1;
             Player.Aim = Player.Cast.Dir;
         }
@@ -47,31 +54,28 @@ namespace Arena.Sim
             var s = Slots[c.Slot];
             var card = s.Card;
             if (card == null) { p.Cast = null; return; }
-            // Hades: пока кнопка держится, запрос обновляется каждый кадр — можно доворачивать во время замаха и удержания
+            // Hades: пока кнопка держится, запрос обновляется каждый кадр — можно доворачивать во время заряда и замаха
             if (c.Phase != CastPhase.Recovery)
             {
                 c.Dir = AimFor(card, input);
                 p.Aim = c.Dir;
                 if (card.Aims) p.Face = c.Dir;
             }
+            if (c.Phase == CastPhase.Charge)
+            {
+                c.Hold += dt;
+                // Crescendo Fireworks (удержание из DandyAce): сила растёт до HoldTime, на максимуме срывается сама
+                bool released = !input.IsHeld(c.Slot) && c.Hold >= PlayerCfg.minCharge;
+                bool maxed = card.HoldTime > 0f && c.Hold >= PlayerCfg.minCharge + card.HoldTime;
+                if (released || maxed) { c.Phase = CastPhase.Casting; c.T = card.Casting; }
+                return;
+            }
             c.T -= dt;
             if (c.Phase == CastPhase.Casting && c.T <= 0f)
             {
-                if (card.HoldTime > 0f)
-                {
-                    c.Phase = CastPhase.Hold; c.Hold = 0f;
-                    if (!input.IsHeld(c.Slot)) FireHold(input);
-                }
-                else
-                {
-                    Fire(c.Slot, c.Dir, 0f);
-                    if (p.Cast == c) { c.Phase = CastPhase.Recovery; c.T = card.Recovery; }
-                }
-            }
-            else if (c.Phase == CastPhase.Hold)
-            {
-                c.Hold += dt;
-                if (c.Hold >= card.HoldTime || !input.IsHeld(c.Slot)) FireHold(input);
+                float hold = card.HoldTime > 0f ? Mathf.Clamp01((c.Hold - PlayerCfg.minCharge) / card.HoldTime) : 0f;
+                Fire(c.Slot, c.Dir, hold);
+                if (p.Cast == c) { c.Phase = CastPhase.Recovery; c.T = card.Recovery; }
             }
             else if (c.Phase == CastPhase.Recovery && c.T <= 0f)
             {
@@ -82,14 +86,6 @@ namespace Arena.Sim
                     if (Slots[b].Ready) StartCast(b, input);
                 }
             }
-        }
-
-        void FireHold(SimInput input)
-        {
-            var c = Player.Cast;
-            var card = Slots[c.Slot].Card;
-            Fire(c.Slot, c.Dir, Mathf.Clamp01(c.Hold / card.HoldTime));
-            c.Phase = CastPhase.Recovery; c.T = card.Recovery;
         }
 
         void ConsumeCharge(Slot s)

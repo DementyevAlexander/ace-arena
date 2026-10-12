@@ -3,40 +3,58 @@ using UnityEngine;
 
 namespace Arena.View
 {
-    /// <summary>Ace-фокусник: плащ, голова, цилиндр. Под ним — стрелка прицела (направление следующего удара).</summary>
+    /// <summary>Смерть: тёмный балахон с капюшоном, бледная маска-череп, светящиеся глаза, коса.
+    /// Под ней — стрелка прицела (направление следующего удара).</summary>
     public sealed class PlayerView
     {
         public readonly Transform Root;
-        readonly Transform body, model, aim, shield;
+        readonly Transform body, model, aim, shield, aimLine;
         readonly Renderer[] renderers;
         readonly Material aimMat;
         float bob;
 
         public PlayerView(Transform parent)
         {
-            Root = new GameObject("Ace").transform;
+            Root = new GameObject("Death").transform;
             Root.SetParent(parent, false);
             model = new GameObject("Model").transform;
             model.SetParent(Root, false);
             body = new GameObject("Body").transform;
             body.SetParent(model, false);
-            var cape = Art.LitMat(new Color(0.36f, 0.18f, 0.62f));
-            var skin = Art.LitMat(new Color(0.98f, 0.85f, 0.76f));
-            var hat = Art.LitMat(new Color(0.16f, 0.09f, 0.22f));
-            var gold = Art.LitMat(new Color(0.95f, 0.78f, 0.32f));
-            Art.Part(body, MeshKit.Prism(7, 0.45f), cape, Vector3.zero, new Vector3(0.75f, 0.85f, 0.7f));
-            Art.Part(body, MeshKit.Prism(7, 0.9f), Art.LitMat(new Color(0.95f, 0.93f, 0.9f)), new Vector3(0f, 0.55f, 0.06f), new Vector3(0.36f, 0.3f, 0.3f));
-            Art.Part(body, MeshKit.Ico(1), skin, new Vector3(0f, 1.05f, 0f), Vector3.one * 0.48f);
-            Art.Part(body, MeshKit.Ico(0), skin, new Vector3(0f, 1.0f, 0.24f), Vector3.one * 0.1f); // нос — показывает взгляд
-            Art.Part(body, MeshKit.Prism(8), hat, new Vector3(0f, 1.24f, 0f), new Vector3(0.62f, 0.05f, 0.62f));
-            Art.Part(body, MeshKit.Prism(8), hat, new Vector3(0f, 1.27f, 0f), new Vector3(0.36f, 0.42f, 0.36f));
-            Art.Part(body, MeshKit.Prism(8), Art.LitMat(Art.Pink), new Vector3(0f, 1.32f, 0f), new Vector3(0.38f, 0.07f, 0.38f));
-            Art.Part(body, MeshKit.Prism(5), gold, new Vector3(0.28f, 0.2f, 0.18f), new Vector3(0.06f, 0.6f, 0.06f), new Vector3(10f, 0f, -12f)); // трость
+            var robe = Art.LitMat(new Color(0.11f, 0.09f, 0.14f));
+            var robeEdge = Art.LitMat(new Color(0.24f, 0.10f, 0.16f));
+            var bone = Art.LitMat(new Color(0.86f, 0.83f, 0.76f));
+            var eyes = Art.LitMat(Art.Night.Soul, 4f);
+            var shaft = Art.LitMat(new Color(0.20f, 0.15f, 0.13f));
+            var blade = Art.LitMat(new Color(0.72f, 0.78f, 0.82f), 0.35f);
+            // балахон: широкий низ, рваный подол, плечи
+            Art.Part(body, MeshKit.Prism(9, 0.38f), robe, Vector3.zero, new Vector3(0.82f, 1.05f, 0.78f));
+            Art.Part(body, MeshKit.Prism(9, 1.1f, false), robeEdge, new Vector3(0f, 0.02f, 0f), new Vector3(0.86f, 0.12f, 0.82f));
+            Art.Part(body, MeshKit.Ico(0, 0.15f, 3), robe, new Vector3(0f, 0.95f, -0.02f), new Vector3(0.62f, 0.32f, 0.5f));
+            // капюшон и маска-череп внутри
+            Art.Part(body, MeshKit.Ico(1, 0.1f, 5), robe, new Vector3(0f, 1.2f, -0.04f), new Vector3(0.5f, 0.56f, 0.52f));
+            Art.Part(body, MeshKit.Prism(6, 0f), robe, new Vector3(0f, 1.38f, -0.12f), new Vector3(0.3f, 0.3f, 0.3f), new Vector3(-35f, 0f, 0f)); // острый верх
+            Art.Part(body, MeshKit.Ico(1), bone, new Vector3(0f, 1.15f, 0.12f), new Vector3(0.3f, 0.34f, 0.26f));
+            Art.Part(body, MeshKit.Ico(0), eyes, new Vector3(-0.065f, 1.19f, 0.245f), Vector3.one * 0.07f, default, false);
+            Art.Part(body, MeshKit.Ico(0), eyes, new Vector3(0.065f, 1.19f, 0.245f), Vector3.one * 0.07f, default, false);
+            // костяная кисть и коса
+            Art.Part(body, MeshKit.Ico(0), bone, new Vector3(0.3f, 0.62f, 0.2f), Vector3.one * 0.11f);
+            Art.Part(body, MeshKit.Prism(5), shaft, new Vector3(0.3f, -0.05f, 0.2f), new Vector3(0.06f, 1.75f, 0.06f), new Vector3(0f, 0f, -6f));
+            Art.Part(body, MeshKit.Box(), blade, new Vector3(0.12f, 1.62f, 0.26f), new Vector3(0.62f, 0.07f, 0.03f), new Vector3(0f, 20f, 18f));
+            Art.Part(body, MeshKit.Box(), blade, new Vector3(-0.2f, 1.5f, 0.32f), new Vector3(0.22f, 0.05f, 0.03f), new Vector3(0f, 20f, -25f));
+            // холодный ореол вокруг героини, как у Мелинои в Hades: Смерть читается на тёмной улице
+            var halo = new GameObject("Halo").AddComponent<Light>();
+            halo.transform.SetParent(Root, false);
+            halo.transform.localPosition = new Vector3(0f, 1.6f, 0f);
+            halo.type = LightType.Point; halo.color = new Color(0.55f, 0.9f, 0.88f); halo.range = 4f; halo.intensity = 1.6f; halo.shadows = LightShadows.None;
             renderers = Root.GetComponentsInChildren<Renderer>();
 
             aimMat = Art.DecalInstance(new Color(1f, 1f, 1f, 0.55f), -1, 5);
             aim = Art.Decal(Root, MeshKit.Wedge(), aimMat, 0.04f).transform;
             aim.localScale = new Vector3(0.35f, 0.2f, 0.45f);
+            // линия прицела при зажатии (ShowFreeAimLine у WeaponStaffBall; появляется, когда набран минимальный заряд)
+            aimLine = Art.Decal(Root, MeshKit.FloorLane(), Art.DecalInstance(new Color(0.55f, 0.95f, 0.9f, 0.55f), -1, 4), 0.035f).transform;
+            aimLine.gameObject.SetActive(false);
 
             var shieldGo = Art.Part(Root, MeshKit.Ico(1), Art.LitMat(new Color(1f, 0.9f, 0.3f, 0.3f), 1.2f, true), new Vector3(0f, 0.7f, 0f), Vector3.one * 1.8f, default, false);
             shield = shieldGo.transform;
@@ -53,7 +71,7 @@ namespace Arena.View
             model.rotation = Quaternion.Slerp(model.rotation, Quaternion.LookRotation(new Vector3(face.x, 0f, face.y)), Mathf.Clamp01(dt * 30f));
             bob += dt * (p.Moving ? 14f : 3f);
             float squash = p.Cast != null && p.Cast.Phase != CastPhase.Recovery ? 0.08f : 0f;
-            if (p.Cast != null && p.Cast.Phase == CastPhase.Hold) squash = 0.06f + 0.1f * Mathf.Sin(time * 30f) * 0.3f;
+            if (p.Cast != null && p.Cast.Phase == CastPhase.Charge) squash = 0.06f + 0.1f * Mathf.Sin(time * 30f) * 0.3f;
             body.localPosition = new Vector3(0f, p.Moving ? Mathf.Abs(Mathf.Sin(bob)) * 0.08f : 0f, 0f);
             body.localScale = new Vector3(1f + squash, 1f - squash, 1f + squash);
             body.localEulerAngles = new Vector3(p.Moving ? 8f : 0f, 0f, 0f);
@@ -65,6 +83,16 @@ namespace Arena.View
             aim.localPosition = new Vector3(a.x * 0.85f, 0.04f, a.y * 0.85f);
             aim.rotation = Quaternion.LookRotation(new Vector3(a.x, 0f, a.y));
             aimMat.SetColor("_BaseColor", p.Cast != null ? new Color(1f, 0.95f, 0.5f, 0.9f) : new Color(1f, 1f, 1f, 0.55f));
+            bool charging = !hidden && p.Cast != null && p.Cast.Phase == CastPhase.Charge && p.Cast.Hold >= sim.PlayerCfg.minCharge;
+            aimLine.gameObject.SetActive(charging);
+            if (charging)
+            {
+                // длина — дальность автолока карты: докуда она ищет цель
+                float len = Mathf.Clamp(sim.Slots[p.Cast.Slot].Card.LockRange, 2f, 9f);
+                aimLine.localPosition = new Vector3(a.x * 0.5f, Art.FloorTop + 0.035f, a.y * 0.5f);
+                aimLine.rotation = Quaternion.LookRotation(new Vector3(a.x, 0f, a.y));
+                aimLine.localScale = new Vector3(0.1f, 1f, len - 0.5f);
+            }
             shield.gameObject.SetActive(p.Shield > 0f);
             shield.localScale = Vector3.one * (1.8f + Mathf.Sin(time * 12f) * 0.05f);
         }
@@ -188,7 +216,7 @@ namespace Arena.View
             float hop = e.Kind == EnemyKind.Stomper && (e.State is AiState.Chase or AiState.Wander) && e.Moved > 0.001f ? Mathf.Abs(Mathf.Sin(t * 16f)) * 0.08f : 0f;
             body.localPosition = new Vector3(0f, hover + hop, 0f);
             body.localScale = Vector3.one * scale;
-            if (e.State == AiState.Strike || e.State == AiState.Lunge) body.localEulerAngles = new Vector3(20f, 0f, 0f);
+            if (e.State == AiState.Strike) body.localEulerAngles = new Vector3(20f, 0f, 0f);
             else if (e.Stun > 0f) body.localEulerAngles = new Vector3(0f, 0f, Mathf.Sin(t * 20f) * 8f);
             else body.localEulerAngles = Vector3.zero;
             if (legL != null)
@@ -266,11 +294,17 @@ namespace Arena.View
             if (shape != t.Shape)
             {
                 shape = t.Shape;
-                bool lane = shape == TeleShape.Lane;
-                var quad = lane ? MeshKit.FloorLane() : MeshKit.FloorQuad();
-                outline.GetComponent<MeshFilter>().sharedMesh = quad;
-                fill.GetComponent<MeshFilter>().sharedMesh = quad;
-                edge.GetComponent<MeshFilter>().sharedMesh = quad;
+                bool lane = shape is TeleShape.Lane or TeleShape.Trapezoid;
+                var mesh = shape switch
+                {
+                    TeleShape.Lane => MeshKit.FloorLane(),
+                    TeleShape.Trapezoid => MeshKit.FloorTrapezoid(Mathf.Clamp01(t.Base / Mathf.Max(t.Side, 0.001f))),
+                    TeleShape.Fan => MeshKit.FloorFan(Mathf.Round(t.Angle)),
+                    _ => MeshKit.FloorQuad(),
+                };
+                outline.GetComponent<MeshFilter>().sharedMesh = mesh;
+                fill.GetComponent<MeshFilter>().sharedMesh = mesh;
+                edge.GetComponent<MeshFilter>().sharedMesh = mesh;
                 outlineMat.SetTexture("_BaseMap", lane ? Art.Rect() : Art.Ring());
                 fillMat.SetTexture("_BaseMap", lane ? null : Art.Disc());
                 edgeMat.SetTexture("_BaseMap", lane ? null : Art.Disc());
@@ -284,6 +318,18 @@ namespace Arena.View
                 outline.localScale = full;
                 edge.localScale = full;
                 fill.localScale = new Vector3(full.x * k, 1f, full.z * k);
+            }
+            else if (t.Shape == TeleShape.Trapezoid)
+            {
+                outline.localScale = new Vector3(t.Side, 1f, t.Forward);
+                edge.localScale = outline.localScale;
+                fill.localScale = new Vector3(t.Side, 1f, t.Forward * k);
+            }
+            else if (t.Shape == TeleShape.Fan)
+            {
+                outline.localScale = Vector3.one * t.Forward;
+                edge.localScale = outline.localScale;
+                fill.localScale = Vector3.one * (t.Forward * k);
             }
             else
             {
@@ -308,6 +354,31 @@ namespace Arena.View
         {
             var cam = Camera.main;
             if (cam != null) transform.rotation = cam.transform.rotation;
+        }
+    }
+
+    /// <summary>Мерцание огня жаровни: яркость света и размер пламени дрожат.</summary>
+    public sealed class Flicker : MonoBehaviour
+    {
+        public Transform Flame;
+        public float Seed;
+        Light lt;
+        float baseIntensity;
+        Vector3 baseScale;
+
+        void Start()
+        {
+            lt = GetComponent<Light>();
+            baseIntensity = lt != null ? lt.intensity : 0f;
+            if (Flame != null) baseScale = Flame.localScale;
+        }
+
+        void Update()
+        {
+            float t = Time.time * 7f + Seed;
+            float k = 0.85f + 0.15f * Mathf.PerlinNoise(t, Seed) + 0.05f * Mathf.Sin(t * 3.1f);
+            if (lt != null) lt.intensity = baseIntensity * k;
+            if (Flame != null) Flame.localScale = new Vector3(baseScale.x, baseScale.y * (0.8f + 0.4f * Mathf.PerlinNoise(Seed, t)), baseScale.z);
         }
     }
 }

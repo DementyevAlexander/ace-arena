@@ -15,6 +15,30 @@ namespace Arena.View
         public static readonly Color Foliage = new(0.30f, 0.62f, 0.52f);
         public static readonly Color FoliageWarm = new(0.95f, 0.62f, 0.32f);
         public static readonly Color Trunk = new(0.52f, 0.38f, 0.30f);
+        /// <summary>Ночной город в духе Hades: тёмный камень, тусклая штукатурка, бордовые крыши, тёплый огонь жаровен.</summary>
+        public static class Night
+        {
+            public static readonly Color Sky = new(0.035f, 0.025f, 0.045f);
+            public static readonly Color Ground = new(0.075f, 0.065f, 0.075f);
+            public static readonly Color[] Flags = { new(0.30f, 0.27f, 0.28f), new(0.23f, 0.21f, 0.23f), new(0.35f, 0.30f, 0.28f), new(0.31f, 0.22f, 0.22f) };
+            public static readonly Color Plinth = new(0.16f, 0.14f, 0.16f);
+            public static readonly Color Plaster = new(0.42f, 0.36f, 0.34f);
+            public static readonly Color PlasterDark = new(0.30f, 0.26f, 0.27f);
+            public static readonly Color Roof = new(0.38f, 0.14f, 0.13f);
+            public static readonly Color RoofDark = new(0.24f, 0.10f, 0.12f);
+            public static readonly Color Masonry = new(0.36f, 0.33f, 0.34f);
+            public static readonly Color Marble = new(0.62f, 0.58f, 0.57f);
+            public static readonly Color Wood = new(0.30f, 0.20f, 0.15f);
+            public static readonly Color Terracotta = new(0.55f, 0.27f, 0.18f);
+            public static readonly Color DeadWood = new(0.18f, 0.14f, 0.14f);
+            public static readonly Color Abyss = new(0.03f, 0.015f, 0.05f);
+            public static readonly Color AbyssGlow = new(0.35f, 0.12f, 0.55f);
+            public static readonly Color Fire = new(1f, 0.52f, 0.18f);
+            public static readonly Color Window = new(1f, 0.62f, 0.28f);
+            public static readonly Color Iron = new(0.13f, 0.12f, 0.13f);
+            public static readonly Color Soul = new(0.35f, 0.95f, 0.85f);
+        }
+
         public static readonly Color Pink = new(0.96f, 0.04f, 0.95f);
         public static readonly Color Yellow = new(0.96f, 0.85f, 0.04f);
         public static readonly Color Blue = new(0.04f, 0.84f, 0.96f);

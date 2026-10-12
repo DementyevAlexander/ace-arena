@@ -1,3 +1,4 @@
+using Arena.Core;
 using UnityEngine;
 
 namespace Arena.Sim
@@ -54,6 +55,9 @@ namespace Arena.Sim
                         f.Pos = Player.Pos;
                         if (Player.Shield <= 0f) f.Done = true;
                         break;
+                    case EffectKind.Barrel:
+                        UpdateBarrel(f, dt);
+                        break;
                     default:
                         f.Life -= dt;
                         if (f.Life <= 0f) f.Done = true;
@@ -62,11 +66,48 @@ namespace Arena.Sim
             }
         }
 
+        float burnTimer;
+        int burnTicks;
+
+        /// <summary>Бочка Lubber: летит по дуге (LOB) в точку броска, сквозь всё (CheckObstacleImpact = false).
+        /// Взрыв бьёт Смерть в DamageRadius и оглушает других врагов на 1 с (EnemyFriendStun), на месте остаётся огонь.</summary>
+        void UpdateBarrel(Effect f, float dt)
+        {
+            f.T -= dt;
+            f.Pos = Vector2.Lerp(f.Start, f.To, 1f - Mathf.Clamp01(f.T / Mathf.Max(f.Life, 0.0001f)));
+            if (f.T > 0f) return;
+            f.Done = true;
+            var c = StomperCfg;
+            if ((Player.Pos - f.To).magnitude <= f.R + PlayerCfg.radius) HurtPlayer(f.Damage, f.To);
+            foreach (var e in Enemies)
+                if (e.Alive && (e.Pos - f.To).magnitude <= f.R + e.R) ApplyCc(e, CcKind.Stun, 1f);
+            Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = f.To, Radius = f.R, Color = 3 });
+            Add(new Effect { Kind = EffectKind.EnemyFire, Pos = f.To, Life = c.fireLife, R = c.fireRadius });
+        }
+
+        /// <summary>Огонь Lubber (ZombieHRFire) ранит только Смерть (NonPlayerMultiplier 0). Тик раз в Fuse 0.2 с,
+        /// урон растёт, пока стоишь в огне: n-й тик подряд — ⌊0.5·n⌋ (DamagePerConsecutiveHit, RoundDamageDown) в единицах
+        /// Hades, переведённых в наш урон множителем 59 / 15. Вышла из огня — счёт сначала.</summary>
+        void UpdateBurn(float dt)
+        {
+            var c = StomperCfg;
+            burnTimer -= dt;
+            if (burnTimer > 0f) return;
+            burnTimer = c.fireTick;
+            bool inFire = false;
+            foreach (var f in Effects)
+                if (!f.Done && f.Kind == EffectKind.EnemyFire && (Player.Pos - f.Pos).magnitude <= f.R + PlayerCfg.radius * 0.5f) { inFire = true; break; }
+            if (!inFire || Player.Hidden > 0f) { burnTicks = 0; return; }
+            burnTicks++;
+            float dmg = Mathf.Floor(c.fireRamp * burnTicks) * (c.damage / c.hadesTossDamage);
+            if (dmg > 0f) BurnPlayer(dmg);
+        }
+
         void Fly(Effect f, float dt, bool pierce)
         {
             f.Life -= dt;
             f.Pos += f.Dir * (f.Speed * dt);
-            if (f.Life <= 0f || !InsideRoom(f.Pos, 0f) || HitsObstacle(f.Pos, f.R * 0.5f)) { f.Done = true; return; }
+            if (f.Life <= 0f || !InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R * 0.5f)) { f.Done = true; return; }
             foreach (var e in Enemies)
             {
                 if (!e.Alive || e == f.Exclude || f.Hit.Contains(e)) continue;
@@ -81,7 +122,7 @@ namespace Arena.Sim
         {
             f.Life -= dt;
             f.Pos += f.Dir * (f.Speed * dt);
-            bool boom = f.Life <= 0f || !InsideRoom(f.Pos, 0.2f) || HitsObstacle(f.Pos, f.R);
+            bool boom = f.Life <= 0f || !InsideRoom(f.Pos, 0.2f) || BlocksShot(f.Pos, f.R);
             foreach (var e in Enemies) if (e.Alive && (e.Pos - f.Pos).magnitude < f.R + e.R) boom = true;
             if (!boom) return;
             // Чем дольше держали, тем больше взрыв (оценка радиуса: 0.9…1.5)

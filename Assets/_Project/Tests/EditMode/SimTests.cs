@@ -137,7 +137,8 @@ namespace Arena.Tests
             var s = T.NewSim();
             s.SwapPlaces(0, 9); // Poisonous Roses из запаса в слот 1
             Assert.AreEqual(CardId.Roses, s.Slots[0].Main);
-            for (int i = 0; i < 3; i++) { T.Press(s, 0); T.Run(s, 0.15f); }
+            // бросок по отпусканию: минимальный заряд 0.1 с + замах + восстановление ≈ 0.23 с (Hades II, WeaponStaffBall)
+            for (int i = 0; i < 3; i++) { T.Press(s, 0); T.Run(s, 0.25f); }
             Assert.AreEqual(0, s.Slots[0].Charges);
             T.Run(s, 0.4f);
             Assert.AreEqual(1, s.Slots[0].Charges, "первый заряд — через 0.75 с после первого броска");
@@ -171,6 +172,7 @@ namespace Arena.Tests
         }
     }
 
+    /// <summary>Призрак ведёт себя как Wastrel (Brawler) из Hades II: комбо выпад-трапеция → дуга.</summary>
     public class GhostTests
     {
         static (ArenaSim, Enemy) Setup()
@@ -182,27 +184,30 @@ namespace Arena.Tests
         }
 
         [Test]
-        public void StandingInZoneGetsHit()
+        public void FirstHitIsLungeTrapezoidThenArc()
         {
             var (s, g) = Setup();
             T.Run(s, 0.05f);
             Assert.AreEqual(AiState.Windup, g.State);
+            Assert.AreEqual(TeleShape.Trapezoid, g.Tele.Shape);
             Assert.IsTrue(g.Tele.Contains(s.Player.Pos, s.PlayerCfg.radius));
-            T.Run(s, 0.65f);
-            Assert.AreEqual(500f - 50f, s.Player.Hp, 0.01f);
+            T.Run(s, 1.15f + 0.25f);
+            Assert.AreEqual(500f - 50f, s.Player.Hp, 0.01f, "удар 1 после замаха 1.15 с");
+            T.Run(s, 0.2f); // FireDuration 0.4 с, PostAttackDuration 0
+            Assert.AreEqual(2, g.Strike);
+            Assert.AreEqual(TeleShape.Fan, g.Tele.Shape, "сразу за ним — дуга BrawlerMeleeClose");
         }
 
         [Test]
-        public void ReactingImmediatelyEscapesFromZoneCenter()
+        public void SidestepDuringWindupEscapes()
         {
             var (s, g) = Setup();
-            s.Step(T.Dt, default); // замах начался в этом шаге
+            s.Step(T.Dt, default);
             Assert.AreEqual(AiState.Windup, g.State);
-            var center = g.Tele.Center;
-            s.Player.Pos = center; // самый неудобный случай — центр зоны
-            T.Run(s, 0.2f);        // реакция 0.2 с
-            T.Run(s, 0.5f, new SimInput { Move = Vector2.right });
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f, "успел выйти из зоны до удара");
+            T.Run(s, 0.3f);
+            T.Run(s, 0.8f, new SimInput { Move = Vector2.right });
+            T.Run(s, 0.3f);
+            Assert.AreEqual(500f, s.Player.Hp, 0.01f, "трапеция не следит за целью — шаг в сторону спасает");
         }
 
         [Test]
@@ -212,7 +217,7 @@ namespace Arena.Tests
             T.Run(s, 0.3f);
             Assert.AreEqual(CardId.JumpScare, s.Slots[3].Main);
             T.Press(s, 3, Vector2.right);
-            T.Run(s, 0.4f);
+            T.Run(s, 1.1f);
             Assert.AreEqual(500f, s.Player.Hp, 0.01f);
             Assert.Greater(s.Player.Pos.x, 3f);
         }
@@ -222,42 +227,109 @@ namespace Arena.Tests
         {
             var (s, g) = Setup();
             T.Run(s, 0.2f);
-            s.ApplyCc(g, CcKind.Stun, 1f);
+            s.ApplyCc(g, CcKind.Stun, 2f);
             Assert.IsNull(g.Tele);
-            T.Run(s, 0.6f);
+            T.Run(s, 1.5f);
             Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+        }
+
+        [Test]
+        public void WandersUntilPlayerComesNear()
+        {
+            var s = T.NewSim();
+            var g = T.Spawn(s, EnemyKind.Ghost, new Vector2(0f, 7f), AiState.Wander);
+            T.Run(s, 2f);
+            Assert.IsFalse(g.Aggro, "дальше AIAggroRange 4.55 — бродит");
+            Assert.Less((g.Pos - new Vector2(0f, 7f)).magnitude, 2.2f, "бродит вокруг точки появления");
+            s.Player.Pos = g.Pos + new Vector2(0f, -3f);
+            T.Run(s, 0.25f);
+            Assert.IsTrue(g.Aggro, "заметил с задержкой реакции 0.05–0.2 с");
         }
     }
 
+    /// <summary>Топотун ведёт себя как Lubber (ZombieHeavyRanged) из Hades II: бочка по области, огонь, отход, толчок.</summary>
     public class StomperTests
     {
         [Test]
-        public void NoticesChasesTelegraphsAndLunges()
+        public void TossLandsWhereDeathStoodAndLeavesFire()
         {
             var s = T.NewSim();
-            var e = T.Spawn(s, EnemyKind.Stomper, new Vector2(0f, 3.5f), AiState.Wander);
-            e.T = 5f; e.Dir = Vector2.zero;
+            var e = T.Spawn(s, EnemyKind.Stomper, new Vector2(0f, 5f));
             s.Step(T.Dt, default);
-            Assert.AreEqual(AiState.Alert, e.State);
-            T.Run(s, 0.5f);
-            Assert.AreEqual(AiState.Chase, e.State);
-            for (int i = 0; i < 300 && e.State != AiState.Windup; i++) s.Step(T.Dt, default);
             Assert.AreEqual(AiState.Windup, e.State);
-            Assert.AreEqual(TeleShape.Lane, e.Tele.Shape);
-            T.Run(s, 0.9f);
+            Assert.AreEqual(1, e.Strike, "дальше 2.66 — бросок");
+            Assert.AreEqual(TeleShape.Ellipse, e.Tele.Shape);
+            T.Run(s, 2.265f + 0.05f);
+            Assert.IsTrue(s.Effects.Exists(f => f.Kind == EffectKind.Barrel), "бочка брошена после замаха 2.1 + 0.165 с");
+            T.Run(s, 0.75f);
+            Assert.AreEqual(500f - 59f, s.Player.Hp, 0.01f);
+            Assert.IsTrue(s.Effects.Exists(f => f.Kind == EffectKind.EnemyFire && f.Pos.magnitude < 0.1f), "огонь там, где стояла Смерть");
+        }
+
+        [Test]
+        public void DodgingAfterThrowAvoidsBarrel()
+        {
+            var s = T.NewSim();
+            var e = T.Spawn(s, EnemyKind.Stomper, new Vector2(0f, 5f));
+            T.Run(s, 2.265f + 0.05f);
+            Assert.IsTrue(s.Effects.Exists(f => f.Kind == EffectKind.Barrel));
+            T.Press(s, 3, Vector2.right); // Jump Scare на 4 юнита
+            T.Run(s, 1f);
+            Assert.AreEqual(500f, s.Player.Hp, 0.01f, "бочка летит в точку броска, без упреждения");
+        }
+
+        [Test]
+        public void FireBurnsMoreTheLongerYouStand()
+        {
+            var s = T.NewSim();
+            var e = T.Spawn(s, EnemyKind.Stomper, new Vector2(0f, 5f));
+            T.Run(s, 3.1f);
+            float afterBlast = s.Player.Hp;
+            Assert.AreEqual(441f, afterBlast, 0.01f);
+            e.Stun = 99f; // чтобы следующий бросок не мешал
+            T.Run(s, 0.6f);
+            float first = afterBlast - s.Player.Hp;
+            T.Run(s, 0.6f);
+            float second = afterBlast - first - s.Player.Hp;
+            Assert.Greater(first, 0f);
+            Assert.Greater(second, first, "DamagePerConsecutiveHit: урон тиков растёт");
+        }
+
+        [Test]
+        public void ShovesWhenClose()
+        {
+            var s = T.NewSim();
+            var e = T.Spawn(s, EnemyKind.Stomper, new Vector2(0f, 1.5f));
+            s.Step(T.Dt, default);
+            Assert.AreEqual(2, e.Strike, "ближе 2.66 — толчок");
+            Assert.AreEqual(TeleShape.Trapezoid, e.Tele.Shape);
+            T.Run(s, 1.15f);
             Assert.AreEqual(500f - 59f, s.Player.Hp, 0.01f);
         }
 
         [Test]
-        public void SidestepDodgesTheLunge()
+        public void RetreatsAfterToss()
         {
             var s = T.NewSim();
-            var e = T.Spawn(s, EnemyKind.Stomper, new Vector2(0f, 1.6f));
-            s.Step(T.Dt, default);
-            Assert.AreEqual(AiState.Windup, e.State);
-            T.Run(s, 0.25f);
-            T.Run(s, 0.6f, new SimInput { Move = Vector2.right });
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+            var e = T.Spawn(s, EnemyKind.Stomper, new Vector2(0f, 5f));
+            s.Player.BuffInvuln = 99f;
+            T.Run(s, 2.265f + 1.75f + 0.1f);
+            Assert.AreEqual(AiState.Retreat, e.State);
+            float d0 = e.Pos.magnitude;
+            T.Run(s, 1f);
+            Assert.Greater(e.Pos.magnitude, d0 + 1f, "отходит от Смерти");
+        }
+
+        [Test]
+        public void AtMostThreeAttackAtOnce()
+        {
+            var s = T.NewSim();
+            for (int i = 0; i < 5; i++) T.Spawn(s, EnemyKind.Stomper, new Vector2(-6f + 3f * i, 6.5f));
+            T.Run(s, 0.5f);
+            int attackers = s.Enemies.FindAll(e => e.Attacker).Count;
+            int waiting = s.Enemies.FindAll(e => e.State == AiState.Wait).Count;
+            Assert.AreEqual(3, attackers);
+            Assert.AreEqual(2, waiting);
         }
     }
 }
