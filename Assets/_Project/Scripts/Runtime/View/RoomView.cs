@@ -131,6 +131,8 @@ namespace Arena.View
                 var size = w.Max - w.Min;
                 float rad = Mathf.Max(size.x, size.y) * 0.5f;
                 bool front = InFrontOfFloor(a, c2);
+                // как в Hades: за краем площадки — тишина; предметы дальше 3 юнитов от пола не рисуются
+                if (w.kind is not ("wall" or "gap") && FloorDistance(a, c2, 4f, out _) > 3f) continue;
                 switch (w.kind)
                 {
                     case "wall": // невидимая стена Hades — цоколь квартала
@@ -206,8 +208,8 @@ namespace Arena.View
             {
                 var p = new Vector2(x + 0.5f, z + 0.5f);
                 if (IsFloor(a, p) || InGap(a, p)) continue;
-                float d = FloorDistance(a, p, 6f, out var dir);
-                if (d > 5.5f) continue;
+                float d = FloorDistance(a, p, 3f, out var dir);
+                if (d > 1.6f) continue; // только ряд вдоль улицы
                 cand.Add((p, dir, d));
             }
             cand.Sort((u, v) => u.dist.CompareTo(v.dist));
@@ -218,7 +220,7 @@ namespace Arena.View
             var dark = Art.LitMat(new Color(0.05f, 0.04f, 0.05f));
             foreach (var (p, dir, dist) in cand)
             {
-                if (taken.Contains(Cell(p))) continue;
+                if (taken.Contains(Cell(p)) || rnd.NextDouble() < 0.35) continue; // с просветами, не сплошной стеной
                 bool front = InFrontOfFloor(a, p);
                 if (front && dist > 1.6f) continue; // перед площадкой высокое ставить нельзя
                 // фасад смотрит на ближайший пол; дом — прямоугольник по осям, отодвинутый от улицы
@@ -235,7 +237,7 @@ namespace Arena.View
                     Art.Part(root, MeshKit.Box(), masonry, c3 + Vector3.up * 0.22f, new Vector3(half.x * 2f, 0.45f, half.y * 2f));
                     continue;
                 }
-                float h = dist < 1.6f ? R(1.6f, 2.6f) : R(2.2f, 3.6f);
+                float h = R(1.3f, 2.1f);
                 Art.Part(root, MeshKit.Box(), plaster[rnd.Next(2)], c3 + Vector3.up * (h * 0.5f), new Vector3(half.x * 2f, h, half.y * 2f));
                 // вальмовая крыша: пирамида из Prism(4), повёрнутая на 45° к осям
                 float rh = R(0.5f, 0.9f);
@@ -253,7 +255,7 @@ namespace Arena.View
                 for (int i = 0; i < windows; i++)
                 {
                     float off = windows == 1 ? 0f : (i == 0 ? -0.5f : 0.5f) * span;
-                    Art.Part(root, MeshKit.Box(), rnd.NextDouble() < 0.45 ? lit : dark, front3 + side * off + Vector3.up * (h * 0.72f),
+                    Art.Part(root, MeshKit.Box(), rnd.NextDouble() < 0.15 ? lit : dark, front3 + side * off + Vector3.up * (h * 0.72f),
                         Vector3.Scale(flat, new Vector3(0.32f, 0.42f, 0.32f)), default, false);
                 }
             }
@@ -268,10 +270,10 @@ namespace Arena.View
             for (int z = Mathf.FloorToInt(a.boundsMin.y) - 2; z <= Mathf.CeilToInt(a.boundsMax.y) + 2; z++)
             for (int x = Mathf.FloorToInt(a.boundsMin.x) - 2; x <= Mathf.CeilToInt(a.boundsMax.x) + 2; x++)
             {
-                if (placed.Count >= 16) return;
+                if (placed.Count >= 8) return;
                 var p = new Vector2(x + 0.5f, z + 0.5f);
                 if (IsFloor(a, p) || InGap(a, p) || FloorDistance(a, p, 2f, out _) > 1.1f) continue;
-                if (rnd.NextDouble() < 0.5 || placed.Exists(q => (q - p).sqrMagnitude < 36f)) continue;
+                if (rnd.NextDouble() < 0.5 || placed.Exists(q => (q - p).sqrMagnitude < 81f)) continue;
                 placed.Add(p);
                 var c = new Vector3(p.x, 0f, p.y);
                 Art.Part(root, MeshKit.Prism(6, 0.6f), iron, c, new Vector3(0.22f, 0.85f, 0.22f));

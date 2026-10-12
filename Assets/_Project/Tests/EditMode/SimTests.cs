@@ -12,6 +12,7 @@ namespace Arena.Tests
         public static ArenaSim NewSim()
         {
             var s = new ArenaSim(3) { WavesEnabled = false };
+            s.SetDefaultDeck(staff: false); // тесты карт — на прежней колоде
             s.Obstacles.Clear();
             s.Player.Pos = Vector2.zero;
             return s;
@@ -125,9 +126,9 @@ namespace Arena.Tests
         [Test]
         public void FifteenCardsFivePerColor()
         {
-            Assert.AreEqual(15, CardCatalog.All.Length);
+            Assert.AreEqual(19, CardCatalog.All.Length, "15 карт + 4 скилла посоха");
             foreach (CardColor c in System.Enum.GetValues(typeof(CardColor)))
-                Assert.AreEqual(5, System.Array.FindAll(CardCatalog.All, x => x.Color == c).Length, c.ToString());
+                Assert.AreEqual(c == CardColor.Staff ? 4 : 5, System.Array.FindAll(CardCatalog.All, x => x.Color == c).Length, c.ToString());
             for (int i = 0; i < CardCatalog.All.Length; i++) Assert.AreEqual(i, (int)CardCatalog.All[i].Id);
         }
 
@@ -172,6 +173,35 @@ namespace Arena.Tests
         }
     }
 
+    /// <summary>Герой и волны по Hades II.</summary>
+    public class HeroAndWaveTests
+    {
+        [Test]
+        public void InvulnerabilityNeedsAQuarterOfHpWithinSixTenths()
+        {
+            var s = T.NewSim();
+            s.HurtPlayer(50f, Vector2.up);
+            Assert.LessOrEqual(s.Player.HitInvuln, 0f, "один удар Wastrel (9 из 30 HP) неуязвимости не даёт");
+            T.Run(s, 0.3f);
+            s.HurtPlayer(39f, Vector2.up);
+            Assert.Greater(s.Player.HitInvuln, 1f, "50 + 39 за 0.6 с ≥ 15 урона Hades — 1.3 с неуязвимости");
+        }
+
+        [Test]
+        public void FirstWaveIsOneWastrelThenThreeCaskets()
+        {
+            var s = new ArenaSim(4);
+            s.SetDefaultDeck(staff: false);
+            s.Step(T.Dt, default);
+            Assert.AreEqual(1, s.Enemies.Count);
+            Assert.AreEqual(EnemyKind.Wastrel, s.Enemies[0].Kind);
+            Assert.AreEqual(AiState.Wander, s.Enemies[0].State, "первая волна стоит в комнате без появления");
+            s.Enemies[0].Dead = true; s.Enemies[0].DeathT = 0f;
+            T.Run(s, 2f);
+            Assert.AreEqual(3, s.Enemies.FindAll(e => e.Kind == EnemyKind.Casket).Count, "вторая — три Casket");
+        }
+    }
+
     /// <summary>Wastrel (Brawler) из Hades II: комбо выпад-трапеция → дуга.</summary>
     public class WastrelTests
     {
@@ -192,7 +222,7 @@ namespace Arena.Tests
             Assert.AreEqual(TeleShape.Trapezoid, g.Tele.Shape);
             Assert.IsTrue(g.Tele.Contains(s.Player.Pos, s.PlayerCfg.radius));
             T.Run(s, 1.15f + 0.25f);
-            Assert.AreEqual(500f - 50f, s.Player.Hp, 0.01f, "удар 1 после замаха 1.15 с");
+            Assert.AreEqual(s.PlayerCfg.hp - 50f, s.Player.Hp, 0.01f, "удар 1 после замаха 1.15 с");
             T.Run(s, 0.2f); // FireDuration 0.4 с, PostAttackDuration 0
             Assert.AreEqual(2, g.Strike);
             Assert.AreEqual(TeleShape.Fan, g.Tele.Shape, "сразу за ним — дуга BrawlerMeleeClose");
@@ -207,7 +237,7 @@ namespace Arena.Tests
             T.Run(s, 0.3f);
             T.Run(s, 0.8f, new SimInput { Move = Vector2.right });
             T.Run(s, 0.3f);
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f, "трапеция не следит за целью — шаг в сторону спасает");
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f, "трапеция не следит за целью — шаг в сторону спасает");
         }
 
         [Test]
@@ -218,7 +248,7 @@ namespace Arena.Tests
             Assert.AreEqual(CardId.JumpScare, s.Slots[3].Main);
             T.Press(s, 3, Vector2.right);
             T.Run(s, 1.1f);
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f);
             Assert.Greater(s.Player.Pos.x, 3f);
         }
 
@@ -230,7 +260,18 @@ namespace Arena.Tests
             s.ApplyCc(g, CcKind.Stun, 2f);
             Assert.IsNull(g.Tele);
             T.Run(s, 1.5f);
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f);
+        }
+
+        [Test]
+        public void StunnedWindupIsRetriedFromWhereHeStands()
+        {
+            var (s, g) = Setup();
+            T.Run(s, 0.3f);
+            s.ApplyCc(g, CcKind.Stun, 0.5f);
+            T.Run(s, 0.55f);
+            Assert.AreEqual(AiState.Windup, g.State, "после оглушения — снова замах удара 1, без подхода");
+            Assert.AreEqual(1, g.Strike);
         }
 
         [Test]
@@ -238,9 +279,10 @@ namespace Arena.Tests
         {
             var s = T.NewSim();
             var g = T.Spawn(s, EnemyKind.Wastrel, new Vector2(0f, 7f), AiState.Wander);
+            T.Spawn(s, EnemyKind.Wastrel, new Vector2(-9f, 6.5f), AiState.Wander); // не последний живой (иначе AggroIfLastAlive)
             T.Run(s, 2f);
             Assert.IsFalse(g.Aggro, "дальше AIAggroRange 4.55 — бродит");
-            Assert.Less((g.Pos - new Vector2(0f, 7f)).magnitude, 2.2f, "бродит вокруг точки появления");
+            Assert.Less((g.Pos - new Vector2(0f, 7f)).magnitude, 3.2f, "бродит случайным шагом от точки появления");
             s.Player.Pos = g.Pos + new Vector2(0f, -3f);
             T.Run(s, 0.25f);
             Assert.IsTrue(g.Aggro, "заметил с задержкой реакции 0.05–0.2 с");
@@ -281,8 +323,8 @@ namespace Arena.Tests
                 s.Step(T.Dt, new SimInput { Move = i < 20 ? Vector2.right : Vector2.zero });
                 if (s.Player.Slow > 0f) slowed = true;
             }
-            Assert.Less(s.Player.Hp, 500f, "самонаводящийся снаряд догнал");
-            Assert.AreEqual(0f, Mathf.Repeat(500f - s.Player.Hp, s.CasketCfg.damage), 0.01f);
+            Assert.Less(s.Player.Hp, s.PlayerCfg.hp, "самонаводящийся снаряд догнал");
+            Assert.AreEqual(0f, Mathf.Repeat(s.PlayerCfg.hp - s.Player.Hp, s.CasketCfg.damage), 0.01f);
             Assert.IsTrue(slowed, "HeroOnHitStun: замедление × 0.7 на 0.2 с");
         }
 

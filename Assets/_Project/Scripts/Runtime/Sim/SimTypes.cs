@@ -23,7 +23,7 @@ namespace Arena.Sim
     public enum EventKind
     {
         EnemyHit, EnemyDied, EnemySpawned, EnemyAlert, PlayerHit, PlayerBlocked,
-        Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak,
+        Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak, HitStop, Shake,
     }
 
     public struct SimEvent
@@ -110,8 +110,11 @@ namespace Arena.Sim
         public float Hp;
         public float HitInvuln;
         public float BuffInvuln;
+        public float DashInvuln; // рывок посоха: INVULNERABLE на время заряда и 16 кадров после
         public float Haste;
         public float Slow; // замедление от снаряда Casket (HeroOnHitStun: скорость × 0.7)
+        public float HitStun; // HeroOnHitStun от удара Wastrel: стоит и не поворачивается, атаковать может
+        public readonly System.Collections.Generic.List<Vector2> RecentDamage = new(); // (время, урон) за окно неуязвимости
         public float Shoes;
         public float Shield;
         public float Hidden;
@@ -128,8 +131,9 @@ namespace Arena.Sim
         public float KnockT;
         public float ShoeTrailT;
         public Effect ShoeTrail;
+        public readonly StaffState Staff = new();
 
-        public bool Invulnerable => HitInvuln > 0f || BuffInvuln > 0f || Hidden > 0f;
+        public bool Invulnerable => HitInvuln > 0f || BuffInvuln > 0f || DashInvuln > 0f || Hidden > 0f;
     }
 
     public enum EnemyKind { Wastrel, Casket }
@@ -195,6 +199,10 @@ namespace Arena.Sim
         public bool Aggro;
         public float React = -1f;  // задержка реакции перед агрессией (AggroReactionTime), −1 — ещё не заметил
         public bool Attacker;      // Casket: сейчас атакует (MaxAttackers)
+        public bool Retry;         // замах сорван оглушением — после него повторить с места
+        public bool SpawnAggro;    // появился волной — сразу в бой
+        public float ChaseT;       // сколько идёт к цели (тайм-аут MoveWithinRange)
+        public float Rooted;       // в круге каста: не может двигаться (ImpactSlow × 0.05 + ImpactGrip)
         public bool Dead;
         public float DeathT;
         public float SpawnInvuln;
@@ -216,6 +224,7 @@ namespace Arena.Sim
     {
         Dagger, FiveCard, WildCard, Missile, Rose, Bat, BlackHole, Cone, DashHit, FireTrail, Cloud, Tether, AegisShield,
         EnemyBolt, // самонаводящийся снаряд Casket
+        StaffWedge, StaffBall, CastCircle, // посох: хитбокс удара, снаряд спецатаки, круг каста
     }
 
     /// <summary>Чем нанесён удар: главная карта, её улучшение и собственный эффект.</summary>
@@ -251,6 +260,8 @@ namespace Arena.Sim
         public readonly List<float> PointAge = new();
         public float Damage;
         public DotKind Dot;
+        public float Stun, Back, Length; // посох: оглушение при попадании, форма трапеции
+        public HashSet<Enemy> SharedHit;  // общий список задетых на несколько хитбоксов (ExcludeSameWaveHits)
     }
 
     public sealed class Obstacle

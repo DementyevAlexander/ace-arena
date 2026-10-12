@@ -17,7 +17,7 @@ namespace Arena.Sim
 
         public readonly Player Player = new();
         public readonly Slot[] Slots = { new(), new(), new(), new() };
-        public readonly CardId?[] Reserve = new CardId?[11];
+        public readonly CardId?[] Reserve = new CardId?[15];
         public readonly List<Enemy> Enemies = new();
         public readonly List<Effect> Effects = new();
         public readonly List<Obstacle> Obstacles = new();
@@ -45,16 +45,24 @@ namespace Arena.Sim
             Restart();
         }
 
-        public void SetDefaultDeck()
+        /// <summary>По умолчанию в слотах — посох Мелинои (Атака, Спецатака, Каст, Рывок), все 15 карт — в запасе.
+        /// staff = false — прежняя колода карт (в запасе сначала 11 карт, потом посох).</summary>
+        public void SetDefaultDeck(bool staff = true)
         {
-            CardId?[] mains = { CardId.TwinDaggers, CardId.Crescendo, CardId.BlackHole, CardId.JumpScare };
-            for (int i = 0; i < 4; i++) { Slots[i].Main = mains[i]; Slots[i].Up = null; }
-            CardId[] rest =
+            CardId[] staffSet = { CardId.StaffAttack, CardId.StaffSpecial, CardId.StaffCast, CardId.StaffDash };
+            CardId[] cardMains = { CardId.TwinDaggers, CardId.Crescendo, CardId.BlackHole, CardId.JumpScare };
+            CardId[] cardRest =
             {
                 CardId.FiveOfAKind, CardId.Roses, CardId.Dio, CardId.Dazzling, CardId.Starburst, CardId.Aegis,
                 CardId.MasterfulJump, CardId.Dash, CardId.BlazingSprint, CardId.ShockingArrival, CardId.EscapeArtist,
             };
-            for (int i = 0; i < Reserve.Length; i++) Reserve[i] = i < rest.Length ? rest[i] : null;
+            var mains = staff ? staffSet : cardMains;
+            for (int i = 0; i < 4; i++) { Slots[i].Main = mains[i]; Slots[i].Up = null; Slots[i].Reset(); }
+            var rest = new System.Collections.Generic.List<CardId>();
+            if (staff) { rest.AddRange(cardMains); rest.AddRange(cardRest); }
+            else { rest.AddRange(cardRest); rest.AddRange(staffSet); }
+            for (int i = 0; i < Reserve.Length; i++) Reserve[i] = i < rest.Count ? rest[i] : null;
+            Player.Staff.Reset();
         }
 
         public void Restart()
@@ -63,15 +71,17 @@ namespace Arena.Sim
             p.Pos = Layout != null ? Layout.playerStart : new Vector2(0f, -3.5f);
             p.Face = Layout != null && p.Pos.sqrMagnitude > 0.01f ? -p.Pos.normalized : new Vector2(0f, 1f); // лицом к центру комнаты
             p.Aim = p.Face;
-            p.Hp = PlayerCfg.hp; p.HitInvuln = p.BuffInvuln = p.Haste = p.Slow = p.Shoes = p.Shield = p.Hidden = 0f;
+            p.RecentDamage.Clear();
+            p.Hp = PlayerCfg.hp; p.HitInvuln = p.BuffInvuln = p.DashInvuln = p.HitStun = p.Haste = p.Slow = p.Shoes = p.Shield = p.Hidden = 0f;
             p.Cast = null; p.Buffer = -1; p.Lock = null; p.Dashing = false; p.KnockT = 0f; p.ShoeTrail = null;
             foreach (var s in Slots) s.Reset();
+            p.Staff.Reset();
             Enemies.Clear(); Effects.Clear(); Events.Clear();
             Obstacles.Clear();
             if (Layout == null)
                 foreach (var o in new[] { new Vector2(-5.5f, 3f), new Vector2(5.5f, 3f), new Vector2(-6f, -3.5f), new Vector2(6f, -3.5f) })
                     Obstacles.Add(new Obstacle { Pos = o, R = 0.7f });
-            Wave = 0; Kills = 0; GameOver = false; Time = 0f; waveTimer = 1.2f;
+            Wave = 0; Kills = 0; GameOver = false; Time = 0f; waveTimer = 0f; pending.Clear(); spawnTimer = 0f;
         }
 
         public void Step(float dt, SimInput input)
@@ -95,6 +105,7 @@ namespace Arena.Sim
         {
             foreach (var s in Slots)
             {
+                if (IsStaff(s.Main)) continue; // кулдауны посоха ведёт ArenaSim.Staff
                 if (s.OnCd)
                 {
                     s.CdTimer -= dt;
@@ -118,7 +129,7 @@ namespace Arena.Sim
             SetPlace(a, GetPlace(b));
             SetPlace(b, va);
             foreach (var s in Slots) s.Reset();
-            Player.Cast = null; Player.Buffer = -1;
+            Player.Cast = null; Player.Buffer = -1; Player.Staff.Reset();
             Effects.RemoveAll(f => f.Kind == EffectKind.Bat);
         }
 
@@ -136,7 +147,7 @@ namespace Arena.Sim
         void UpdatePlayer(float dt, SimInput input)
         {
             var p = Player;
-            p.HitInvuln -= dt; p.BuffInvuln -= dt; p.Haste -= dt; p.Slow -= dt; p.Shoes -= dt;
+            p.HitInvuln -= dt; p.BuffInvuln -= dt; p.DashInvuln -= dt; p.HitStun -= dt; p.Haste -= dt; p.Slow -= dt; p.Shoes -= dt;
             if (p.Hidden > 0f)
             {
                 p.Hidden -= dt;
@@ -150,8 +161,11 @@ namespace Arena.Sim
                 if (p.Shield <= 0f) BreakShield();
             }
 
+            UpdateStaffTimers(dt, input);
             for (int i = 0; i < 4; i++)
             {
+                if (IsStaffSlot(i)) { if (input.IsPressed(i)) StaffPress(i, input); continue; }
+                if (S.Busy || S.Lock > 0f) { if (input.IsPressed(i)) p.Buffer = i; continue; } // посох занят — карта подождёт
                 if (input.IsPressed(i)) PressSlot(i, input);
                 if (input.IsReleased(i)) ReleaseSlot(i, input);
             }
@@ -162,8 +176,9 @@ namespace Arena.Sim
                     if (input.IsHeld(i) && !input.IsPressed(i) && Slots[i].Ready && Slots[i].Card.Spammable && !ChargesOnHold(Slots[i].Card) && Slots[i].Bat == null) { StartCast(i, input); break; }
 
             UpdateCast(dt, input);
-
             p.Moving = false;
+            UpdateStaff(dt, input);
+            p.Pos += S.Vel * dt; // отдача спецатаки
             if (p.Dashing)
             {
                 p.DashT += dt;
@@ -181,19 +196,20 @@ namespace Arena.Sim
                 p.KnockT -= dt;
                 p.Pos += p.KnockVel * dt;
             }
-            else if (p.Cast == null && input.Move.sqrMagnitude > 0.0001f)
+            else if (p.Cast == null && p.HitStun <= 0f && !StaffBlocksMove(input) && S.Move is not (StaffMove.Blink or StaffMove.Sprint) && input.Move.sqrMagnitude > 0.0001f)
             {
                 // Hades: скорость сразу полная, наклон стика её не меняет
                 var dir = input.Move.normalized;
-                float speed = PlayerCfg.speed * (p.Haste > 0f ? 1.5f : 1f) * (p.Slow > 0f ? CasketCfg.slow : 1f);
+                float speed = PlayerCfg.speed * (p.Haste > 0f ? 1.5f : 1f) * (p.Slow > 0f ? CasketCfg.slow : 1f) * StaffSpeedMul;
                 p.Pos += dir * (speed * dt);
                 p.Moving = true;
-                if (p.Lock == null || !p.Lock.Alive) p.Face = dir;
+                if ((p.Lock == null || !p.Lock.Alive) && !S.Busy && !StaffBlocksTurn) p.Face = dir;
             }
 
-            if (p.Lock != null && (!p.Lock.Alive || (p.Cast == null && input.Held == 0))) p.Lock = null;
-            if (p.Lock != null) p.Face = (p.Lock.Pos - p.Pos).normalized;
-            if (p.Cast == null) p.Aim = ComputeAimPreview(input);
+            if (p.Lock != null && (!p.Lock.Alive || (p.Cast == null && !S.Busy && input.Held == 0))) p.Lock = null;
+            if (p.Lock != null && !S.Busy && !StaffBlocksTurn && p.HitStun <= 0f) p.Face = (p.Lock.Pos - p.Pos).normalized;
+            if (S.Move is StaffMove.Swing or StaffMove.DashStrike or StaffMove.OmegaAttack or StaffMove.Special) p.Aim = S.Dir;
+            else if (p.Cast == null) p.Aim = ComputeAimPreview(input);
 
             CollideCircle(ref p.Pos, PlayerCfg.radius, before);
             UpdateShoes(dt);
@@ -230,7 +246,13 @@ namespace Arena.Sim
                 return input.Move.sqrMagnitude > 0.0001f ? input.Move.normalized : p.Face;
             }
             if (!card.Aims) return p.Face;
+            return AimWith(card.LockRange, card.LockArc, input);
+        }
 
+        /// <summary>Наведение по-Hades: мышь — враг под курсором, иначе курсор; геймпад — FindLockTarget по дальности и дуге.</summary>
+        Vector2 AimWith(float range, float arc, SimInput input)
+        {
+            var p = Player;
             if (input.UseMouse && input.HasCursor)
             {
                 var under = EnemyUnderCursor(input.Cursor);
@@ -242,7 +264,7 @@ namespace Arena.Sim
 
             bool stick = input.Move.sqrMagnitude > 0.15f;
             var search = input.Move.sqrMagnitude > 0.0001f ? input.Move.normalized : p.Face;
-            if (stick || p.Lock == null || !p.Lock.Alive) p.Lock = FindLockTarget(search, card.LockRange, card.LockArc);
+            if (stick || p.Lock == null || !p.Lock.Alive) p.Lock = FindLockTarget(search, range, arc);
             return p.Lock != null ? (p.Lock.Pos - p.Pos).normalized : search;
         }
 
@@ -398,7 +420,7 @@ namespace Arena.Sim
                     if (l < m && l > 0.0001f) { var n = d / l * ((m - l) * 0.5f); a.Pos -= n; b.Pos += n; }
                 }
                 var p = Player;
-                if (!p.Dashing && p.Hidden <= 0f)
+                if (!p.Dashing && p.Hidden <= 0f && !StaffPhasing) // в рывке посоха — сквозь врагов (NoUnitCollision)
                 {
                     var d = a.Pos - p.Pos;
                     float m = a.R + PlayerCfg.radius, l = d.magnitude;
@@ -411,17 +433,78 @@ namespace Arena.Sim
 
         // ---------- Волны ----------
 
+        readonly List<EnemyKind> pending = new();
+        float spawnTimer;
+
+        /// <summary>Волны как в бою Эреба Hades II: первая стоит в комнате заранее и просыпается через WakeUpDelay;
+        /// следующая — через 0.5 с, когда живых осталось ≤ WaveRequiredRemainingCount (выжившие сразу в бой);
+        /// враги выходят по одному через 0.2–0.4 с, пока «вес» живых не больше ActiveEnemyCap 4 (Casket — 0.8).</summary>
         void UpdateWaves(float dt)
         {
-            foreach (var e in Enemies) if (!e.Dead) return;
+            var c = ArenaCfg;
+            if (Wave == 0) { StartWave(true); return; }
+            if (pending.Count > 0)
+            {
+                spawnTimer -= dt;
+                if (spawnTimer > 0f || ActiveWeight() + Weight(pending[0]) > c.activeCap + 0.001f) return;
+                var e = SpawnEnemy(pending[0], RandomSpawn());
+                e.SpawnAggro = true; // новые враги волны выходят уже агрессивными
+                pending.RemoveAt(0);
+                spawnTimer = Rand(c.spawnIntervalMin, c.spawnIntervalMax);
+                return;
+            }
+            if (AliveCount() > c.waveRemaining) { waveTimer = c.waveDelay; return; }
             waveTimer -= dt;
-            if (waveTimer > 0f) return;
-            waveTimer = ArenaCfg.waveDelay;
+            if (waveTimer <= 0f) StartWave(false);
+        }
+
+        void StartWave(bool prespawned)
+        {
+            var c = ArenaCfg;
             Wave++;
-            int caskets = Mathf.Min(1 + Wave, 6), wastrels = Mathf.Min(Wave, 4);
-            for (int i = 0; i < caskets; i++) SpawnEnemy(EnemyKind.Casket, RandomSpawn(), i * 0.15f);
-            for (int i = 0; i < wastrels; i++) SpawnEnemy(EnemyKind.Wastrel, RandomSpawn(), 0.3f + i * 0.15f);
+            foreach (var o in Enemies) if (o.Alive && !o.Aggro) MakeAggro(o);
+            var kinds = WaveKinds(Wave);
+            if (prespawned)
+                foreach (var k in kinds)
+                {
+                    // стоит в комнате с начала: без появления, просыпается через WakeUpDelay + реакция
+                    var e = SpawnEnemy(k, RandomSpawn());
+                    e.State = AiState.Wander; e.T = 0f;
+                    e.React = c.wakeUpDelay + Rand(c.wakeReactionMin, c.wakeReactionMax);
+                }
+            else { pending.AddRange(kinds); spawnTimer = 0f; }
             Events.Add(new SimEvent { Kind = EventKind.WaveStart, Value = Wave });
+        }
+
+        /// <summary>Состав: первые три волны — как FIntroFight (Brawler → 3 Mage → Brawler + Mage, без Guard), дальше —
+        /// случайная волна на бюджет сложности 55 (Wastrel 18, Casket 12), как GeneratedF.</summary>
+        List<EnemyKind> WaveKinds(int wave)
+        {
+            var c = ArenaCfg;
+            switch (wave)
+            {
+                case 1: return new List<EnemyKind> { EnemyKind.Wastrel };
+                case 2: return new List<EnemyKind> { EnemyKind.Casket, EnemyKind.Casket, EnemyKind.Casket };
+                case 3: return new List<EnemyKind> { EnemyKind.Wastrel, EnemyKind.Casket };
+            }
+            var list = new List<EnemyKind>();
+            int budget = c.budget;
+            while (budget >= Mathf.Min(c.wastrelCost, c.casketCost))
+            {
+                bool w = budget >= c.wastrelCost && (budget < c.casketCost || rng.NextDouble() < 0.5);
+                list.Add(w ? EnemyKind.Wastrel : EnemyKind.Casket);
+                budget -= w ? c.wastrelCost : c.casketCost;
+            }
+            return list;
+        }
+
+        float Weight(EnemyKind k) => k == EnemyKind.Casket ? ArenaCfg.casketWeight : 1f;
+
+        float ActiveWeight()
+        {
+            float w = 0f;
+            foreach (var e in Enemies) if (!e.Dead) w += Weight(e.Kind);
+            return w;
         }
 
         Vector2 RandomSpawn()
@@ -460,7 +543,7 @@ namespace Arena.Sim
         {
             var e = new Enemy
             {
-                Id = nextId++, Kind = kind, Pos = pos, Home = pos, State = AiState.Spawn, T = ArenaCfg.spawnTime + delay,
+                Id = nextId++, Kind = kind, Pos = pos, Home = pos, Dir = pos, State = AiState.Spawn, T = ArenaCfg.spawnTime + delay,
                 R = kind == EnemyKind.Wastrel ? WastrelCfg.radius : CasketCfg.radius,
                 Cd = Rand(0.3f, 1f),
             };

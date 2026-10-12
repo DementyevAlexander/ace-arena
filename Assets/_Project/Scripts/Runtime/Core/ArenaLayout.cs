@@ -70,6 +70,7 @@ namespace Arena.Core
         public string biome;
         public string source;
         public float unitsPerPixel;
+        public float zoom = 1f;              // ZoomFraction комнаты в Hades: экран показывает 1920 / zoom пикселей мира
         public Vector2 boundsMin, boundsMax;
         public Vector2 playerStart;
         public Vector2 exit;

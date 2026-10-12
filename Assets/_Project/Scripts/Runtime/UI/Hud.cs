@@ -10,7 +10,7 @@ namespace Arena.UI
     /// <summary>HUD: здоровье, волна, 4 слота карт с улучшениями и перезарядкой, цифры урона, баннеры.</summary>
     public sealed class Hud
     {
-        static readonly string[] KeysMouse = { "ЛКМ", "ПКМ", "Q", "Space" };
+        static readonly string[] KeysMouse = { "ЛКМ", "ПКМ", "Q", "Space" }; // раскладка Hades II
         static readonly string[] KeysPad = { "X", "Y", "B", "A" };
 
         readonly Canvas canvas;
@@ -68,8 +68,8 @@ namespace Arena.UI
             if (p.Shield > 0f) buffs.Add("Aegis");
             buffText.text = string.Join("   ", buffs);
             hint.text = useMouse
-                ? "WASD — бег · ЛКМ/ПКМ/Q/Space — карты · наведение мышью\nTab — колода · Esc — пауза · R — заново"
-                : "Стик — бег и прицел · X/Y/B/A — карты · автолок как в Hades\nView — колода · Menu — пауза";
+                ? "WASD — бег · ЛКМ атака · ПКМ спецатака · Q каст · Space/Shift рывок (держать — спринт)\nTab — колода · Esc — пауза · R — заново"
+                : "Стик — бег и прицел · X атака · Y спецатака · B каст · A рывок (держать — спринт)\nView — колода · Menu — пауза";
             var keys = useMouse ? KeysMouse : KeysPad;
             for (int i = 0; i < 4; i++) slots[i].Sync(sim, i, keys[i], sim.Player.Cast != null && sim.Player.Cast.Slot == i);
 

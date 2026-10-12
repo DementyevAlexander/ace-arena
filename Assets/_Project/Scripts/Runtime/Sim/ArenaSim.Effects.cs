@@ -58,6 +58,15 @@ namespace Arena.Sim
                     case EffectKind.EnemyBolt:
                         UpdateBolt(f, dt);
                         break;
+                    case EffectKind.StaffWedge:
+                        UpdateStaffWedge(f, dt);
+                        break;
+                    case EffectKind.StaffBall:
+                        UpdateStaffBall(f, dt);
+                        break;
+                    case EffectKind.CastCircle:
+                        UpdateCastCircle(f, dt);
+                        break;
                     default:
                         f.Life -= dt;
                         if (f.Life <= 0f) f.Done = true;
@@ -85,7 +94,7 @@ namespace Arena.Sim
             if (f.Life <= 0f || f.T >= c.boltRange || !InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R)) { f.Done = true; return; }
             if ((Player.Pos - f.Pos).magnitude <= f.R + PlayerCfg.radius && !Player.Invulnerable)
             {
-                if (HurtPlayer(f.Damage, f.Pos, knock: false)) Player.Slow = c.slowTime;
+                if (HurtPlayer(f.Damage, f.Pos, 0f, 0f, 0f, 2)) Player.Slow = c.slowTime; // без отброса, свой хитстоп
                 Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = f.Pos, Radius = 0.35f, Color = 5 });
                 f.Done = true;
             }

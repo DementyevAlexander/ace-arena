@@ -2,13 +2,14 @@ using System.Collections.Generic;
 
 namespace Arena.Core
 {
-    public enum CardColor { Pink, Yellow, Blue }
+    public enum CardColor { Pink, Yellow, Blue, Staff }
 
     public enum CardId
     {
         TwinDaggers, FiveOfAKind, Crescendo, Roses, Dio,
         BlackHole, Dazzling, Starburst, Aegis, MasterfulJump,
         Dash, JumpScare, BlazingSprint, ShockingArrival, EscapeArtist,
+        StaffAttack, StaffSpecial, StaffCast, StaffDash, // посох Мелинои из Hades II
     }
 
     public enum CcKind { None, Stun, Fear }
@@ -111,6 +112,20 @@ namespace Arena.Core
             new() { Id = CardId.EscapeArtist, Name = "Escape Artist", Color = CardColor.Blue, Kind = "Телепорт", Cooldown = 1f, Casting = 0.001f, Recovery = 0.15f,
                 Cycle = "0.75", Interruptible = false, CanInterrupt = true, Spammable = true, DamageText = "325/3с",
                 Lines = new[] { "Телепорт на 4, на старом месте", "ядовитое облако на 3 с.", "" } },
+
+            // Посох Мелинои (Hades II). Логика — Sim/ArenaSim.Staff.cs, числа — Core/Staff.cs. Cooldown — для интерфейса.
+            new() { Id = CardId.StaffAttack, Name = "Посох: Атака", Color = CardColor.Staff, Kind = "Комбо", Cooldown = 0f, Cycle = "1",
+                DamageText = "114 / 143 / 343",
+                Lines = new[] { "Три удара комбо, удар из рывка.", "Удержание после удара — Ω-атака:", "волны вперёд и назад, 914." } },
+            new() { Id = CardId.StaffSpecial, Name = "Посох: Спецатака", Color = CardColor.Staff, Kind = "Снаряд", Cooldown = 0.7f, Cycle = "1",
+                DamageText = "229 / Ω 457",
+                Lines = new[] { "Снаряд по отпусканию, пробивает врагов.", "Держать 0.65 с — Ω-снаряд:", "медленный, взрыв радиусом 2.5." } },
+            new() { Id = CardId.StaffCast, Name = "Посох: Каст", Color = CardColor.Staff, Kind = "Круг", Cooldown = 0.2f, Cycle = "1",
+                DamageText = "Ω 857",
+                Lines = new[] { "Круг вокруг себя на 3 с:", "враги в нём не двигаются.", "Держать дальше — Ω: круг взорвётся." } },
+            new() { Id = CardId.StaffDash, Name = "Посох: Рывок", Color = CardColor.Staff, Kind = "Рывок", Cooldown = 0.74f, Cycle = "1",
+                DamageText = "—",
+                Lines = new[] { "Рывок на 2.4, неуязвимость.", "Держать — спринт.", "Атака сразу после — удар из рывка." } },
         };
 
         public static CardDef Get(CardId id) => All[(int)id];

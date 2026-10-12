@@ -8,7 +8,7 @@ namespace Arena.View
     public sealed class PlayerView
     {
         public readonly Transform Root;
-        readonly Transform body, model, aim, shield, aimLine;
+        readonly Transform body, model, aim, shield, aimLine, aimLineBack;
         readonly Renderer[] renderers;
         readonly Material aimMat;
         float bob;
@@ -21,6 +21,7 @@ namespace Arena.View
             model.SetParent(Root, false);
             body = new GameObject("Body").transform;
             body.SetParent(model, false);
+            model.localScale = Vector3.one * 0.82f; // рост как у Мелинои в Hades (~150 пикселей мира ≈ 1.3 юнита)
             var robe = Art.LitMat(new Color(0.11f, 0.09f, 0.14f));
             var robeEdge = Art.LitMat(new Color(0.24f, 0.10f, 0.16f));
             var bone = Art.LitMat(new Color(0.86f, 0.83f, 0.76f));
@@ -55,6 +56,8 @@ namespace Arena.View
             // линия прицела при зажатии (ShowFreeAimLine у WeaponStaffBall; появляется, когда набран минимальный заряд)
             aimLine = Art.Decal(Root, MeshKit.FloorLane(), Art.DecalInstance(new Color(0.55f, 0.95f, 0.9f, 0.55f), -1, 4), 0.035f).transform;
             aimLine.gameObject.SetActive(false);
+            aimLineBack = Art.Decal(Root, MeshKit.FloorLane(), Art.DecalInstance(new Color(0.55f, 0.95f, 0.9f, 0.55f), -1, 4), 0.035f).transform;
+            aimLineBack.gameObject.SetActive(false);
 
             var shieldGo = Art.Part(Root, MeshKit.Ico(1), Art.LitMat(new Color(1f, 0.9f, 0.3f, 0.3f), 1.2f, true), new Vector3(0f, 0.7f, 0f), Vector3.one * 1.8f, default, false);
             shield = shieldGo.transform;
@@ -84,15 +87,29 @@ namespace Arena.View
             aim.rotation = Quaternion.LookRotation(new Vector3(a.x, 0f, a.y));
             aimMat.SetColor("_BaseColor", p.Cast != null ? new Color(1f, 0.95f, 0.5f, 0.9f) : new Color(1f, 1f, 1f, 0.55f));
             bool charging = !hidden && p.Cast != null && p.Cast.Phase == CastPhase.Charge && p.Cast.Hold >= sim.PlayerCfg.minCharge;
+            float len = charging ? Mathf.Clamp(sim.Slots[p.Cast.Slot].Card.LockRange, 2f, 9f) : 0f; // карта: дальность автолока
+            // посох: линия спецатаки после минимального заряда (MinChargeForAimLine), Ω-атака — две линии, вперёд и назад
+            var st = p.Staff;
+            bool both = false;
+            if (st.Move == StaffMove.Special && st.T >= sim.StaffCfg.specialChargeTime) { charging = true; len = sim.StaffCfg.specialRange; }
+            if (st.Move == StaffMove.OmegaAttack) { charging = true; both = true; len = sim.StaffCfg.omegaAttackRange; }
             aimLine.gameObject.SetActive(charging);
+            aimLineBack.gameObject.SetActive(charging && both);
             if (charging)
             {
-                // длина — дальность автолока карты: докуда она ищет цель
-                float len = Mathf.Clamp(sim.Slots[p.Cast.Slot].Card.LockRange, 2f, 9f);
                 aimLine.localPosition = new Vector3(a.x * 0.5f, Art.FloorTop + 0.035f, a.y * 0.5f);
                 aimLine.rotation = Quaternion.LookRotation(new Vector3(a.x, 0f, a.y));
                 aimLine.localScale = new Vector3(0.1f, 1f, len - 0.5f);
+                aimLineBack.localPosition = new Vector3(-a.x * 0.5f, Art.FloorTop + 0.035f, -a.y * 0.5f);
+                aimLineBack.rotation = Quaternion.LookRotation(new Vector3(-a.x, 0f, -a.y));
+                aimLineBack.localScale = aimLine.localScale;
             }
+            // посох: рывок — вытянутый силуэт, спринт — наклон, удар — разворот корпуса с косой
+            if (st.Move == StaffMove.Blink && st.BlinkFireT >= 0f) body.localScale = new Vector3(0.7f, 0.9f, 1.6f);
+            if (st.Move == StaffMove.Sprint) body.localEulerAngles = new Vector3(22f, 0f, 0f);
+            if (st.Move is StaffMove.Swing or StaffMove.DashStrike) body.localEulerAngles = new Vector3(0f, -55f, 0f);
+            else if (st.Lock > 0f || st.LockCancel > 0f) body.localEulerAngles = new Vector3(8f, 40f, 0f);
+            if (st.Move is StaffMove.OmegaAttack or StaffMove.OmegaCast) body.localScale = Vector3.one * (1f + 0.04f * Mathf.Sin(time * 40f));
             shield.gameObject.SetActive(p.Shield > 0f);
             shield.localScale = Vector3.one * (1.8f + Mathf.Sin(time * 12f) * 0.05f);
         }
@@ -123,6 +140,7 @@ namespace Arena.View
             body = new GameObject("Body").transform;
             body.SetParent(model, false);
             if (e.Kind == EnemyKind.Wastrel) BuildWastrel(out legL, out legR); else BuildCasket();
+            model.localScale = Vector3.one * (e.Kind == EnemyKind.Wastrel ? 0.95f : 0.8f); // Wastrel крупнее Мелинои, Casket — с неё
             renderers = body.GetComponentsInChildren<Renderer>();
             flashMats = new Material[renderers.Length];
             baseColors = new Color[renderers.Length];
@@ -135,7 +153,7 @@ namespace Arena.View
             // полоска здоровья — смотрит в камеру
             var bar = new GameObject("Hp").transform;
             bar.SetParent(Root, false);
-            bar.localPosition = new Vector3(0f, e.Kind == EnemyKind.Wastrel ? 1.95f : 2f, 0f);
+            bar.localPosition = new Vector3(0f, e.Kind == EnemyKind.Wastrel ? 1.85f : 1.65f, 0f);
             var bg = Art.Part(bar, MeshKit.Box(), Art.DecalMat(new Color(0.1f, 0.05f, 0.12f, 0.8f), -1, 20), Vector3.zero, new Vector3(0.9f, 0.1f, 0.01f), default, false);
             hpFill = Art.Part(bar, MeshKit.Box(), Art.DecalMat(new Color(1f, 0.3f, 0.4f, 1f), -1, 21), new Vector3(0f, 0f, -0.01f), new Vector3(0.86f, 0.07f, 0.01f), default, false).transform;
             bar.gameObject.AddComponent<Billboard>();
@@ -152,7 +170,7 @@ namespace Arena.View
             // «!» — заметил Ace
             alert = new GameObject("Alert").transform;
             alert.SetParent(Root, false);
-            alert.localPosition = new Vector3(0f, e.Kind == EnemyKind.Wastrel ? 2.35f : 2.4f, 0f);
+            alert.localPosition = new Vector3(0f, e.Kind == EnemyKind.Wastrel ? 2.25f : 2.05f, 0f);
             var am = Art.LitMat(new Color(1f, 0.85f, 0.2f), 1.5f);
             Art.Part(alert, MeshKit.Box(), am, new Vector3(0f, 0.18f, 0f), new Vector3(0.1f, 0.3f, 0.1f), default, false);
             Art.Part(alert, MeshKit.Box(), am, new Vector3(0f, -0.06f, 0f), new Vector3(0.1f, 0.1f, 0.1f), default, false);

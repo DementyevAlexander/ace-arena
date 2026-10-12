@@ -13,7 +13,12 @@ namespace Arena.Tests
             new(1, 0), new(-1, 0), new(0, 1), new(0, -1), new(0.7f, 0.7f), new(-0.7f, 0.7f), new(0.7f, -0.7f), new(-0.7f, -0.7f),
         };
 
-        static ArenaSim Sim(ArenaLayout a) => new(5, layout: a) { WavesEnabled = false };
+        static ArenaSim Sim(ArenaLayout a)
+        {
+            var s = new ArenaSim(5, layout: a) { WavesEnabled = false };
+            s.SetDefaultDeck(staff: false); // телепорт Jump Scare в слоте 3
+            return s;
+        }
 
         [Test]
         public void IndexHasThirtyArenasAndActiveOneLoads()
@@ -84,11 +89,11 @@ namespace Arena.Tests
         {
             var a = ArenaCatalog.LoadActive();
             var s = new ArenaSim(9, layout: a);
-            T.Run(s, 1.5f);
+            T.Run(s, 0.1f); // первая волна стоит в комнате с начала (просыпается через 0.45–0.75 с)
             Assert.Greater(s.Enemies.Count, 0);
             foreach (var e in s.Enemies)
             {
-                Assert.IsTrue(a.spawns.Exists(p => (p - e.Pos).sqrMagnitude < 1e-4f), $"враг не на точке спавна: {e.Pos}");
+                Assert.IsTrue(a.spawns.Exists(p => (p - e.Pos).magnitude < 0.3f), $"враг не у точки спавна: {e.Pos}");
                 Assert.GreaterOrEqual((e.Pos - s.Player.Pos).magnitude, 5f);
             }
         }

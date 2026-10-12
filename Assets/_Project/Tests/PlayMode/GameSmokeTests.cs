@@ -43,6 +43,22 @@ namespace Arena.Tests
             yield return Capture("02_telegraphs");
             yield return new WaitForSeconds(1.5f);
             yield return Capture("03_after");
+
+            // посох: каст, затем удар и спецатака (ввод подаём прямо в симуляцию)
+            var sim = gc.Sim;
+            sim.Player.BuffInvuln = 5f;
+            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 2, Held = 0 });
+            for (int i = 0; i < 20; i++) { sim.Step(1f / 60f, default); yield return null; }
+            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 0 });
+            for (int i = 0; i < 5; i++) { sim.Step(1f / 60f, default); }
+            yield return Capture("04_staff_swing");
+            for (int i = 0; i < 20; i++) { sim.Step(1f / 60f, default); yield return null; }
+            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 1, Held = 1 << 1 });
+            for (int i = 0; i < 50; i++) { sim.Step(1f / 60f, new SimInput { Held = 1 << 1 }); }
+            yield return Capture("05_staff_special_charge");
+            sim.Step(1f / 60f, default);
+            for (int i = 0; i < 12; i++) { sim.Step(1f / 60f, default); yield return null; }
+            yield return Capture("06_staff_ball");
         }
 
         static IEnumerator Capture(string name)

@@ -26,7 +26,11 @@ namespace Arena.View
         Hud hud;
         DeckScreen deck;
         Transform world, lockMarker;
-        float acc, hitFreeze, time;
+        float acc, time;
+        // хитстоп (HitSimSlowParameters): шаги профиля, время с начала, длительность; новый не начинается, пока идёт прежний
+        float[] slowSteps; float slowT = -1f, slowTotal;
+        readonly List<Vector3> pendingShakes = new(); // (через сколько, Distance, Duration) — ScreenPreWait тряски
+        float zoomK; // 0…1 — приближение Ω-заряда
         bool wasGameOver;
 
         void Awake()
@@ -60,6 +64,7 @@ namespace Arena.View
             }
             Rig = new CameraRig(cam);
             if (night) cam.backgroundColor = Art.Night.Sky;
+            if (Sim.Layout != null) Rig.SetHadesZoom(Sim.Layout.zoom);
             var data = cam.GetUniversalAdditionalCameraData();
             data.renderPostProcessing = true;
             data.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
@@ -149,7 +154,7 @@ namespace Arena.View
             {
                 // стоп-кадр при ударе по Ace (SkillEventHitFreeze 0.15 с при timeScale 0.01)
                 float simDt = dt;
-                if (hitFreeze > 0f) { hitFreeze -= dt; simDt *= 0.01f; }
+                if (slowT >= 0f) { slowT += dt; simDt *= SimSlowAt(slowSteps, slowT); if (slowT >= slowTotal) slowT = -1f; }
                 time += simDt;
                 acc += simDt;
                 bool first = true;
@@ -165,6 +170,7 @@ namespace Arena.View
                 wasGameOver = Sim.GameOver;
             }
 
+            UpdateCameraFeel(Paused ? 0f : dt);
             SyncViews(Paused ? 0f : dt);
             hud.Sync(Sim, Rig.Cam, input.UseMouse, dt, Paused);
             if (Paused && !deck.Visible) hud.ShowBanner("Пауза", 0.1f);
@@ -215,13 +221,19 @@ namespace Arena.View
                         break;
                     case EventKind.EnemyDied:
                         effects.Puff(ev.Pos, 1.2f, new Color(0.9f, 0.85f, 1f), 0.4f);
-                        Rig.Shake(0.08f);
                         break;
                     case EventKind.PlayerHit:
-                        hitFreeze = 0.15f;
-                        Rig.Shake(0.25f);
+                        // хитстоп и тряска от вражеского удара (HitSimSlowParameters / HitScreenshake снаряда врага)
+                        if (ev.Color >= 0) { StartSlow(Sim.PlayerCfg.hitSlow[ev.Color], false); Rig.Shake(Sim.PlayerCfg.hitShake, Sim.PlayerCfg.hitShakeTime[ev.Color]); }
                         hud.HurtFlash();
                         effects.Puff(ev.Pos, 0.9f, new Color(1f, 0.3f, 0.3f), 0.2f);
+                        break;
+                    case EventKind.HitStop:
+                        StartSlow(Sim.StaffCfg.hitSlow[(int)ev.Value], ev.Crit); // на убийстве второй шаг ждёт +0.04 с
+                        Rig.Shake(ev.Radius, ev.To.x);
+                        break;
+                    case EventKind.Shake:
+                        pendingShakes.Add(new Vector3(ev.To.x, ev.Value, ev.Radius));
                         break;
                     case EventKind.PlayerBlocked:
                         effects.Ring(ev.Pos, 1f, new Color(1f, 0.9f, 0.4f, 0.9f));
@@ -230,8 +242,7 @@ namespace Arena.View
                         effects.Ring(ev.Pos, ev.Radius, ExplosionColor(ev.Color));
                         break;
                     case EventKind.Attack:
-                        effects.Ring(ev.Pos, ev.Radius * 0.8f, new Color(1f, 0.35f, 0.2f, 0.9f), 0.25f);
-                        Rig.Shake(0.06f);
+                        if (ev.Radius > 0f) effects.Ring(ev.Pos, ev.Radius * 0.8f, new Color(1f, 0.35f, 0.2f, 0.9f), 0.25f);
                         break;
                     case EventKind.Teleport:
                         effects.Puff(ev.Pos, 1f, ExplosionColor(ev.Color), 0.3f);
@@ -242,6 +253,47 @@ namespace Arena.View
                         break;
                 }
             }
+        }
+
+        void StartSlow(float[] steps, bool kill)
+        {
+            if (slowT >= 0f) return;
+            slowSteps = (float[])steps.Clone();
+            if (kill && slowSteps.Length >= 6) slowSteps[3] += 0.04f;
+            slowTotal = 0f;
+            for (int i = 0; i + 2 < slowSteps.Length; i += 3) slowTotal += slowSteps[i] + slowSteps[i + 2];
+            slowT = 0f;
+        }
+
+        /// <summary>Тряска с задержкой (ScreenPreWait) и приближение камеры на Ω-заряде (ChargeCameraMotion).</summary>
+        void UpdateCameraFeel(float dt)
+        {
+            for (int i = pendingShakes.Count - 1; i >= 0; i--)
+            {
+                var sh = pendingShakes[i];
+                sh.x -= dt;
+                if (sh.x <= 0f) { Rig.Shake(sh.y, sh.z); pendingShakes.RemoveAt(i); }
+                else pendingShakes[i] = sh;
+            }
+            var c = Sim.StaffCfg;
+            bool charging = Sim.Player.Staff.Move == StaffMove.OmegaAttack;
+            zoomK = Mathf.MoveTowards(zoomK, charging ? 1f : 0f, dt / (charging ? c.omegaZoomIn : c.omegaZoomOut));
+            Rig.ZoomMul = Mathf.Lerp(1f, c.omegaZoom, zoomK);
+        }
+
+        /// <summary>Скорость симуляции через t реальных секунд после попадания: шаги {ждать, доля, переход}.</summary>
+        static float SimSlowAt(float[] steps, float t)
+        {
+            float cur = 1f, at = 0f;
+            for (int i = 0; i + 2 < steps.Length; i += 3)
+            {
+                at += steps[i];
+                if (t < at) return cur;
+                float lerp = steps[i + 2];
+                if (lerp > 0f && t < at + lerp) return Mathf.Lerp(cur, steps[i + 1], (t - at) / lerp);
+                cur = steps[i + 1]; at += lerp;
+            }
+            return cur;
         }
 
         static Color NumberColor(SimEvent ev)

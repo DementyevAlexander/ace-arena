@@ -5,7 +5,8 @@ using UnityEngine.InputSystem;
 namespace Arena.View
 {
     /// <summary>Клавиатура+мышь и геймпад → SimInput. Режим прицела переключается по последнему устройству, как в Hades.
-    /// Слоты: ЛКМ / RMB / Q / Пробел; на геймпаде X / Y / B / A (раскладка «атака, спец, каст, рывок» из Hades).</summary>
+    /// Раскладка Hades II (по таблицам в Hades2.exe): ЛКМ — атака, ПКМ — спецатака, Q — каст, Space и LeftShift — рывок;
+    /// геймпад: X / Y / B / A, бег — левый стик и крестовина.</summary>
     public sealed class InputReader
     {
         public bool UseMouse = true;
@@ -42,7 +43,7 @@ namespace Arena.View
             0 => (m != null && m.leftButton.wasPressedThisFrame) || (p != null && p.buttonWest.wasPressedThisFrame),
             1 => (m != null && m.rightButton.wasPressedThisFrame) || (p != null && p.buttonNorth.wasPressedThisFrame),
             2 => (kb != null && kb.qKey.wasPressedThisFrame) || (p != null && p.buttonEast.wasPressedThisFrame),
-            _ => (kb != null && kb.spaceKey.wasPressedThisFrame) || (p != null && p.buttonSouth.wasPressedThisFrame),
+            _ => (kb != null && (kb.spaceKey.wasPressedThisFrame || kb.leftShiftKey.wasPressedThisFrame)) || (p != null && p.buttonSouth.wasPressedThisFrame),
         };
 
         static bool Held(int i, Keyboard kb, Mouse m, Gamepad p) => i switch
@@ -50,7 +51,7 @@ namespace Arena.View
             0 => (m != null && m.leftButton.isPressed) || (p != null && p.buttonWest.isPressed),
             1 => (m != null && m.rightButton.isPressed) || (p != null && p.buttonNorth.isPressed),
             2 => (kb != null && kb.qKey.isPressed) || (p != null && p.buttonEast.isPressed),
-            _ => (kb != null && kb.spaceKey.isPressed) || (p != null && p.buttonSouth.isPressed),
+            _ => (kb != null && (kb.spaceKey.isPressed || kb.leftShiftKey.isPressed)) || (p != null && p.buttonSouth.isPressed),
         };
 
         static bool Released(int i, Keyboard kb, Mouse m, Gamepad p) => i switch
@@ -58,7 +59,7 @@ namespace Arena.View
             0 => (m != null && m.leftButton.wasReleasedThisFrame) || (p != null && p.buttonWest.wasReleasedThisFrame),
             1 => (m != null && m.rightButton.wasReleasedThisFrame) || (p != null && p.buttonNorth.wasReleasedThisFrame),
             2 => (kb != null && kb.qKey.wasReleasedThisFrame) || (p != null && p.buttonEast.wasReleasedThisFrame),
-            _ => (kb != null && kb.spaceKey.wasReleasedThisFrame) || (p != null && p.buttonSouth.wasReleasedThisFrame),
+            _ => (kb != null && (kb.spaceKey.wasReleasedThisFrame || kb.leftShiftKey.wasReleasedThisFrame)) || (p != null && p.buttonSouth.wasReleasedThisFrame),
         };
 
         /// <summary>Собирает ввод для шага. Экранные направления переводятся в мир по повороту камеры:
@@ -82,6 +83,11 @@ namespace Arena.View
             {
                 var st = pad.leftStick.ReadValue();
                 if (st.sqrMagnitude > 0.2f * 0.2f) screen = st; // радиальная мёртвая зона
+                else
+                {
+                    var dp = pad.dpad.ReadValue(); // в Hades II бег — и стиком, и крестовиной
+                    if (dp.sqrMagnitude > 0.1f) screen = dp;
+                }
             }
             input.Move = ScreenToWorld(cam, screen);
 

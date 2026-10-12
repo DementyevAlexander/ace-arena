@@ -162,6 +162,7 @@ namespace Arena.View
         {
             Arena.Core.CardColor.Pink => Pink,
             Arena.Core.CardColor.Yellow => Yellow,
+            Arena.Core.CardColor.Staff => Night.Soul,
             _ => Blue,
         };
 

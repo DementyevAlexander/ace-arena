@@ -17,7 +17,7 @@
 Масштаб - по скорости: Мелиноя бежит 540 пикс/с (PlayerUnits.sjson), Ace - 4.1 юнит/с,
 значит 1 пиксель = 4.1 / 540 юнита, и комната пробегается за то же время.
 """
-import argparse, glob, json, math, os, sys
+import argparse, glob, json, math, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sgb, sjson
@@ -27,7 +27,7 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'Asse
 
 ACE_SPEED, MEL_SPEED = 4.1, 540.0
 K = ACE_SPEED / MEL_SPEED          # юнитов на пиксель
-PLAYER_R = 0.3                      # PlayerTuning.radius
+PLAYER_R = 48 * K                   # PlayerTuning.radius: восьмиугольник Мелинои ±48 пикселей
 CELL = 0.5                          # шаг сетки проходимости
 TALL_CAP = 3.0
 
@@ -106,6 +106,34 @@ def kind_of(name, stops_projectiles):
     for kind, keys in KINDS:
         if any(k in n for k in keys): return kind
     return 'rubble'
+
+
+_room_blocks = None
+
+
+def room_zoom(hades, room):
+    """ZoomFraction комнаты из Scripts/RoomData*.lua (с учётом InheritFrom); без него — 1.0.
+    Камера Hades показывает 1920 / ZoomFraction пикселей мира по ширине экрана."""
+    global _room_blocks
+    if _room_blocks is None:
+        _room_blocks = {}
+        for f in glob.glob(os.path.join(hades, 'Content', 'Scripts', 'RoomData*.lua')):
+            text = open(f, encoding='utf-8-sig', errors='replace').read()
+            for m in re.finditer(r'^\t(\w+) =\s*\n\t\{(.*?)^\t\}', text, re.S | re.M):
+                _room_blocks.setdefault(m.group(1), m.group(2))
+
+    def find(name, depth=0):
+        block = _room_blocks.get(name)
+        if block is None or depth > 10: return None
+        m = re.search(r'^\t\tZoomFraction = ([0-9.]+)', block, re.M)
+        if m: return float(m.group(1))
+        inh = re.search(r'^\t\tInheritFrom = \{([^}]*)\}', block, re.M)
+        for parent in re.findall(r'"(\w+)"', inh.group(1)) if inh else []:
+            z = find(parent, depth + 1)
+            if z: return z
+        return None
+
+    return find(room) or 1.0
 
 
 # ---------- геометрия ----------
@@ -263,6 +291,7 @@ def build_room(room, hades, types):
         'biome': BIOMES.get(letter, letter),
         'source': f'Hades II, Content/Maps/bin/{room}.thing_bin',
         'unitsPerPixel': round(K, 6),
+        'zoom': room_zoom(hades, room),
         'boundsMin': P((mnx, mnz)), 'boundsMax': P((mxx, mxz)),
         'playerStart': P(start),
         'exit': P(exit_) if exit_ else P(start),

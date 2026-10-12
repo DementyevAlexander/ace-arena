@@ -86,14 +86,27 @@ namespace Arena.Sim
             InterruptAttack(e);
         }
 
-        /// <summary>Контроль срывает замах: обозначение исчезает, удар не наступает.</summary>
+        /// <summary>Контроль по правилам Hades (EndThreadWaitsOnStun): сорванный замах после оглушения повторяется с места
+        /// (у второго удара Wastrel — DoNotRepeatOnAttackFail, он снова идёт в бой с первого); паузы восстановления и укрытия
+        /// обрываются; уже выпущенный хитбокс Wastrel доживает свой Fuse (см. FiredHitboxWhileStunned); залп Casket прерывается.</summary>
         void InterruptAttack(Enemy e)
         {
-            if (e.State is AiState.Windup or AiState.Strike)
+            switch (e.State)
             {
-                e.Tele = null;
-                e.State = AiState.Chase;
-                e.Cd = Mathf.Max(e.Cd, 0.6f);
+                case AiState.Windup:
+                    e.Tele = null;
+                    e.Retry = !(e.Kind == EnemyKind.Wastrel && e.Strike == 2);
+                    e.State = AiState.Chase; e.ChaseT = 0f;
+                    break;
+                case AiState.Strike when e.Kind == EnemyKind.Casket:
+                    BeginHide(e);
+                    break;
+                case AiState.Recover:
+                    e.T = 0f;
+                    break;
+                case AiState.Hide:
+                    e.T = Mathf.Min(e.T, 0f);
+                    break;
             }
         }
 
@@ -170,8 +183,11 @@ namespace Arena.Sim
             Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = center, Radius = radius, Color = color });
         }
 
-        /// <summary>Удар по Смерти. Возвращает true, если урон прошёл. knock — короткий отброс от удара.</summary>
-        public bool HurtPlayer(float dmg, Vector2 from, bool knock = true)
+        /// <summary>Удар по Смерти. Возвращает true, если урон прошёл. knockSpeed/knockTime — отброс (ImpactVelocity),
+        /// stun — HeroOnHitStun (стоит и не поворачивается, атаковать может; рывок снимает), hitSlow — профиль хитстопа
+        /// удара (0 — BrawlerMelee, 1 — BrawlerMeleeClose, 2 — MageRanged; −1 — без него).
+        /// Неуязвимость 1.3 с — только когда за последние 0.6 с набралось max(25% HP, 15 урона Hades) и удар не смертельный.</summary>
+        public bool HurtPlayer(float dmg, Vector2 from, float knockSpeed = 0f, float knockTime = 0f, float stun = 0f, int hitSlow = -1)
         {
             var p = Player;
             if (GameOver) return false;
@@ -184,15 +200,24 @@ namespace Arena.Sim
                 return false;
             }
             p.Hp -= dmg;
-            p.HitInvuln = PlayerCfg.hitInvulnerability;
-            if (knock)
+            p.RecentDamage.Add(new Vector2(Time, dmg));
+            p.RecentDamage.RemoveAll(d => d.x < Time - PlayerCfg.invulnWindow);
+            float sum = 0f;
+            foreach (var d in p.RecentDamage) sum += d.y;
+            if (p.Hp > 0f && sum >= Mathf.Max(PlayerCfg.invulnHpFraction * PlayerCfg.hp, PlayerCfg.invulnMinDamage))
+            {
+                p.HitInvuln = PlayerCfg.hitInvulnerability;
+                p.RecentDamage.Clear();
+            }
+            if (knockTime > 0f)
             {
                 var k = p.Pos - from;
-                p.KnockVel = (k.sqrMagnitude > 0.0001f ? k.normalized : Vector2.down) * 6f;
-                p.KnockT = 0.12f;
+                p.KnockVel = (k.sqrMagnitude > 0.0001f ? k.normalized : Vector2.down) * knockSpeed;
+                p.KnockT = knockTime;
             }
+            p.HitStun = Mathf.Max(p.HitStun, stun);
             if (p.Cast != null && Slots[p.Cast.Slot].Card.Interruptible && p.Cast.Phase != CastPhase.Recovery) p.Cast = null;
-            Events.Add(new SimEvent { Kind = EventKind.PlayerHit, Pos = p.Pos, Value = dmg });
+            Events.Add(new SimEvent { Kind = EventKind.PlayerHit, Pos = p.Pos, Value = dmg, Color = hitSlow });
             if (p.Hp <= 0f) { p.Hp = 0f; GameOver = true; }
             return true;
         }

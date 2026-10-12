@@ -158,6 +158,33 @@ namespace Arena.View
                     }
                     break;
                 }
+                case EffectKind.StaffWedge:
+                {
+                    // хитбокс удара — светящаяся трапеция на полу (у ударов комбо — клин от вершины)
+                    var col = f.Phase == 4 ? new Color(0.75f, 0.55f, 1f, 0.8f) : new Color(0.65f, 1f, 0.95f, 0.75f);
+                    var m = Art.DecalInstance(col, -1, 6); owned.Add(m);
+                    var d = Art.Decal(root, MeshKit.FloorTrapezoid(Mathf.Clamp01(f.Back / Mathf.Max(f.R, 0.001f))), m, 0.05f);
+                    d.transform.localPosition = new Vector3(0f, Art.FloorTop + 0.05f, -f.Length);
+                    d.transform.localScale = new Vector3(f.R, 1f, f.Length);
+                    Add(d);
+                    break;
+                }
+                case EffectKind.StaffBall:
+                {
+                    float s = f.Phase == 1 ? 0.55f : 0.28f;
+                    Add(Art.Part(root, MeshKit.Ico(1), Art.LitMat(new Color(0.45f, 1f, 0.9f), 3f), new Vector3(0f, 0.7f, 0f), Vector3.one * s, default, false));
+                    Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(Color.white, 4f), new Vector3(0f, 0.7f, 0f), Vector3.one * s * 0.5f, default, false));
+                    Trail(root, new Color(0.4f, 0.95f, 0.85f), s * 0.8f, 0.15f, 0.7f);
+                    break;
+                }
+                case EffectKind.CastCircle:
+                {
+                    var rm = Art.DecalInstance(new Color(0.55f, 0.95f, 0.9f, 0.85f), 1, 2); owned.Add(rm);
+                    Add(Art.Decal(root, MeshKit.FloorQuad(), rm, 0.03f));
+                    var fm = Art.DecalInstance(new Color(0.35f, 0.75f, 0.75f, 0.18f), 0, 1); owned.Add(fm);
+                    Add(Art.Decal(root, MeshKit.FloorQuad(), fm, 0.025f));
+                    break;
+                }
                 case EffectKind.EnemyBolt:
                     Add(Art.Part(root, MeshKit.Ico(1), Art.LitMat(new Color(0.75f, 0.4f, 1f), 3f), new Vector3(0f, 0.65f, 0f), Vector3.one * 0.32f, default, false));
                     Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(new Color(1f, 0.9f, 1f), 4f), new Vector3(0f, 0.65f, 0f), Vector3.one * 0.16f, default, false));
@@ -232,6 +259,27 @@ namespace Arena.View
                     float k = Mathf.Clamp01(Mathf.Min(f.Age * 4f, f.Life * 2f));
                     root.localScale = Vector3.one * (0.6f + 0.4f * k);
                     for (int i = 1; i < parts.Count; i++) parts[i].localPosition += Vector3.up * (Mathf.Sin(time * 2f + i) * 0.002f);
+                    break;
+                }
+                case EffectKind.StaffWedge:
+                    owned[0].SetColor("_BaseColor", owned[0].GetColor("_BaseColor") * new Color(1f, 1f, 1f, 0.85f));
+                    parts[0].gameObject.SetActive(f.T <= 0f);
+                    break;
+                case EffectKind.StaffBall:
+                    parts[0].gameObject.SetActive(f.T <= 0f);
+                    parts[1].gameObject.SetActive(f.T <= 0f);
+                    break;
+                case EffectKind.CastCircle:
+                {
+                    // круг растёт ~0.2 с; заряженный Ω-кастом — ярче и пульсирует, к концу гаснет
+                    root.rotation = Quaternion.identity;
+                    var sc = Vector3.one * Mathf.Max(0.01f, f.R * 2f);
+                    parts[0].localScale = sc; parts[1].localScale = sc;
+                    bool armed = f.Phase == 1;
+                    float pulse = armed ? 0.75f + 0.25f * Mathf.Sin(time * 14f) : 1f;
+                    float fade = Mathf.Clamp01(f.Life * 2f);
+                    owned[0].SetColor("_BaseColor", (armed ? new Color(0.85f, 0.6f, 1f, 1f) : new Color(0.55f, 0.95f, 0.9f, 0.85f)) * new Color(1f, 1f, 1f, pulse * fade));
+                    owned[1].SetColor("_BaseColor", (armed ? new Color(0.6f, 0.35f, 0.9f, 0.3f) : new Color(0.35f, 0.75f, 0.75f, 0.18f)) * new Color(1f, 1f, 1f, fade));
                     break;
                 }
                 case EffectKind.EnemyBolt:
