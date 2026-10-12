@@ -7,9 +7,9 @@ namespace Arena.View
     public sealed class PlayerView
     {
         public readonly Transform Root;
-        readonly Transform body, model, aim, shield;
+        readonly Transform body, model, aim, shield, reticle, aimLine;
         readonly Renderer[] renderers;
-        readonly Material aimMat;
+        readonly Material aimMat, reticleMat, lineMat;
         float bob;
 
         public PlayerView(Transform parent)
@@ -38,6 +38,14 @@ namespace Arena.View
             aim = Art.Decal(Root, MeshKit.Wedge(), aimMat, 0.04f).transform;
             aim.localScale = new Vector3(0.35f, 0.2f, 0.45f);
 
+            // прицел жёлтых карт (GunGrenadeToss) и линия прицела (ShowFreeAimLine) — в мире, не в Ace
+            reticleMat = Art.DecalInstance(new Color(1f, 0.9f, 0.3f, 0.9f), 1, 8);
+            reticle = Art.Decal(parent, MeshKit.FloorQuad(), reticleMat, 0.07f).transform;
+            lineMat = Art.DecalInstance(new Color(1f, 0.9f, 0.4f, 0.35f), -1, 6);
+            aimLine = Art.Decal(parent, MeshKit.FloorLane(), lineMat, 0.05f).transform;
+            reticle.gameObject.SetActive(false);
+            aimLine.gameObject.SetActive(false);
+
             var shieldGo = Art.Part(Root, MeshKit.Ico(1), Art.LitMat(new Color(1f, 0.9f, 0.3f, 0.3f), 1.2f, true), new Vector3(0f, 0.7f, 0f), Vector3.one * 1.8f, default, false);
             shield = shieldGo.transform;
             shieldGo.SetActive(false);
@@ -52,7 +60,7 @@ namespace Arena.View
             var face = p.Face.sqrMagnitude > 0.0001f ? p.Face : Vector2.up;
             model.rotation = Quaternion.Slerp(model.rotation, Quaternion.LookRotation(new Vector3(face.x, 0f, face.y)), Mathf.Clamp01(dt * 30f));
             bob += dt * (p.Moving ? 14f : 3f);
-            float squash = p.Cast != null && p.Cast.Phase != CastPhase.Recovery ? 0.08f : 0f;
+            float squash = p.Cast != null && p.Cast.Phase is CastPhase.Aim or CastPhase.Casting or CastPhase.Hold ? 0.08f : 0f;
             if (p.Cast != null && p.Cast.Phase == CastPhase.Hold) squash = 0.06f + 0.1f * Mathf.Sin(time * 30f) * 0.3f;
             body.localPosition = new Vector3(0f, p.Moving ? Mathf.Abs(Mathf.Sin(bob)) * 0.08f : 0f, 0f);
             body.localScale = new Vector3(1f + squash, 1f - squash, 1f + squash);
@@ -67,6 +75,20 @@ namespace Arena.View
             aimMat.SetColor("_BaseColor", p.Cast != null ? new Color(1f, 0.95f, 0.5f, 0.9f) : new Color(1f, 1f, 1f, 0.55f));
             shield.gameObject.SetActive(p.Shield > 0f);
             shield.localScale = Vector3.one * (1.8f + Mathf.Sin(time * 12f) * 0.05f);
+
+            bool aiming = p.Cast != null && (p.Cast.Phase == CastPhase.Aim || (p.Cast.Phase == CastPhase.Casting && sim.Slots[p.Cast.Slot].Card?.Color == Arena.Core.CardColor.Yellow));
+            reticle.gameObject.SetActive(aiming && !hidden);
+            aimLine.gameObject.SetActive(aiming && !hidden);
+            if (aiming)
+            {
+                var target = p.Cast.Target;
+                reticle.position = Art.W(target, 0.07f);
+                reticle.localScale = Vector3.one * (0.9f + Mathf.Sin(time * 10f) * 0.06f);
+                var d = target - p.Pos;
+                aimLine.position = Art.W(p.Pos, 0.05f);
+                aimLine.rotation = Quaternion.LookRotation(new Vector3(d.x, 0f, d.y).sqrMagnitude > 0.0001f ? new Vector3(d.x, 0f, d.y) : Vector3.forward);
+                aimLine.localScale = new Vector3(0.12f, 1f, d.magnitude);
+            }
         }
     }
 
@@ -94,7 +116,13 @@ namespace Arena.View
             model.SetParent(Root, false);
             body = new GameObject("Body").transform;
             body.SetParent(model, false);
-            if (e.Kind == EnemyKind.Ghost) BuildGhost(); else BuildStomper(out legL, out legR);
+            switch (e.Kind)
+            {
+                case EnemyKind.Ghost: BuildGhost(); break;
+                case EnemyKind.Stomper: BuildStomper(out legL, out legR); break;
+                case EnemyKind.Thug: BuildThug(out legL, out legR); break;
+                default: BuildWitch(); break;
+            }
             renderers = body.GetComponentsInChildren<Renderer>();
             flashMats = new Material[renderers.Length];
             baseColors = new Color[renderers.Length];
@@ -107,7 +135,7 @@ namespace Arena.View
             // полоска здоровья — смотрит в камеру
             var bar = new GameObject("Hp").transform;
             bar.SetParent(Root, false);
-            bar.localPosition = new Vector3(0f, e.Kind == EnemyKind.Ghost ? 1.9f : 1.25f, 0f);
+            bar.localPosition = new Vector3(0f, Height(e.Kind) + 0.35f, 0f);
             var bg = Art.Part(bar, MeshKit.Box(), Art.DecalMat(new Color(0.1f, 0.05f, 0.12f, 0.8f), -1, 20), Vector3.zero, new Vector3(0.9f, 0.1f, 0.01f), default, false);
             hpFill = Art.Part(bar, MeshKit.Box(), Art.DecalMat(new Color(1f, 0.3f, 0.4f, 1f), -1, 21), new Vector3(0f, 0f, -0.01f), new Vector3(0.86f, 0.07f, 0.01f), default, false).transform;
             bar.gameObject.AddComponent<Billboard>();
@@ -124,7 +152,7 @@ namespace Arena.View
             // «!» — заметил Ace
             alert = new GameObject("Alert").transform;
             alert.SetParent(Root, false);
-            alert.localPosition = new Vector3(0f, e.Kind == EnemyKind.Ghost ? 2.3f : 1.65f, 0f);
+            alert.localPosition = new Vector3(0f, Height(e.Kind) + 0.75f, 0f);
             var am = Art.LitMat(new Color(1f, 0.85f, 0.2f), 1.5f);
             Art.Part(alert, MeshKit.Box(), am, new Vector3(0f, 0.18f, 0f), new Vector3(0.1f, 0.3f, 0.1f), default, false);
             Art.Part(alert, MeshKit.Box(), am, new Vector3(0f, -0.06f, 0f), new Vector3(0.1f, 0.1f, 0.1f), default, false);
@@ -133,6 +161,40 @@ namespace Arena.View
             spawnMat = Art.DecalInstance(new Color(0.75f, 0.35f, 1f, 0.6f), 1, 1);
             spawnDecal = Art.Decal(Root, MeshKit.FloorQuad(), spawnMat, 0.03f);
             tele = new TelegraphView(parent);
+        }
+
+        static float Height(EnemyKind k) => k switch { EnemyKind.Ghost => 1.55f, EnemyKind.Thug => 1.9f, EnemyKind.Witch => 1.45f, _ => 0.9f };
+
+        /// <summary>Wretched Thug: громила-тень с дубиной, выше Ace (Tallness 380 против 200).</summary>
+        void BuildThug(out Transform l, out Transform r)
+        {
+            var shade = Art.LitMat(new Color(0.42f, 0.36f, 0.5f));
+            var dark = Art.LitMat(new Color(0.22f, 0.18f, 0.28f));
+            var eye = Art.LitMat(new Color(1f, 0.85f, 0.35f), 2f);
+            var wood = Art.LitMat(new Color(0.5f, 0.36f, 0.26f));
+            Art.Part(body, MeshKit.Ico(1, 0.08f, 11), shade, new Vector3(0f, 1.05f, 0f), new Vector3(1.15f, 1.1f, 0.95f));
+            Art.Part(body, MeshKit.Ico(1, 0.06f, 12), shade, new Vector3(0f, 1.75f, 0.15f), new Vector3(0.55f, 0.5f, 0.5f));
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.12f, 1.8f, 0.38f), Vector3.one * 0.09f);
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.12f, 1.8f, 0.38f), Vector3.one * 0.09f);
+            Art.Part(body, MeshKit.Ico(1, 0.05f, 13), shade, new Vector3(-0.62f, 1.15f, 0.1f), new Vector3(0.35f, 0.6f, 0.35f));
+            // правая рука с дубиной — ей и бьёт трапецией перед собой
+            Art.Part(body, MeshKit.Ico(1, 0.05f, 14), shade, new Vector3(0.6f, 1.1f, 0.2f), new Vector3(0.35f, 0.55f, 0.35f));
+            Art.Part(body, MeshKit.Prism(6, 1.3f), wood, new Vector3(0.62f, 0.85f, 0.4f), new Vector3(0.22f, 0.85f, 0.22f), new Vector3(70f, 0f, 0f));
+            l = Art.Part(model, MeshKit.Prism(6), dark, new Vector3(-0.28f, 0f, 0f), new Vector3(0.28f, 0.55f, 0.28f)).transform;
+            r = Art.Part(model, MeshKit.Prism(6), dark, new Vector3(0.28f, 0f, 0f), new Vector3(0.28f, 0.55f, 0.28f)).transform;
+        }
+
+        /// <summary>Wretched Witch: тень в балахоне со светящимся шаром в руке — им и стреляет.</summary>
+        void BuildWitch()
+        {
+            var robe = Art.LitMat(new Color(0.3f, 0.24f, 0.42f));
+            var hood = Art.LitMat(new Color(0.2f, 0.15f, 0.3f));
+            var glow = Art.LitMat(new Color(0.75f, 0.45f, 1f), 2.5f);
+            Art.Part(body, MeshKit.Prism(7, 0.35f), robe, new Vector3(0f, 0f, 0f), new Vector3(0.85f, 1.15f, 0.8f));
+            Art.Part(body, MeshKit.Prism(6, 0f), hood, new Vector3(0f, 1.1f, 0f), new Vector3(0.55f, 0.55f, 0.55f));
+            Art.Part(body, MeshKit.Ico(0), glow, new Vector3(-0.1f, 1.2f, 0.25f), Vector3.one * 0.07f);
+            Art.Part(body, MeshKit.Ico(0), glow, new Vector3(0.1f, 1.2f, 0.25f), Vector3.one * 0.07f);
+            Art.Part(body, MeshKit.Ico(1), glow, new Vector3(0.38f, 0.9f, 0.35f), Vector3.one * 0.22f);
         }
 
         void BuildGhost()
@@ -169,12 +231,18 @@ namespace Arena.View
             t += dt;
             Root.position = Art.W(e.Pos);
             bool spawning = e.State == AiState.Spawn;
-            model.gameObject.SetActive(!spawning);
+            // проявление: последние 1.9 с руны враг тёмным силуэтом проступает из пола
+            bool fading = spawning && e.HadesKind && e.T < 1.9f;
+            model.gameObject.SetActive(!spawning || fading);
+            if (fading) model.localPosition = new Vector3(0f, -1.2f * Mathf.Clamp01(e.T / 1.9f), 0f);
+            else model.localPosition = Vector3.zero;
             spawnDecal.SetActive(spawning);
             if (spawning)
             {
-                float k = Mathf.Clamp01(1f - e.T);
-                spawnDecal.transform.localScale = Vector3.one * (0.4f + 1.2f * k);
+                // руна призыва Hades (EnemySummonRune) 2 с, размер по врагу: 0.52 / 0.38 / 0.26
+                float k = Mathf.Clamp01(1f - e.T / 2f);
+                float rune = e.Kind == EnemyKind.Witch ? 1.5f : 2f;
+                spawnDecal.transform.localScale = Vector3.one * (rune * (0.5f + 0.5f * k));
                 spawnMat.SetColor("_BaseColor", new Color(0.75f, 0.35f, 1f, 0.3f + 0.5f * k));
             }
             var face = e.Face.sqrMagnitude > 0.0001f ? e.Face : Vector2.down;
@@ -184,24 +252,31 @@ namespace Arena.View
             float scale = 1f;
             if (windup && e.Tele != null) scale = 1f + 0.3f * e.Tele.Progress; // AttackIncreaseScale 1.3 за время замаха
             if (e.Dead) scale = Mathf.Clamp01(e.DeathT / 0.8f);
-            float hover = e.Kind == EnemyKind.Ghost ? Mathf.Sin(t * 3f) * 0.08f : 0f;
+            if (e.HadesKind && windup) scale = 1f; // в Hades враг не растёт — только белеет и дрожит
+            float hover = e.Kind is EnemyKind.Ghost or EnemyKind.Witch ? Mathf.Sin(t * 3f) * 0.08f : 0f;
             float hop = e.Kind == EnemyKind.Stomper && (e.State is AiState.Chase or AiState.Wander) && e.Moved > 0.001f ? Mathf.Abs(Mathf.Sin(t * 16f)) * 0.08f : 0f;
-            body.localPosition = new Vector3(0f, hover + hop, 0f);
+            // дрожь: от удара (6 ед. Hades, 0.15 с) и в конце замаха (3 ед.)
+            var jitter = Vector3.zero;
+            if (e.Shake > 0f) jitter += new Vector3(Mathf.Sin(t * 90f), 0f, Mathf.Cos(t * 77f)) * Arena.Core.Hades.U(6f) * 2f;
+            if (e.WarnT > 0f) jitter += new Vector3(Mathf.Sin(t * 110f), 0f, Mathf.Cos(t * 95f)) * Arena.Core.Hades.U(3f) * 3f;
+            body.localPosition = new Vector3(0f, hover + hop, 0f) + jitter;
             body.localScale = Vector3.one * scale;
             if (e.State == AiState.Strike || e.State == AiState.Lunge) body.localEulerAngles = new Vector3(20f, 0f, 0f);
+            else if (e.HadesKind && (e.State is AiState.Windup or AiState.PreFire)) body.localEulerAngles = new Vector3(-12f, 0f, 0f); // отклоняется назад в замахе
             else if (e.Stun > 0f) body.localEulerAngles = new Vector3(0f, 0f, Mathf.Sin(t * 20f) * 8f);
             else body.localEulerAngles = Vector3.zero;
             if (legL != null)
             {
-                float s = e.Moved > 0.001f ? Mathf.Sin(t * 16f) * 0.12f : 0f;
-                legL.localPosition = new Vector3(-0.17f, Mathf.Max(0f, s), 0f);
-                legR.localPosition = new Vector3(0.17f, Mathf.Max(0f, -s), 0f);
+                float s = e.Moved > 0.001f ? Mathf.Sin(t * (e.Kind == EnemyKind.Thug ? 9f : 16f)) * 0.12f : 0f;
+                legL.localPosition = new Vector3(legL.localPosition.x, Mathf.Max(0f, s), 0f);
+                legR.localPosition = new Vector3(legR.localPosition.x, Mathf.Max(0f, -s), 0f);
             }
 
-            // вспышки: белая — урон, красная пульсация — замах
+            // вспышки Hades: красная при уроне (0.03 с), белая в конце замаха (0 → 80%); у наших врагов — красная пульсация замаха
             Color tint = Color.clear;
-            if (e.Flash > 0f) tint = Color.white;
-            else if (windup) tint = Color.Lerp(new Color(1f, 0.3f, 0.2f, 0f), new Color(1f, 0.15f, 0.1f, 0.85f), Mathf.Repeat(time * 8f, 1f) < 0.5f ? 1f : 0.4f);
+            if (e.Flash > 0f) tint = new Color(0.86f, 0.08f, 0.08f, 1f);
+            else if (e.HadesKind && e.WarnT > 0f) tint = new Color(1f, 1f, 1f, 0.8f * e.WarnT);
+            else if (windup && !e.HadesKind) tint = Color.Lerp(new Color(1f, 0.3f, 0.2f, 0f), new Color(1f, 0.15f, 0.1f, 0.85f), Mathf.Repeat(time * 8f, 1f) < 0.5f ? 1f : 0.4f);
             for (int i = 0; i < flashMats.Length; i++)
                 flashMats[i].SetColor("_BaseColor", Color.Lerp(baseColors[i], new Color(tint.r, tint.g, tint.b, 1f), tint.a));
 

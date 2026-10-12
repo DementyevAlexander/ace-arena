@@ -38,7 +38,7 @@ namespace Arena.Core
         /// <summary>Максимум удержания (Crescendo Fireworks), 0 — карта без удержания.</summary>
         public float HoldTime;
         public string Cycle = "1";
-        /// <summary>Автолок по-Hades: дальность и допустимое отклонение от направления прицела (±градусы). 0 — карта не целится.</summary>
+        /// <summary>Автоприцел Hades: AutoLockRange и AutoLockArcDistance (±градусы). 0 — карта не целится.</summary>
         public float LockRange;
         public float LockArc;
         /// <summary>На сколько хитбоксов делится добавочный урон улучшений (DamageIncreaseHitboxDivider).</summary>
@@ -58,9 +58,10 @@ namespace Arena.Core
 
     public static class CardCatalog
     {
-        // Дальности автолока выведены из пресетов автоприцела DandyAce (offset + distance + radius).
-        const float MidPlus = 8.3f, Mid = 6.3f, Short = 4.3f, Long = 10.3f;
-        const float ArcShot = 75f, ArcWide = 100f;
+        // Автоприцел — по оружию Hades (Weapons.sjson, PlayerWeapons.sjson): снаряды как Cast (1000, ±75°),
+        // дальние как лук (900, ±90°), остальное — значение по умолчанию (650, ±100°).
+        static readonly float MidPlus = Hades.U(1000f), Mid = Hades.U(650f), Short = Hades.U(650f), Long = Hades.U(900f);
+        const float ArcShot = 75f, ArcWide = 100f, ArcBow = 90f;
 
         public static readonly CardDef[] All =
         {
@@ -74,10 +75,10 @@ namespace Arena.Core
                 HoldTime = 0.5f, Cycle = "0.75", LockRange = MidPlus, LockArc = ArcShot, Spammable = true, DamageText = "62~124",
                 Lines = new[] { "Держите кнопку до 0.5 с: взрыв больше, урон до ×2.", "Ракета взрывается о врага.", "Burn: 248 за 4 с." } },
             new() { Id = CardId.Roses, Name = "Poisonous Roses", Color = CardColor.Pink, Kind = "Заряды", Cooldown = 0.75f, Charges = 3, Casting = 0.03f, Recovery = 0.1f,
-                Cycle = "0.75", LockRange = Long, LockArc = ArcShot, Div = 3, Spammable = true, DamageText = "25×3",
+                Cycle = "0.75", LockRange = Long, LockArc = ArcBow, Div = 3, Spammable = true, DamageText = "25×3",
                 Lines = new[] { "Три розы сходятся в одну точку.", "3 заряда, каждый перезаряжается отдельно.", "Poison: 125 за 4 с с каждой розы." } },
             new() { Id = CardId.Dio, Name = "Dio, the Bat", Color = CardColor.Pink, Kind = "Реактивация", Cooldown = 0.5f, Casting = 0.1f, Recovery = 0.1f,
-                Cycle = "0.5-", LockRange = MidPlus, LockArc = ArcShot, Div = 2, Spammable = true, DamageText = "100+100",
+                Cycle = "0.5-", LockRange = Mid, LockArc = ArcWide, Div = 2, Spammable = true, DamageText = "100+100",
                 Lines = new[] { "Мышь улетает вперёд и висит 1.5 с.", "Нажмите снова — вернётся и ударит ещё раз.", "Bleed: 50 за 4 с за удар." } },
 
             new() { Id = CardId.BlackHole, Name = "Black Hole", Color = CardColor.Yellow, Kind = "Область", Cooldown = 7f, Casting = 0.2f, Recovery = 0.1f,

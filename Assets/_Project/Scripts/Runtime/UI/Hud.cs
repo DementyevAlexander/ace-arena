@@ -20,6 +20,7 @@ namespace Arena.UI
         readonly RectTransform numbersLayer;
         readonly List<FloatNumber> numbers = new();
         readonly Image hurtFlash;
+        float hurtFade = 0.3f;
         float bannerT;
 
         public Hud()
@@ -46,7 +47,12 @@ namespace Arena.UI
 
         public void ShowBanner(string text, float time = 1.6f) { banner.text = text; bannerT = time; }
 
-        public void HurtFlash() => hurtFlash.color = new Color(1f, 0.1f, 0.1f, 0.28f);
+        /// <summary>Кровавая виньетка Hades: 0.3 с, а при сильном ударе (больше 10% здоровья) — 1 с.</summary>
+        public void HurtFlash(bool major = false)
+        {
+            hurtFlash.color = new Color(1f, 0.1f, 0.1f, major ? 0.4f : 0.28f);
+            hurtFade = major ? 1f : 0.3f;
+        }
 
         public void Number(Vector2 world, float value, bool crit, Color color)
         {
@@ -78,7 +84,7 @@ namespace Arena.UI
                 bannerT -= dt;
                 banner.color = banner.color.WithAlpha(Mathf.Clamp01(bannerT * 2f));
             }
-            var hc = hurtFlash.color; hc.a = Mathf.Max(0f, hc.a - dt * 1.2f); hurtFlash.color = hc;
+            var hc = hurtFlash.color; hc.a = Mathf.Max(0f, hc.a - dt * 0.35f / Mathf.Max(0.1f, hurtFade)); hurtFlash.color = hc;
 
             var size = ((RectTransform)canvas.transform).sizeDelta;
             for (int i = numbers.Count - 1; i >= 0; i--)

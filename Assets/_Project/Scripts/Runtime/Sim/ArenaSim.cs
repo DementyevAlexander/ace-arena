@@ -4,21 +4,28 @@ using UnityEngine;
 
 namespace Arena.Sim
 {
-    /// <summary>Вся логика арены без отрисовки: Ace, карты, враги, обозначения атак, волны.
-    /// Координаты — плоскость пола (x, z мира) в юнитах DandyAce.</summary>
+    /// <summary>Вся логика арены без отрисовки: Ace, карты, враги, ловушки, волны.
+    /// Координаты — плоскость пола (x, z мира) в юнитах арены; числа Hades переводятся через <see cref="Hades.U"/>.</summary>
     public sealed partial class ArenaSim
     {
         public readonly PlayerTuning PlayerCfg;
+        public readonly CastTuning CastCfg;
         public readonly GhostTuning GhostCfg;
         public readonly StomperTuning StomperCfg;
+        public readonly ThugTuning ThugCfg;
+        public readonly WitchTuning WitchCfg;
         public readonly ArenaTuning ArenaCfg;
 
+        public RoomDef Room { get; private set; }
         public readonly Player Player = new();
         public readonly Slot[] Slots = { new(), new(), new(), new() };
         public readonly CardId?[] Reserve = new CardId?[11];
         public readonly List<Enemy> Enemies = new();
         public readonly List<Effect> Effects = new();
         public readonly List<Obstacle> Obstacles = new();
+        public readonly List<Bolt> Bolts = new();
+        public readonly List<Trap> Traps = new();
+        public readonly List<HazardZone> Hazards = new();
         public readonly List<SimEvent> Events = new();
 
         public int Wave;
@@ -26,17 +33,20 @@ namespace Arena.Sim
         public bool GameOver;
         public float Time;
         public bool WavesEnabled = true;
-        float waveTimer;
         int nextId = 1;
         readonly System.Random rng;
 
-        public ArenaSim(int seed = 1, PlayerTuning player = null, GhostTuning ghost = null, StomperTuning stomper = null, ArenaTuning arena = null)
+        public ArenaSim(int seed = 1, RoomDef room = null, PlayerTuning player = null, GhostTuning ghost = null, StomperTuning stomper = null, ArenaTuning arena = null)
         {
             rng = new System.Random(seed);
             PlayerCfg = player ?? new PlayerTuning();
+            CastCfg = new CastTuning();
             GhostCfg = ghost ?? new GhostTuning();
             StomperCfg = stomper ?? new StomperTuning();
+            ThugCfg = new ThugTuning();
+            WitchCfg = new WitchTuning();
             ArenaCfg = arena ?? new ArenaTuning();
+            Room = room ?? RoomLibrary.Default();
             SetDefaultDeck();
             Restart();
         }
@@ -53,18 +63,41 @@ namespace Arena.Sim
             for (int i = 0; i < Reserve.Length; i++) Reserve[i] = i < rest.Length ? rest[i] : null;
         }
 
+        /// <summary>Сменить комнату и начать заново.</summary>
+        public void LoadRoom(RoomDef room)
+        {
+            Room = room ?? RoomDef.Box(10f, 7f);
+            Restart();
+        }
+
         public void Restart()
         {
             var p = Player;
-            p.Pos = new Vector2(0f, -3.5f); p.Face = new Vector2(0f, 1f); p.Aim = p.Face;
+            p.Pos = Room.heroStart; p.Face = new Vector2(0f, 1f); p.Aim = p.Face;
+            p.Vel = p.ExtVel = Vector2.zero; p.GripMul = 1f; p.GripT = 0f; p.Stun = 0f; p.RecentDamage.Clear();
             p.Hp = PlayerCfg.hp; p.HitInvuln = p.BuffInvuln = p.Haste = p.Shoes = p.Shield = p.Hidden = 0f;
             p.Cast = null; p.Buffer = -1; p.Lock = null; p.Dashing = false; p.KnockT = 0f; p.ShoeTrail = null;
             foreach (var s in Slots) s.Reset();
-            Enemies.Clear(); Effects.Clear(); Events.Clear();
-            Obstacles.Clear();
-            foreach (var o in new[] { new Vector2(-5.5f, 3f), new Vector2(5.5f, 3f), new Vector2(-6f, -3.5f), new Vector2(6f, -3.5f) })
-                Obstacles.Add(new Obstacle { Pos = o, R = 0.7f });
-            Wave = 0; Kills = 0; GameOver = false; Time = 0f; waveTimer = 1.2f;
+            Enemies.Clear(); Effects.Clear(); Events.Clear(); Bolts.Clear();
+            BuildRoom();
+            Wave = 0; Kills = 0; GameOver = false; Time = 0f;
+            ResetEncounter();
+        }
+
+        void BuildRoom()
+        {
+            Obstacles.Clear(); Traps.Clear(); Hazards.Clear();
+            foreach (var w in Room.walls)
+            {
+                if (w.p == null || w.p.Length < 3) continue;
+                var c = Geo.Centroid(w.p);
+                float r = 0f;
+                foreach (var v in w.p) r = Mathf.Max(r, (v - c).magnitude);
+                Obstacles.Add(new Obstacle { Pos = c, R = r, Poly = w.p, Height = w.h, Type = w.type });
+            }
+            BuildTraps();
+            foreach (var h in Room.hazards)
+                if (h.p != null && h.p.Length >= 3) Hazards.Add(new HazardZone { Type = h.type, Poly = h.p, Damage = h.damage });
         }
 
         public void Step(float dt, SimInput input)
@@ -77,9 +110,13 @@ namespace Arena.Sim
             for (int i = 0; i < Enemies.Count; i++) UpdateEnemy(Enemies[i], dt);
             Separate();
             UpdateEffects(dt);
+            UpdateBolts(dt);
+            UpdateTraps(dt);
+            UpdateHazards(dt);
             Enemies.RemoveAll(e => e.Dead && e.DeathT <= 0f);
             Effects.RemoveAll(f => f.Done);
-            if (WavesEnabled) UpdateWaves(dt);
+            Bolts.RemoveAll(b => b.Done);
+            if (WavesEnabled) UpdateEncounter(dt);
         }
 
         // ---------- Слоты ----------
@@ -129,7 +166,9 @@ namespace Arena.Sim
         void UpdatePlayer(float dt, SimInput input)
         {
             var p = Player;
-            p.HitInvuln -= dt; p.BuffInvuln -= dt; p.Haste -= dt; p.Shoes -= dt;
+            p.HitInvuln -= dt; p.BuffInvuln -= dt; p.Haste -= dt; p.Shoes -= dt; p.Stun -= dt;
+            for (int i = p.RecentDamage.Count - 1; i >= 0; i--)
+                if (Time - p.RecentDamage[i].x > PlayerCfg.iFrameWindow) p.RecentDamage.RemoveAt(i);
             if (p.Hidden > 0f)
             {
                 p.Hidden -= dt;
@@ -151,7 +190,7 @@ namespace Arena.Sim
             // Удержание повторяет каст (IsSpammable / FullyAutomatic в Hades)
             if (p.Cast == null && !p.Dashing && p.Buffer < 0)
                 for (int i = 0; i < 4; i++)
-                    if (input.IsHeld(i) && !input.IsPressed(i) && Slots[i].Ready && Slots[i].Card.Spammable && Slots[i].Bat == null) { StartCast(i, input); break; }
+                    if (input.IsHeld(i) && !input.IsPressed(i) && Slots[i].Ready && Slots[i].Card.Spammable && Slots[i].Bat == null && Style(Slots[i].Card) != CastStyle.Long) { StartCast(i, input); break; }
 
             UpdateCast(dt, input);
 
@@ -161,6 +200,7 @@ namespace Arena.Sim
                 p.DashT += dt;
                 float k = Mathf.Clamp01(p.DashT / p.DashDur), q = 1f - (1f - k) * (1f - k); // Ease.OutQuad
                 p.Pos = Vector2.Lerp(p.DashFrom, p.DashTo, q);
+                p.Vel = Vector2.zero;
                 if (k >= 1f)
                 {
                     p.Dashing = false;
@@ -168,27 +208,57 @@ namespace Arena.Sim
                     if (p.Buffer >= 0) { int b = p.Buffer; p.Buffer = -1; if (Slots[b].Ready) StartCast(b, input); }
                 }
             }
-            else if (p.KnockT > 0f)
+            else
             {
-                p.KnockT -= dt;
-                p.Pos += p.KnockVel * dt;
-            }
-            else if (p.Cast == null && input.Move.sqrMagnitude > 0.0001f)
-            {
-                // Hades: скорость сразу полная, наклон стика её не меняет
-                var dir = input.Move.normalized;
-                float speed = PlayerCfg.speed * (p.Haste > 0f ? 1.5f : 1f);
-                p.Pos += dir * (speed * dt);
-                p.Moving = true;
-                if (p.Lock == null || !p.Lock.Alive) p.Face = dir;
+                MovePlayer(dt, input);
             }
 
-            if (p.Lock != null && (!p.Lock.Alive || (p.Cast == null && input.Held == 0))) p.Lock = null;
-            if (p.Lock != null) p.Face = (p.Lock.Pos - p.Pos).normalized;
-            if (p.Cast == null) p.Aim = ComputeAimPreview(input);
+            if (p.Cast == null) { p.Lock = null; p.Aim = ComputeAimPreview(input); }
 
             CollideCircle(ref p.Pos, PlayerCfg.radius);
             UpdateShoes(dt);
+        }
+
+        /// <summary>Движение Загрея: разгон к целевой скорости (Acceleration 2000), взгляд поворачивается мгновенно.
+        /// Внешняя скорость (отбрасывание, выпады) тормозит сцеплением Grip; пока она выше 400 — ввод не управляет.</summary>
+        void MovePlayer(float dt, SimInput input)
+        {
+            var p = Player;
+            float mul = MoveMultiplier();
+            if (p.Stun > 0f) mul = 0f;
+            var target = Vector2.zero;
+            if (input.Move.sqrMagnitude > 0.0001f && mul > 0f)
+                target = input.Move.normalized * (PlayerCfg.speed * mul * (p.Haste > 0f ? 1.5f : 1f));
+            bool control = p.ExtVel.magnitude <= PlayerCfg.fullControlSpeed;
+            if (!control) target = Vector2.zero;
+            // замедление атакой действует сразу (эффект SPEED ограничивает скорость, а не разгон)
+            float cap = PlayerCfg.speed * mul * (p.Haste > 0f ? 1.5f : 1f);
+            if (mul < 1f && p.Vel.magnitude > cap) p.Vel = p.Vel.normalized * cap;
+            p.Vel = mul <= 0f ? Vector2.zero : Vector2.MoveTowards(p.Vel, target, PlayerCfg.acceleration * dt);
+
+            // внешняя скорость
+            p.GripT -= dt;
+            if (p.GripT <= 0f && p.GripMul < 1f) { p.GripMul = 1f; p.ExtVel = Vector2.zero; } // HaltOnEnd
+            p.ExtVel = Vector2.MoveTowards(p.ExtVel, Vector2.zero, PlayerCfg.grip * p.GripMul * dt);
+
+            p.Pos += (p.Vel + p.ExtVel) * dt;
+            p.Moving = p.Vel.sqrMagnitude > 0.01f;
+            if (p.Moving && p.Cast == null && p.Stun <= 0f && input.Move.sqrMagnitude > 0.0001f) p.Face = input.Move.normalized;
+        }
+
+        /// <summary>Скорость во время каста: розовые — ×0.35 (SwordWeapon), жёлтые — на месте (Cast, GunGrenadeToss).</summary>
+        float MoveMultiplier()
+        {
+            var c = Player.Cast;
+            if (c == null) return 1f;
+            var card = Slots[c.Slot].Card;
+            if (card == null) return 1f;
+            return Style(card) switch
+            {
+                CastStyle.Quick => card.HoldTime > 0f && c.Phase == CastPhase.Hold ? 0f : CastCfg.quickMoveMultiplier,
+                CastStyle.Long => 0f,
+                _ => c.Phase == CastPhase.Soft ? 1f : 0f,
+            };
         }
 
         /// <summary>Направление стрелки под Ace, пока нет каста.</summary>
@@ -205,8 +275,10 @@ namespace Arena.Sim
 
         // ---------- Наведение по-Hades ----------
 
-        /// <summary>Направление удара карты. Геймпад: цель автолока (наименьшее отклонение от стика в пределах угла и дальности),
-        /// иначе стик, иначе взгляд. Мышь: враг под курсором, иначе направление на курсор. Синие карты — по движению или взгляду.</summary>
+        /// <summary>Направление удара карты.
+        /// Мышь: снаряды летят ровно в курсор (AutoLockWithMouse = false), враг под курсором — во врага.
+        /// Геймпад: автоприцел Hades — из 4 ближайших врагов в радиусе берётся ближайший в пределах ±угла от стика или взгляда,
+        /// иначе ближайший вообще. Синие карты — по движению или взгляду.</summary>
         public Vector2 AimFor(CardDef card, SimInput input)
         {
             var p = Player;
@@ -230,28 +302,31 @@ namespace Arena.Sim
                 return c.sqrMagnitude > 0.01f ? c.normalized : p.Face;
             }
 
-            bool stick = input.Move.sqrMagnitude > 0.15f;
             var search = input.Move.sqrMagnitude > 0.0001f ? input.Move.normalized : p.Face;
-            if (stick || p.Lock == null || !p.Lock.Alive) p.Lock = FindLockTarget(search, card.LockRange, card.LockArc);
+            p.Lock = FindLockTarget(search, card.LockRange, card.LockArc);
             return p.Lock != null ? (p.Lock.Pos - p.Pos).normalized : search;
         }
 
-        /// <summary>FindLockTarget из Hades II: кандидаты ближе дальности (до края тела) и в пределах угла, выигрывает наименьший угол.</summary>
+        /// <summary>GetNearestEnemyArgs из Hades (Powers.lua:1442): 4 ближайших врага в радиусе (неуязвимые не в счёт),
+        /// из них ближайший в пределах ±arc от направления; если таких нет — ближайший вообще. Расстояние решает, угол — только фильтр.</summary>
         public Enemy FindLockTarget(Vector2 dir, float range, float arcDeg)
         {
-            Enemy best = null;
-            float bestAngle = float.MaxValue;
+            var near = new List<(float d, Enemy e)>();
             foreach (var e in Enemies)
             {
-                if (!e.Alive) continue;
-                var d = e.Pos - Player.Pos;
-                float dist = d.magnitude - e.R;
-                if (dist > range) continue;
-                float angle = d.sqrMagnitude < 0.0001f ? 0f : Vector2.Angle(dir, d);
-                if (arcDeg < 180f && angle > arcDeg) continue;
-                if (angle < bestAngle) { bestAngle = angle; best = e; }
+                if (!e.Alive || e.SpawnInvuln > 0f) continue;
+                float d = (e.Pos - Player.Pos).magnitude - e.R;
+                if (d <= range) near.Add((d, e));
             }
-            return best;
+            near.Sort((a, b) => a.d.CompareTo(b.d));
+            if (near.Count > CastCfg.lockCandidates) near.RemoveRange(CastCfg.lockCandidates, near.Count - CastCfg.lockCandidates);
+            foreach (var (_, e) in near)
+            {
+                var d = e.Pos - Player.Pos;
+                float angle = d.sqrMagnitude < 0.0001f ? 0f : Vector2.Angle(dir, d);
+                if (angle <= arcDeg) return e;
+            }
+            return near.Count > 0 ? near[0].e : null;
         }
 
         public Enemy EnemyUnderCursor(Vector2 cursor)
@@ -273,36 +348,93 @@ namespace Arena.Sim
         {
             foreach (var o in Obstacles)
             {
-                var d = pos - o.Pos;
-                float m = o.R + r, l = d.magnitude;
-                if (l < m) pos = o.Pos + (l > 0.0001f ? d / l : Vector2.up) * m;
+                if ((pos - o.Pos).sqrMagnitude > (o.R + r) * (o.R + r)) continue;
+                if (o.Round)
+                {
+                    var d = pos - o.Pos;
+                    float m = o.R + r, l = d.magnitude;
+                    if (l < m) pos = o.Pos + (l > 0.0001f ? d / l : Vector2.up) * m;
+                }
+                else Geo.PushOut(o.Poly, ref pos, r);
             }
-            pos.x = Mathf.Clamp(pos.x, -ArenaCfg.halfWidth + r, ArenaCfg.halfWidth - r);
-            pos.y = Mathf.Clamp(pos.y, -ArenaCfg.halfDepth + r, ArenaCfg.halfDepth - r);
+            KeepOnFloor(ref pos, r);
         }
 
-        public bool InsideRoom(Vector2 p, float r) =>
-            Mathf.Abs(p.x) <= ArenaCfg.halfWidth - r && Mathf.Abs(p.y) <= ArenaCfg.halfDepth - r;
+        /// <summary>Держит круг на полу комнаты: внутри любого контура пола, иначе — к ближайшему краю.</summary>
+        void KeepOnFloor(ref Vector2 pos, float r)
+        {
+            var floor = Room.floor;
+            if (floor.Length == 0) return;
+            RoomDef.Poly home = null;
+            foreach (var f in floor)
+                if (Geo.InPoly(f.p, pos)) { home = f; break; }
+            if (home != null)
+            {
+                // контуры пола могут перекрываться: край одного внутри другого — не стена
+                bool ok = true;
+                for (int i = 0; i < 8 && ok; i++)
+                {
+                    float a = i * Mathf.PI / 4f;
+                    if (!OnFloor(pos + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r)) ok = false;
+                }
+                if (ok) return;
+                Geo.KeepInside(home.p, ref pos, r);
+                return;
+            }
+            RoomDef.Poly best = null;
+            float bestD = float.MaxValue;
+            foreach (var f in floor)
+            {
+                Geo.ClosestOnEdge(f.p, pos, out float d);
+                if (d < bestD) { bestD = d; best = f; }
+            }
+            if (best != null) Geo.KeepInside(best.p, ref pos, r);
+        }
+
+        bool OnFloor(Vector2 p)
+        {
+            if (Room.floor.Length == 0) return true;
+            foreach (var f in Room.floor)
+                if (Geo.InPoly(f.p, p)) return true;
+            return false;
+        }
+
+        public bool InsideRoom(Vector2 p, float r) => OnFloor(p) && !HitsObstacle(p, r);
 
         bool HitsObstacle(Vector2 p, float r)
         {
             foreach (var o in Obstacles)
-                if ((p - o.Pos).sqrMagnitude < (o.R + r) * (o.R + r)) return true;
+            {
+                if ((p - o.Pos).sqrMagnitude >= (o.R + r) * (o.R + r)) continue;
+                if (o.Round || Geo.Overlaps(o.Poly, p, r)) return true;
+            }
             return false;
         }
 
-        /// <summary>Точка рывка/телепорта: по прямой, но не в стену и не внутрь колонны.</summary>
+        /// <summary>Видит ли a точку b: отрезок не пересекает препятствия (AIRequireProjectileLineOfSight).</summary>
+        public bool LineOfSight(Vector2 a, Vector2 b, float buffer = 0f)
+        {
+            foreach (var o in Obstacles)
+            {
+                float d = (Geo.ClosestOnSegment(a, b, o.Pos) - o.Pos).magnitude;
+                if (d > o.R + buffer) continue;
+                if (o.Round) return false;
+                if (Geo.SegmentHit(o.Poly, a, b, out _)) return false;
+            }
+            return true;
+        }
+
+        /// <summary>Точка рывка/телепорта: по прямой, но не в стену и не внутрь препятствия.</summary>
         Vector2 TravelTarget(Vector2 from, Vector2 dir, float dist)
         {
             var to = from + dir * dist;
             var r = PlayerCfg.radius;
-            for (int i = 0; i < 20; i++)
+            for (int i = 0; i < 40; i++)
             {
-                if (!HitsObstacle(to, r)) break;
+                if (InsideRoom(to, r)) break;
                 dist -= 0.2f; to = from + dir * Mathf.Max(0f, dist);
             }
-            to.x = Mathf.Clamp(to.x, -ArenaCfg.halfWidth + r, ArenaCfg.halfWidth - r);
-            to.y = Mathf.Clamp(to.y, -ArenaCfg.halfDepth + r, ArenaCfg.halfDepth - r);
+            CollideCircle(ref to, r);
             return to;
         }
 
@@ -332,43 +464,16 @@ namespace Arena.Sim
             CollideCircle(ref Player.Pos, PlayerCfg.radius);
         }
 
-        // ---------- Волны ----------
-
-        void UpdateWaves(float dt)
-        {
-            foreach (var e in Enemies) if (!e.Dead) return;
-            waveTimer -= dt;
-            if (waveTimer > 0f) return;
-            waveTimer = ArenaCfg.waveDelay;
-            Wave++;
-            int stompers = Mathf.Min(1 + Wave, 6), ghosts = Mathf.Min(Wave, 4);
-            for (int i = 0; i < stompers; i++) SpawnEnemy(EnemyKind.Stomper, RandomSpawn(), i * 0.15f);
-            for (int i = 0; i < ghosts; i++) SpawnEnemy(EnemyKind.Ghost, RandomSpawn(), 0.3f + i * 0.15f);
-            Events.Add(new SimEvent { Kind = EventKind.WaveStart, Value = Wave });
-        }
-
-        Vector2 RandomSpawn()
-        {
-            for (int t = 0; t < 60; t++)
-            {
-                var p = new Vector2(Rand(-ArenaCfg.halfWidth + 1.5f, ArenaCfg.halfWidth - 1.5f), Rand(-ArenaCfg.halfDepth + 1.5f, ArenaCfg.halfDepth - 1.5f));
-                if ((p - Player.Pos).magnitude < 5f || HitsObstacle(p, 0.6f)) continue;
-                bool crowded = false;
-                foreach (var e in Enemies) if ((e.Pos - p).sqrMagnitude < 1.5f) crowded = true;
-                if (!crowded) return p;
-            }
-            return new Vector2(0f, ArenaCfg.halfDepth - 2f);
-        }
-
-        public Enemy SpawnEnemy(EnemyKind kind, Vector2 pos, float delay = 0f)
+        public Enemy SpawnEnemy(EnemyKind kind, Vector2 pos, float delay = 0f, bool preSpawned = false)
         {
             var e = new Enemy
             {
-                Id = nextId++, Kind = kind, Pos = pos, State = AiState.Spawn, T = ArenaCfg.spawnTime + delay,
-                R = kind == EnemyKind.Ghost ? GhostCfg.radius : StomperCfg.radius,
+                Id = nextId++, Kind = kind, Pos = pos, Home = pos, State = AiState.Spawn,
+                T = preSpawned ? 0f : ArenaCfg.spawnTime + delay, PreSpawned = preSpawned,
+                R = kind switch { EnemyKind.Ghost => GhostCfg.radius, EnemyKind.Stomper => StomperCfg.radius, EnemyKind.Thug => ThugCfg.radius, _ => WitchCfg.radius },
                 Cd = Rand(0.3f, 1f),
             };
-            e.MaxHp = e.Hp = kind == EnemyKind.Ghost ? GhostCfg.hp : StomperCfg.hp;
+            e.MaxHp = e.Hp = kind switch { EnemyKind.Ghost => GhostCfg.hp, EnemyKind.Stomper => StomperCfg.hp, EnemyKind.Thug => ThugCfg.hp, _ => WitchCfg.hp };
             Enemies.Add(e);
             Events.Add(new SimEvent { Kind = EventKind.EnemySpawned, Pos = pos, Enemy = e });
             return e;

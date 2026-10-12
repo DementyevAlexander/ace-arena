@@ -11,6 +11,8 @@ namespace Arena.View
         readonly Dictionary<int, EffectView> views = new();
         readonly List<int> stale = new();
         readonly List<Flash> flashes = new();
+        readonly Dictionary<Bolt, Transform> bolts = new();
+        readonly List<Bolt> staleBolts = new();
 
         public EffectViews(Transform parent)
         {
@@ -30,6 +32,28 @@ namespace Arena.View
             foreach (var kv in views) if (kv.Value.F.Done || !sim.Effects.Contains(kv.Value.F)) stale.Add(kv.Key);
             foreach (var id in stale) { views[id].Destroy(); views.Remove(id); }
 
+            // снаряды врагов: фиолетовый сгусток ведьмы, дротик ловушки
+            foreach (var b in sim.Bolts)
+            {
+                if (b.Done) continue;
+                if (!bolts.TryGetValue(b, out var t))
+                {
+                    var go = b.FromTrap
+                        ? Art.Part(root, MeshKit.Prism(4, 0f), Art.LitMat(new Color(0.8f, 0.78f, 0.7f)), Vector3.zero, new Vector3(0.06f, 0.35f, 0.06f), new Vector3(90f, 0f, 0f), false)
+                        : Art.Part(root, MeshKit.Ico(1), Art.LitMat(new Color(0.8f, 0.45f, 1f), 3f), Vector3.zero, Vector3.one * (b.R * 2.4f), default, false);
+                    var holder = new GameObject("Bolt").transform;
+                    holder.SetParent(root, false);
+                    go.transform.SetParent(holder, true);
+                    if (!b.FromTrap) EffectView.Trail(holder, new Color(0.75f, 0.4f, 1f, 0.8f), b.R * 1.6f, 0.18f, 0.5f);
+                    bolts[b] = t = holder;
+                }
+                t.position = Art.W(b.Pos, 0.5f);
+                t.rotation = Quaternion.LookRotation(new Vector3(b.Dir.x, 0f, b.Dir.y));
+            }
+            staleBolts.Clear();
+            foreach (var kv in bolts) if (kv.Key.Done || !sim.Bolts.Contains(kv.Key)) staleBolts.Add(kv.Key);
+            foreach (var b in staleBolts) { Object.Destroy(bolts[b].gameObject); bolts.Remove(b); }
+
             for (int i = flashes.Count - 1; i >= 0; i--)
             {
                 var fl = flashes[i];
@@ -46,6 +70,19 @@ namespace Arena.View
         {
             foreach (var v in views.Values) v.Destroy();
             views.Clear();
+            foreach (var t in bolts.Values) Object.Destroy(t.gameObject);
+            bolts.Clear();
+        }
+
+        /// <summary>Вспышка фигуры удара на полу (трапеция дубины Thug) — гаснет за life.</summary>
+        public void Shape(Vector2[] poly, Color color, float life = 0.2f)
+        {
+            var mat = Art.DecalInstance(color, -1, 9);
+            var go = new GameObject("Slash");
+            go.transform.SetParent(root, false);
+            go.AddComponent<MeshFilter>().sharedMesh = MeshKit.Polygon(poly, 0.06f);
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+            flashes.Add(new Flash { Go = go, Mat = mat, Color = color, Life = life, From = Vector3.one, To = Vector3.one });
         }
 
         /// <summary>Кольцо на полу, расширяется и гаснет.</summary>
@@ -169,7 +206,7 @@ namespace Arena.View
 
         void Add(GameObject go) => parts.Add(go.transform);
 
-        static void Trail(Transform t, Color c, float width, float time, float y)
+        internal static void Trail(Transform t, Color c, float width, float time, float y)
         {
             var holder = new GameObject("Trail");
             holder.transform.SetParent(t, false);

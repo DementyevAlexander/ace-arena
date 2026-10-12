@@ -29,20 +29,35 @@ namespace Arena.Tests
             Assert.Greater(gc.Sim.Enemies.Count, 0);
             yield return Capture("01_wave");
 
-            // ставим призрака и топотуна рядом с Ace и даём начать замах — проверяем обозначения
+            // Hades: Thug в замахе белеет, ведьма стреляет, у Ghost и топотуна — их зоны на земле
             var p = gc.Sim.Player.Pos;
+            gc.Sim.Player.BuffInvuln = 30f;
             foreach (var e in gc.Sim.Enemies) e.Pos = p + new Vector2(6f, 5f);
-            var g = gc.Sim.SpawnEnemy(EnemyKind.Ghost, p + new Vector2(0f, 2.4f));
+            var thug = gc.Sim.SpawnEnemy(EnemyKind.Thug, p + new Vector2(1.6f, 0.6f));
+            thug.State = AiState.Chase; thug.T = 0f; thug.Aggro = true;
+            var witch = gc.Sim.SpawnEnemy(EnemyKind.Witch, p + new Vector2(-4f, 3f));
+            witch.State = AiState.Peek; witch.T = 3f; witch.Aggro = true;
+            var g = gc.Sim.SpawnEnemy(EnemyKind.Ghost, p + new Vector2(-1.5f, -2.4f));
             g.State = AiState.Chase; g.Cd = 0f;
-            var st = gc.Sim.SpawnEnemy(EnemyKind.Stomper, p + new Vector2(1.5f, -0.5f));
+            var st = gc.Sim.SpawnEnemy(EnemyKind.Stomper, p + new Vector2(1.5f, -1.5f));
             st.State = AiState.Chase; st.Cd = 0f;
-            gc.Sim.Player.BuffInvuln = 5f;
             // ждём по игровому времени: в batch-режиме кадры медленные, а шаг кадра в симуляции ограничен
-            for (int i = 0; i < 600 && (g.Tele == null || g.Tele.Progress < 0.6f); i++) yield return null;
+            for (int i = 0; i < 900 && thug.WarnT < 0.5f; i++) yield return null;
+            Assert.Greater(thug.WarnT, 0f, "Thug в конце замаха белеет");
+            yield return Capture("02_thug_windup");
+            for (int i = 0; i < 900 && (g.Tele == null || g.Tele.Progress < 0.6f); i++) yield return null;
             Assert.IsNotNull(g.Tele);
-            yield return Capture("02_telegraphs");
+            yield return Capture("03_telegraphs");
+            for (int i = 0; i < 900 && gc.Sim.Bolts.Count == 0; i++) yield return null;
+            yield return Capture("04_witch_bolt");
+
+            // прицел жёлтой карты
+            gc.Sim.Player.Cast = new Cast { Slot = 2, Phase = CastPhase.Aim, Target = gc.Sim.Player.Pos + new Vector2(2.5f, 1.5f) };
+            yield return null;
+            yield return Capture("05_reticle");
+            gc.Sim.Player.Cast = null;
             yield return new WaitForSeconds(1.5f);
-            yield return Capture("03_after");
+            yield return Capture("06_after");
         }
 
         static IEnumerator Capture(string name)

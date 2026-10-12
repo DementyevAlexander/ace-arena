@@ -5,6 +5,15 @@ namespace Arena.Sim
 {
     public sealed partial class ArenaSim
     {
+        /// <summary>Как применяется карта: розовые — атака Hades (нажал — замах — удар), жёлтые — Cast с прицелом
+        /// (держишь — целишься, отпустил — замах и выстрел), синие — рывок (мгновенно, прерывает чужое восстановление).</summary>
+        public static CastStyle Style(CardDef card) => card.Color switch
+        {
+            CardColor.Pink => CastStyle.Quick,
+            CardColor.Yellow => CastStyle.Long,
+            _ => CastStyle.Instant,
+        };
+
         void PressSlot(int i, SimInput input)
         {
             var s = Slots[i];
@@ -16,27 +25,117 @@ namespace Arena.Sim
             if (!s.Ready) return;
             if (p.Cast != null || p.Dashing)
             {
-                var cur = p.Cast != null ? Slots[p.Cast.Slot].Card : null;
-                // Прерывать могут карты с CanInterrupt, и только прерываемый каст (PlayerCast.CancelSkill)
-                bool can = p.Cast != null && card.CanInterrupt && cur.Interruptible && p.Cast.Slot != i;
-                if (!can) { p.Buffer = i; return; }
+                if (!CanCancel(card, i)) { p.Buffer = i; return; } // RequestTriggerLock: нажатие ждёт конца блокировки
                 p.Cast = null;
             }
             StartCast(i, input);
         }
 
+        /// <summary>Матрица отмены Hades: жёсткое восстановление (Cancelable = false) не прерывает никто; мягкое прерывают
+        /// карты с CanCancelDisables — синие и жёлтые (рывок и Cast); замах, удержание и прицел прерывают карты с CanInterrupt.</summary>
+        bool CanCancel(CardDef card, int slot)
+        {
+            var c = Player.Cast;
+            if (c == null || c.Slot == slot) return false;
+            var cur = Slots[c.Slot].Card;
+            if (cur == null) return true;
+            switch (c.Phase)
+            {
+                case CastPhase.Recovery: return false;
+                case CastPhase.Soft: return Style(card) != CastStyle.Quick || card.CanInterrupt;
+                default: return card.CanInterrupt && cur.Interruptible;
+            }
+        }
+
         void ReleaseSlot(int i, SimInput input)
         {
             var c = Player.Cast;
-            if (c != null && c.Slot == i && c.Phase == CastPhase.Hold) FireHold(input);
+            if (c == null || c.Slot != i) return;
+            if (c.Phase == CastPhase.Hold) FireHold(input);
+            else if (c.Phase == CastPhase.Aim) BeginLongWindup(c);
         }
 
         void StartCast(int i, SimInput input)
         {
             var card = Slots[i].Card;
-            Player.Cast = new Cast { Slot = i, Phase = CastPhase.Casting, T = card.Casting, Dir = AimFor(card, input) };
-            Player.Buffer = -1;
-            Player.Aim = Player.Cast.Dir;
+            var p = Player;
+            p.Buffer = -1;
+            if (Style(card) == CastStyle.Long)
+            {
+                // GunGrenadeToss: прицел появляется на ManualAimingInitialOffset перед Ace или на цели автоприцела
+                var c = new Cast { Slot = i, Phase = CastPhase.Aim, Target = InitialReticle(card, input) };
+                c.Dir = DirTo(c.Target);
+                p.Cast = c;
+                p.Reticle = c.Target;
+                p.Aim = p.Face = c.Dir;
+                if (!input.IsHeld(i)) BeginLongWindup(c);
+                return;
+            }
+            // SetCompleteAngleOnCharge: взгляд поворачивается к цели в начале замаха и ещё раз в момент удара
+            p.Cast = new Cast { Slot = i, Phase = CastPhase.Casting, T = card.Casting, Dir = AimFor(card, input) };
+            p.Aim = p.Cast.Dir;
+            if (card.Aims) p.Face = p.Cast.Dir;
+        }
+
+        Vector2 InitialReticle(CardDef card, SimInput input)
+        {
+            var p = Player;
+            if (input.UseMouse && input.HasCursor) return ClampReticle(input.Cursor);
+            var search = input.Move.sqrMagnitude > 0.0001f ? input.Move.normalized : p.Face;
+            var lockOn = card.Aims ? FindLockTarget(search, card.LockRange, card.LockArc) : null;
+            p.Lock = lockOn;
+            return lockOn != null ? ClampReticle(lockOn.Pos) : p.Pos + search * CastCfg.reticleStart;
+        }
+
+        Vector2 ClampReticle(Vector2 at)
+        {
+            var d = at - Player.Pos;
+            return d.magnitude > CastCfg.reticleRange ? Player.Pos + d.normalized * CastCfg.reticleRange : at;
+        }
+
+        Vector2 DirTo(Vector2 at)
+        {
+            var d = at - Player.Pos;
+            return d.sqrMagnitude > 0.0001f ? d.normalized : Player.Face;
+        }
+
+        void BeginLongWindup(Cast c)
+        {
+            var card = Slots[c.Slot].Card;
+            c.Phase = CastPhase.Casting;
+            c.T = Mathf.Max(card.Casting, card.Aims ? CastCfg.longMinWindup : card.Casting);
+            c.Dir = DirTo(c.Target);
+            Player.Aim = c.Dir;
+            if (card.Aims) Player.Face = c.Dir;
+        }
+
+        /// <summary>Прицел жёлтой карты: мышь — курсор; геймпад — стик двигает прицел (ReticleMoveSpeed), у врага он
+        /// притягивается (ReticleMagnetism). Дальше предела прицел не уходит.</summary>
+        void UpdateReticle(Cast c, SimInput input, float dt)
+        {
+            var p = Player;
+            if (input.UseMouse && input.HasCursor) c.Target = ClampReticle(input.Cursor);
+            else
+            {
+                if (input.Move.sqrMagnitude > 0.0001f) c.Target += input.Move * (CastCfg.reticleSpeed * dt);
+                else
+                {
+                    Enemy best = null;
+                    float bestD = CastCfg.reticleMagnetDistance;
+                    foreach (var e in Enemies)
+                    {
+                        if (!e.Alive) continue;
+                        float d = (e.Pos - c.Target).magnitude;
+                        if (d < bestD) { bestD = d; best = e; }
+                    }
+                    if (best != null) c.Target = Vector2.MoveTowards(c.Target, best.Pos, CastCfg.reticleMagnetSpeed * dt);
+                }
+                c.Target = ClampReticle(c.Target);
+            }
+            p.Reticle = c.Target;
+            c.Dir = DirTo(c.Target);
+            p.Aim = c.Dir;
+            if (Slots[c.Slot].Card.Aims) p.Face = c.Dir;
         }
 
         void UpdateCast(float dt, SimInput input)
@@ -47,49 +146,81 @@ namespace Arena.Sim
             var s = Slots[c.Slot];
             var card = s.Card;
             if (card == null) { p.Cast = null; return; }
-            // Hades: пока кнопка держится, запрос обновляется каждый кадр — можно доворачивать во время замаха и удержания
-            if (c.Phase != CastPhase.Recovery)
+            switch (c.Phase)
             {
-                c.Dir = AimFor(card, input);
-                p.Aim = c.Dir;
-                if (card.Aims) p.Face = c.Dir;
-            }
-            c.T -= dt;
-            if (c.Phase == CastPhase.Casting && c.T <= 0f)
-            {
-                if (card.HoldTime > 0f)
-                {
-                    c.Phase = CastPhase.Hold; c.Hold = 0f;
-                    if (!input.IsHeld(c.Slot)) FireHold(input);
-                }
-                else
-                {
-                    Fire(c.Slot, c.Dir, 0f);
-                    if (p.Cast == c) { c.Phase = CastPhase.Recovery; c.T = card.Recovery; }
-                }
-            }
-            else if (c.Phase == CastPhase.Hold)
-            {
-                c.Hold += dt;
-                if (c.Hold >= card.HoldTime || !input.IsHeld(c.Slot)) FireHold(input);
-            }
-            else if (c.Phase == CastPhase.Recovery && c.T <= 0f)
-            {
-                p.Cast = null;
-                if (p.Buffer >= 0)
-                {
-                    int b = p.Buffer; p.Buffer = -1;
-                    if (Slots[b].Ready) StartCast(b, input);
-                }
+                case CastPhase.Aim:
+                    UpdateReticle(c, input, dt);
+                    if (!input.IsHeld(c.Slot)) BeginLongWindup(c);
+                    break;
+                case CastPhase.Casting:
+                    c.T -= dt;
+                    if (c.T > 0f) break;
+                    if (Style(card) != CastStyle.Long)
+                    {
+                        // SetCompleteAngleOnFire: в момент удара прицел пересчитывается
+                        c.Dir = AimFor(card, input);
+                        p.Aim = c.Dir;
+                        if (card.Aims) p.Face = c.Dir;
+                    }
+                    if (card.HoldTime > 0f)
+                    {
+                        c.Phase = CastPhase.Hold; c.Hold = 0f;
+                        if (!input.IsHeld(c.Slot)) FireHold(input);
+                    }
+                    else
+                    {
+                        Fire(c.Slot, c.Dir, 0f, c.Target);
+                        if (p.Cast == c) { c.Phase = CastPhase.Recovery; c.T = card.Recovery; }
+                    }
+                    break;
+                case CastPhase.Hold:
+                    // Лук Hades: во время накопления можно доворачивать (SetCompleteAngleOnCharge = false)
+                    c.Dir = AimFor(card, input);
+                    p.Aim = c.Dir;
+                    if (card.Aims) p.Face = c.Dir;
+                    c.Hold += dt;
+                    if (c.Hold >= card.HoldTime || !input.IsHeld(c.Slot)) FireHold(input);
+                    break;
+                case CastPhase.Recovery:
+                    c.T -= dt;
+                    if (c.T <= 0f) { c.Phase = CastPhase.Soft; c.T = SoftRecovery(card); }
+                    break;
+                case CastPhase.Soft:
+                    c.T -= dt;
+                    if (c.T > 0f) break;
+                    p.Cast = null;
+                    if (p.Buffer >= 0)
+                    {
+                        int b = p.Buffer; p.Buffer = -1;
+                        if (Slots[b].Ready) StartCast(b, input);
+                    }
+                    break;
             }
         }
+
+        float SoftRecovery(CardDef card) => Style(card) switch
+        {
+            CastStyle.Quick => CastCfg.quickSoftRecovery,
+            CastStyle.Long => CastCfg.longSoftRecovery,
+            _ => CastCfg.instantSoftRecovery,
+        };
 
         void FireHold(SimInput input)
         {
             var c = Player.Cast;
             var card = Slots[c.Slot].Card;
-            Fire(c.Slot, c.Dir, Mathf.Clamp01(c.Hold / card.HoldTime));
-            c.Phase = CastPhase.Recovery; c.T = card.Recovery;
+            Fire(c.Slot, c.Dir, Mathf.Clamp01(c.Hold / card.HoldTime), c.Target);
+            if (Player.Cast == c) { c.Phase = CastPhase.Recovery; c.T = card.Recovery; }
+        }
+
+        /// <summary>Удар по Ace сбрасывает прицел и накопление (CancelWeaponCharges) и прерывает прерываемый замах.</summary>
+        void InterruptPlayerCast()
+        {
+            var p = Player;
+            var c = p.Cast;
+            if (c == null) return;
+            var card = Slots[c.Slot].Card;
+            if (c.Phase is CastPhase.Aim or CastPhase.Hold || (card != null && card.Interruptible && c.Phase == CastPhase.Casting)) p.Cast = null;
         }
 
         void ConsumeCharge(Slot s)
@@ -105,7 +236,7 @@ namespace Arena.Sim
         }
 
         /// <summary>Срабатывание карты (OnCastStart в DandyAce).</summary>
-        void Fire(int slotIndex, Vector2 dir, float hold)
+        void Fire(int slotIndex, Vector2 dir, float hold, Vector2 target = default)
         {
             var s = Slots[slotIndex];
             var card = s.Card;
@@ -166,7 +297,8 @@ namespace Arena.Sim
                 }
                 case CardId.BlackHole:
                 {
-                    var center = p.Pos + dir * 3.4f;
+                    // центр — в точке прицела (жёлтая карта целится как GunGrenadeToss)
+                    var center = Style(card) == CastStyle.Long ? target : p.Pos + dir * 3.4f;
                     CollideCircle(ref center, 1f);
                     var src = Source(s, 30f);
                     Add(new Effect { Kind = EffectKind.BlackHole, Pos = center, Life = 3f, R = 2f, Src = src });
@@ -197,19 +329,19 @@ namespace Arena.Sim
                     break;
                 case CardId.MasterfulJump:
                 {
-                    Enemy target = null;
+                    Enemy jumpTo = null;
                     float best = 5f;
                     foreach (var e in Enemies)
                     {
                         if (!e.Alive) continue;
                         float d = (e.Pos - p.Pos).magnitude;
-                        if (d <= best) { best = d; target = e; }
+                        if (d <= best) { best = d; jumpTo = e; }
                     }
                     var to = p.Pos;
-                    if (target != null)
+                    if (jumpTo != null)
                     {
-                        var away = p.Pos - target.Pos;
-                        to = target.Pos + (away.sqrMagnitude > 0.001f ? away.normalized : Vector2.down) * (target.R + 0.45f);
+                        var away = p.Pos - jumpTo.Pos;
+                        to = jumpTo.Pos + (away.sqrMagnitude > 0.001f ? away.normalized : Vector2.down) * (jumpTo.R + 0.45f);
                         CollideCircle(ref to, PlayerCfg.radius);
                     }
                     Events.Add(new SimEvent { Kind = EventKind.Teleport, Pos = p.Pos, To = to, Color = 1 });
@@ -269,7 +401,7 @@ namespace Arena.Sim
             // SkillEventResetCooldown: убийство сбрасывает перезарядку
             if (Kills > killsBefore && src.Slot != null) { src.Slot.Charges = src.Card.Charges; src.Slot.OnCd = false; src.Slot.CdTimer = 0f; }
             jumpSource = null;
-            p.Cast = new Cast { Slot = System.Array.IndexOf(Slots, src.Slot), Phase = CastPhase.Recovery, T = src.Card.Recovery, Fired = true };
+            p.Cast = new Cast { Slot = System.Array.IndexOf(Slots, src.Slot), Phase = CastPhase.Recovery, T = src.Card.Recovery, Fired = true, Dir = p.Face };
             if (p.Cast.Slot < 0) p.Cast = null;
         }
 

@@ -15,10 +15,12 @@ namespace Arena.View
             readonly List<Vector2> uv = new();
             /// <summary>Центр выпуклой фигуры: грани разворачиваются наружу от него (лицевая сторона в Unity — по часовой).</summary>
             public Vector3 Center;
+            /// <summary>Не разворачивать грани: порядок вершин задан вызывающим (невыпуклые призмы).</summary>
+            public bool Raw;
 
             public void Tri(Vector3 a, Vector3 b, Vector3 c)
             {
-                if (Vector3.Dot(Vector3.Cross(b - a, c - a), (a + b + c) / 3f - Center) < 0f) (b, c) = (c, b);
+                if (!Raw && Vector3.Dot(Vector3.Cross(b - a, c - a), (a + b + c) / 3f - Center) < 0f) (b, c) = (c, b);
                 int i = v.Count;
                 v.Add(a); v.Add(b); v.Add(c);
                 uv.Add(Vector2.zero); uv.Add(Vector2.right); uv.Add(Vector2.up);
@@ -29,7 +31,7 @@ namespace Arena.View
 
             public Mesh Build(string name)
             {
-                var m = new Mesh { name = name };
+                var m = new Mesh { name = name, indexFormat = v.Count > 65000 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16 };
                 m.SetVertices(v); m.SetTriangles(t, 0); m.SetUVs(0, uv);
                 m.RecalculateNormals(); m.RecalculateBounds();
                 return m;
@@ -172,5 +174,48 @@ namespace Arena.View
             b.Tri(a, top, r); b.Tri(a, l, top); b.Tri(l, r, top); b.Tri(a, r, l);
             return b.Build("Wedge");
         });
+
+        /// <summary>Плоский многоугольник на высоте y (контур пола), нормаль вверх. Точки — плоскость пола (x, z).</summary>
+        public static Mesh Polygon(IReadOnlyList<Vector2> poly, float y, float uvScale = 0.5f)
+        {
+            var v = new List<Vector3>(poly.Count);
+            var uv = new List<Vector2>(poly.Count);
+            foreach (var p in poly) { v.Add(new Vector3(p.x, y, p.y)); uv.Add(p * uvScale); }
+            var tris = Arena.Sim.Geo.Triangulate(poly);
+            // треугольники в порядке против часовой при виде сверху (x, z) → для Unity нужен обратный
+            for (int i = 0; i < tris.Count; i += 3) (tris[i + 1], tris[i + 2]) = (tris[i + 2], tris[i + 1]);
+            var m = new Mesh { name = "Polygon", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            m.SetVertices(v); m.SetUVs(0, uv); m.SetTriangles(tris, 0);
+            m.RecalculateNormals(); m.RecalculateBounds();
+            return m;
+        }
+
+        /// <summary>Призма по контуру: стенки и крышка на высоте h (стены и препятствия комнаты), плоские грани.</summary>
+        public static Mesh Extrude(IReadOnlyList<Vector2> poly, float h, float bottom = 0f)
+        {
+            var b = new Builder { Raw = true };
+            bool ccw = Arena.Sim.Geo.SignedArea(poly) > 0f;
+            int n = poly.Count;
+            for (int i = 0; i < n; i++)
+            {
+                var a2 = poly[i];
+                var c2 = poly[(i + 1) % n];
+                if (!ccw) (a2, c2) = (c2, a2);
+                var a0 = new Vector3(a2.x, bottom, a2.y);
+                var c0 = new Vector3(c2.x, bottom, c2.y);
+                var a1 = new Vector3(a2.x, h, a2.y);
+                var c1 = new Vector3(c2.x, h, c2.y);
+                b.Tri(a0, c1, c0); b.Tri(a0, a1, c1);
+            }
+            var tris = Arena.Sim.Geo.Triangulate(poly);
+            for (int i = 0; i < tris.Count; i += 3)
+            {
+                var p0 = poly[tris[i]];
+                var p1 = poly[tris[i + 1]];
+                var p2 = poly[tris[i + 2]];
+                b.Tri(new Vector3(p0.x, h, p0.y), new Vector3(p2.x, h, p2.y), new Vector3(p1.x, h, p1.y));
+            }
+            return b.Build("Extrude");
+        }
     }
 }

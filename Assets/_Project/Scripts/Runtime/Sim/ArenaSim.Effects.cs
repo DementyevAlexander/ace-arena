@@ -66,7 +66,8 @@ namespace Arena.Sim
         {
             f.Life -= dt;
             f.Pos += f.Dir * (f.Speed * dt);
-            if (f.Life <= 0f || !InsideRoom(f.Pos, 0f) || HitsObstacle(f.Pos, f.R * 0.5f)) { f.Done = true; return; }
+            if (f.Life <= 0f || !InsideRoom(f.Pos, 0f) || HitsObstacle(f.Pos, f.R * 0.5f)) { ArmBlastCubes(f.Pos, f.R); f.Done = true; return; }
+            ArmBlastCubes(f.Pos, f.R);
             foreach (var e in Enemies)
             {
                 if (!e.Alive || e == f.Exclude || f.Hit.Contains(e)) continue;

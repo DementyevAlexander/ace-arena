@@ -24,7 +24,11 @@ namespace Arena.Sim
     {
         EnemyHit, EnemyDied, EnemySpawned, EnemyAlert, PlayerHit, PlayerBlocked,
         Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak,
+        RoomClear, TrapFire, BoltHit,
     }
+
+    /// <summary>Стоп-кадр Hades (HitSimSlowParameters): замедление всей игры после удара.</summary>
+    public enum HitStop { None, Quick, Long, Instant, HurtHeavy, HurtLight, HurtSmall, LastKill }
 
     public struct SimEvent
     {
@@ -36,6 +40,9 @@ namespace Arena.Sim
         public bool Crit;
         public int Color; // для взрывов: 0 розовый, 1 жёлтый, 2 синий, 3 огонь, 4 яд, 5 фиолетовый
         public Enemy Enemy;
+        public HitStop Stop;
+        /// <summary>Удар добил врага или был критическим — пауза Hades длиннее на 0.04 с.</summary>
+        public bool Kill;
     }
 
     public enum DotKind { Bleed, Burn, Poison, Hex, Lava, Noxious, Light }
@@ -89,7 +96,11 @@ namespace Arena.Sim
         }
     }
 
-    public enum CastPhase { Casting, Hold, Recovery }
+    /// <summary>Фазы каста по-Hades. Aim — удержание жёлтой карты с прицелом; Casting — замах (ChargeTime); Hold — накопление
+    /// (Crescendo); Recovery — жёсткое восстановление (Cancelable = false); Soft — мягкое, его прерывают синие карты.</summary>
+    public enum CastPhase { Aim, Casting, Hold, Recovery, Soft }
+
+    public enum CastStyle { Quick, Long, Instant }
 
     public sealed class Cast
     {
@@ -98,12 +109,21 @@ namespace Arena.Sim
         public float T;
         public float Hold;
         public Vector2 Dir;
+        public Vector2 Target;
         public bool Fired;
     }
 
     public sealed class Player
     {
         public Vector2 Pos;
+        /// <summary>Скорость от ввода (разгон Acceleration) и внешняя — отбрасывание, выпады (тормозит Grip).</summary>
+        public Vector2 Vel, ExtVel;
+        public float GripMul = 1f, GripT;
+        /// <summary>ZagreusOnHitStun: оглушение после удара врага — нельзя двигаться и поворачиваться.</summary>
+        public float Stun;
+        /// <summary>Прицел жёлтых карт (точка на полу) и сглаженная цель магнетизма.</summary>
+        public Vector2 Reticle;
+        public readonly List<Vector2> RecentDamage = new(); // (время, урон) за последние 0.6 с
         public Vector2 Face = new(0f, 1f);
         public Vector2 Aim = new(0f, 1f);
         public float Hp;
@@ -128,11 +148,13 @@ namespace Arena.Sim
         public Effect ShoeTrail;
 
         public bool Invulnerable => HitInvuln > 0f || BuffInvuln > 0f || Hidden > 0f;
+        public bool Aiming => Cast != null && Cast.Phase == CastPhase.Aim;
     }
 
-    public enum EnemyKind { Ghost, Stomper }
+    public enum EnemyKind { Ghost, Stomper, Thug, Witch }
 
-    public enum AiState { Spawn, Wander, Alert, Chase, Windup, Strike, Recover, Lunge }
+    /// <summary>Cover, Peek — HideAndPeekAI ведьмы; PreFire — пауза Thug между замахом и выпадом.</summary>
+    public enum AiState { Spawn, Wander, Alert, Chase, Windup, Strike, Recover, Lunge, PreFire, Cover, Peek }
 
     public enum TeleShape { Ellipse, Lane }
 
@@ -184,6 +206,16 @@ namespace Arena.Sim
         public readonly List<Dot> Dots = new();
         public float MarkBleed, MarkPoison;
         public float Moved;
+        // Hades: точка появления, агрессия, телеграф без зоны (белая вспышка и дрожь), отбрасывание с Grip
+        public Vector2 Home, CoverPos;
+        public bool Aggro, PreSpawned;
+        public float AggroT;
+        /// <summary>Длительность и остаток белой вспышки замаха (PreAttackEnd: последние min(0.5, замах) с).</summary>
+        public float WarnTotal, WarnT;
+        public float Shake;
+        public Vector2 ExtVel;
+        public float Grip;
+        public bool HadesKind => Kind is EnemyKind.Thug or EnemyKind.Witch;
 
         public bool Alive => !Dead && State != AiState.Spawn;
         public bool UnderCc => Stun > 0f || Fear > 0f || Pull > 0f || PullAce > 0f;
@@ -229,9 +261,62 @@ namespace Arena.Sim
         public DotKind Dot;
     }
 
+    /// <summary>Препятствие комнаты: многоугольник и описанная окружность (быстрая проверка).</summary>
     public sealed class Obstacle
     {
         public Vector2 Pos;
         public float R;
+        public Vector2[] Poly;
+        public float Height = 1f;
+        public string Type;
+        /// <summary>Круглое препятствие (колонна) — без многоугольника.</summary>
+        public bool Round => Poly == null || Poly.Length < 3;
+    }
+
+    /// <summary>Снаряд врага (сгусток ведьмы, дротик ловушки).</summary>
+    public sealed class Bolt
+    {
+        public Vector2 Pos, Dir;
+        public float Speed, Range, Travelled, R, Damage, Stun;
+        public bool Done;
+        public bool FromTrap;
+        public HitStop Stop;
+        /// <summary>Урон по врагам (ловушки бьют и врагов), отбрасывание героя.</summary>
+        public float EnemyDamage, Knock;
+        /// <summary>Пила: крупная, не исчезает при попадании.</summary>
+        public bool Pierce;
+        public readonly HashSet<object> Hit = new();
+    }
+
+    public enum TrapKind { Spike, DartPlate, DartEmitter, AxeTrigger, Axe, BlastCube, Gas, Poison, Phalanx, Saw, Archer, Inert }
+
+    public enum TrapPhase { Idle, Pre, Fire, Post, Cooldown, Gone }
+
+    /// <summary>Ловушка комнаты Hades. Срабатывает от шага на площадку (шипы, дротики, топоры, фаланга), от удара (взрывной куб)
+    /// или сама по таймеру (газ, яд, пила, лучник). Pre — замах с предупреждением, Fire — удар, Post и Cooldown — отдых.</summary>
+    public sealed class Trap
+    {
+        public TrapKind Kind;
+        public string Type;
+        public Vector2 Pos, Dir;
+        public Vector2[] Poly;
+        public Core.RoomDef.TrapParam P;
+        public Trap Link;
+        public readonly List<Trap> Chain = new();
+        public TrapPhase Phase;
+        public float T, Total;
+        /// <summary>Облако газа или яда: сколько ещё висит.</summary>
+        public float Cloud, CloudTick;
+        public bool Regenerating;
+        /// <summary>0..1 — доля замаха (для вспышки и роста предупреждения).</summary>
+        public float Warn => Phase == TrapPhase.Pre && Total > 0f ? Mathf.Clamp01(1f - T / Total) : 0f;
+    }
+
+    /// <summary>Опасная зона пола (лава, вода): урон раз в интервал, пока стоишь внутри.</summary>
+    public sealed class HazardZone
+    {
+        public string Type;
+        public Vector2[] Poly;
+        public float Damage, Tick;
     }
 }

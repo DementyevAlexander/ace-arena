@@ -21,7 +21,7 @@ namespace Arena.Sim
                 };
                 if (ok) extra = Mathf.Round(up.Value / src.Div);
             }
-            if (src.Base + extra > 0f) Damage(e, src.Base + extra, extra > 0f);
+            if (src.Base + extra > 0f) Damage(e, src.Base + extra, extra > 0f, stop: StopFor(src));
             if (e.Dead) { if (src.UpgradeApplies) ApplyOnKillUpgrades(e, src); return; }
 
             if (src.OwnDotDamage > 0f) AddDot(e, src.OwnDot, src.OwnDotDamage);
@@ -33,6 +33,18 @@ namespace Arena.Sim
             }
             if (src.PushSpeed > 0f) Knock(e, src.PushSpeed);
             if (src.UpgradeApplies) ApplyUpgrade(e, src);
+        }
+
+        /// <summary>Стоп-кадр по виду карты: розовые — как меч, жёлтые — как Cast, синие — как удар с рывка (WeaponData.lua).</summary>
+        static HitStop StopFor(HitSource src)
+        {
+            if (src.Card == null) return HitStop.None;
+            return Style(src.Card) switch
+            {
+                CastStyle.Quick => HitStop.Quick,
+                CastStyle.Long => HitStop.Long,
+                _ => HitStop.Instant,
+            };
         }
 
         void ApplyOnKillUpgrades(Enemy e, HitSource src)
@@ -86,9 +98,15 @@ namespace Arena.Sim
             InterruptAttack(e);
         }
 
-        /// <summary>Контроль срывает замах: обозначение исчезает, удар не наступает.</summary>
+        /// <summary>Контроль срывает замах: обозначение исчезает, удар не наступает.
+        /// Hades: замах (PreAttack, PreFire) прерывается, начавшийся удар — нет; потом враг начинает замах заново.</summary>
         void InterruptAttack(Enemy e)
         {
+            if (e.HadesKind)
+            {
+                if (e.State is AiState.Windup or AiState.PreFire) { e.WarnT = 0f; e.State = AiState.Chase; e.T = 0f; }
+                return;
+            }
             if (e.State is AiState.Windup or AiState.Strike or AiState.Lunge)
             {
                 e.Tele = null;
@@ -130,13 +148,17 @@ namespace Arena.Sim
             e.Dots.RemoveAll(d => d.Left <= 0);
         }
 
-        public void Damage(Enemy e, float amount, bool crit, bool dot = false, DotKind dotKind = DotKind.Bleed)
+        public void Damage(Enemy e, float amount, bool crit, bool dot = false, DotKind dotKind = DotKind.Bleed, HitStop stop = HitStop.None)
         {
             if (e.Dead) return;
             e.Hp -= amount;
-            e.Flash = 0.12f;
-            Events.Add(new SimEvent { Kind = EventKind.EnemyHit, Pos = e.Pos, Value = amount, Crit = crit, Enemy = e, Color = dot ? 10 + (int)dotKind : -1 });
-            if (e.Hp <= 0f) Kill(e);
+            // Hades: красная вспышка 0.03 с и дрожь 6 ед. за 0.15 с (CombatPresentation.lua:1901, 1930)
+            e.Flash = 0.03f;
+            e.Shake = 0.15f;
+            bool kill = e.Hp <= 0f;
+            Events.Add(new SimEvent { Kind = EventKind.EnemyHit, Pos = e.Pos, Value = amount, Crit = crit, Enemy = e, Color = dot ? 10 + (int)dotKind : -1, Stop = dot ? HitStop.None : stop, Kill = kill || crit });
+            if (e.HadesKind && !dot) Aggro(e);
+            if (kill) Kill(e);
         }
 
         void Kill(Enemy e)
@@ -144,8 +166,10 @@ namespace Arena.Sim
             e.Dead = true;
             e.DeathT = 0.8f;
             e.Tele = null;
+            e.WarnT = 0f;
             Kills++;
             if (Player.Lock == e) Player.Lock = null;
+            CheckRoomClear(e);
             Events.Add(new SimEvent { Kind = EventKind.EnemyDied, Pos = e.Pos, Enemy = e });
             if (e.MarkBleed > 0f) SpreadDeath(e, UpgradeKind.DeathBleed);
             if (e.MarkPoison > 0f) SpreadDeath(e, UpgradeKind.DeathPoison);
@@ -168,14 +192,17 @@ namespace Arena.Sim
                 if (e.Alive && (e.Pos - center).magnitude <= radius + e.R) HitEnemy(e, src);
             }
             Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = center, Radius = radius, Color = color });
+            ArmBlastCubes(center, radius);
         }
 
-        /// <summary>Удар по Ace. Возвращает true, если урон прошёл.</summary>
-        public bool HurtPlayer(float dmg, Vector2 from)
+        /// <summary>Удар по Ace. Возвращает true, если урон прошёл.
+        /// knock — импульс внешней скорости (тормозит Grip героя, gripMul/gripTime — эффект GRIP жертвы с остановкой в конце),
+        /// stun — ZagreusOnHitStun. Неуязвимость — по правилу Hades: только за пачку урона за 0.6 с.</summary>
+        public bool HurtPlayer(float dmg, Vector2 from, HitStop stop = HitStop.HurtSmall, float knock = 3.3f, float stun = 0f, float gripMul = 1f, float gripTime = 0f)
         {
             var p = Player;
             if (GameOver) return false;
-            if (p.Invulnerable) return false;
+            if (p.Invulnerable || p.Dashing) return false;
             if (p.Shield > 0f)
             {
                 // Aegis Cloak: щит принимает удар и взрывается
@@ -184,12 +211,24 @@ namespace Arena.Sim
                 return false;
             }
             p.Hp -= dmg;
-            p.HitInvuln = PlayerCfg.hitInvulnerability;
+            p.RecentDamage.Add(new Vector2(Time, dmg));
+            float recent = 0f;
+            foreach (var r in p.RecentDamage) recent += r.y;
+            if (recent >= Mathf.Max(PlayerCfg.iFrameThreshold * PlayerCfg.hp, PlayerCfg.iFrameMinDamage))
+            {
+                p.HitInvuln = PlayerCfg.iFrameDuration;
+                p.RecentDamage.Clear();
+            }
             var k = p.Pos - from;
-            p.KnockVel = (k.sqrMagnitude > 0.0001f ? k.normalized : Vector2.down) * 6f;
-            p.KnockT = 0.12f;
-            if (p.Cast != null && Slots[p.Cast.Slot].Card.Interruptible && p.Cast.Phase != CastPhase.Recovery) p.Cast = null;
-            Events.Add(new SimEvent { Kind = EventKind.PlayerHit, Pos = p.Pos, Value = dmg });
+            if (knock > 0f)
+            {
+                p.ExtVel = (k.sqrMagnitude > 0.0001f ? k.normalized : Vector2.down) * knock;
+                p.GripMul = gripMul; p.GripT = gripTime;
+                p.Vel = Vector2.zero;
+            }
+            if (stun > 0f) p.Stun = Mathf.Max(p.Stun, stun);
+            InterruptPlayerCast();
+            Events.Add(new SimEvent { Kind = EventKind.PlayerHit, Pos = p.Pos, Value = dmg, Stop = stop, Kill = dmg > PlayerCfg.hp * 0.1f });
             if (p.Hp <= 0f) { p.Hp = 0f; GameOver = true; }
             return true;
         }

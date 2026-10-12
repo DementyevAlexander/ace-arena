@@ -1,115 +1,362 @@
+using System.Collections.Generic;
+using Arena.Core;
 using Arena.Sim;
 using UnityEngine;
 
 namespace Arena.View
 {
-    /// <summary>Комната в духе TUNIC: каменная площадка, трава, круглые деревья, кусты, руины, цветы.</summary>
+    /// <summary>Комната из карты Hades в low-poly стиле TUNIC: плато пола над тёмной бездной, стены и колонны призмами,
+    /// лава и вода, ловушки, урны. Форма и размеры — из данных комнаты, цвета — по биому.</summary>
     public static class RoomView
     {
+        public sealed class Palette
+        {
+            public Color Floor, FloorDark, Wall, WallTop, Void, Hazard, Accent;
+        }
+
+        public static Palette For(string biome) => biome switch
+        {
+            "Asphodel" => new Palette
+            {
+                Floor = new Color(0.62f, 0.47f, 0.38f), FloorDark = new Color(0.5f, 0.36f, 0.3f), Wall = new Color(0.36f, 0.25f, 0.23f),
+                WallTop = new Color(0.48f, 0.34f, 0.3f), Void = new Color(0.16f, 0.06f, 0.05f), Hazard = new Color(1f, 0.42f, 0.08f), Accent = new Color(1f, 0.6f, 0.25f),
+            },
+            "Elysium" => new Palette
+            {
+                Floor = new Color(0.78f, 0.82f, 0.68f), FloorDark = new Color(0.62f, 0.72f, 0.52f), Wall = new Color(0.86f, 0.86f, 0.8f),
+                WallTop = new Color(0.55f, 0.74f, 0.5f), Void = new Color(0.22f, 0.38f, 0.42f), Hazard = new Color(0.35f, 0.75f, 0.95f), Accent = new Color(0.95f, 0.85f, 0.45f),
+            },
+            "Styx" => new Palette
+            {
+                Floor = new Color(0.46f, 0.32f, 0.33f), FloorDark = new Color(0.36f, 0.24f, 0.26f), Wall = new Color(0.25f, 0.17f, 0.2f),
+                WallTop = new Color(0.4f, 0.24f, 0.28f), Void = new Color(0.1f, 0.03f, 0.05f), Hazard = new Color(0.55f, 0.85f, 0.35f), Accent = new Color(0.85f, 0.2f, 0.25f),
+            },
+            "Test" => new Palette
+            {
+                Floor = Art.Stone, FloorDark = Art.StoneDark, Wall = Art.StoneDark, WallTop = Art.Moss,
+                Void = new Color(0.62f, 0.78f, 0.74f), Hazard = new Color(1f, 0.45f, 0.1f), Accent = Art.Yellow,
+            },
+            _ => new Palette // Тартар
+            {
+                Floor = new Color(0.62f, 0.58f, 0.68f), FloorDark = new Color(0.5f, 0.46f, 0.58f), Wall = new Color(0.34f, 0.3f, 0.42f),
+                WallTop = new Color(0.46f, 0.4f, 0.56f), Void = new Color(0.1f, 0.07f, 0.14f), Hazard = new Color(1f, 0.4f, 0.1f), Accent = new Color(0.7f, 0.45f, 1f),
+            },
+        };
+
         public static Transform Build(ArenaSim sim)
         {
-            var root = new GameObject("Room").transform;
-            var rnd = new System.Random(7);
+            var room = sim.Room;
+            var pal = For(room.biome);
+            var root = new GameObject("Room " + room.name).transform;
+            var rnd = new System.Random(room.name?.GetHashCode() ?? 7);
             float R(float a, float b) => a + (float)rnd.NextDouble() * (b - a);
-            float hw = sim.ArenaCfg.halfWidth, hd = sim.ArenaCfg.halfDepth;
 
-            // трава до горизонта
-            Art.Part(root, MeshKit.Box(), Art.LitMat(Art.Grass), new Vector3(0f, -0.26f, 0f), new Vector3(90f, 0.5f, 90f), default, false);
-
-            // каменные плиты площадки с зазорами и разными оттенками
-            var stones = new[] { Art.LitMat(Art.Stone), Art.LitMat(Art.StoneDark), Art.LitMat(Color.Lerp(Art.Stone, Art.StoneDark, 0.5f)), Art.LitMat(new Color(0.84f, 0.80f, 0.70f)) };
-            for (float x = -hw; x < hw - 0.01f; x += 1f)
-            for (float z = -hd; z < hd - 0.01f; z += 1f)
+            // плато пола: верх на y = 0, толщина 0.6 — края комнаты видны обрывом над бездной
+            var floorMat = Art.LitMat(pal.Floor);
+            var cliffMat = Art.LitMat(Color.Lerp(pal.Wall, pal.Void, 0.35f));
+            foreach (var f in room.floor)
             {
-                if (rnd.NextDouble() < 0.04) continue; // выпавшая плита — видна трава
-                var mat = stones[rnd.Next(stones.Length)];
-                float h = R(0.02f, 0.07f);
-                Art.Part(root, MeshKit.Box(), mat, new Vector3(x + 0.5f, h * 0.5f - 0.02f, z + 0.5f), new Vector3(0.94f, h, 0.94f), new Vector3(0f, R(-2f, 2f), 0f), false);
+                if (f.p == null || f.p.Length < 3) continue;
+                Mesh(root, MeshKit.Extrude(f.p, 0f, -0.6f), cliffMat, false);
+                Mesh(root, MeshKit.Polygon(f.p, 0.001f), floorMat, true);
             }
 
-            // бордюр из камней по краю площадки
-            var curb = Art.LitMat(Art.StoneDark);
-            for (float x = -hw; x <= hw; x += 1f)
+            // плиты на полу: случайные тёмные плитки внутри контуров (не во всю комнату — экономно)
+            var tile = Art.LitMat(pal.FloorDark);
+            var size = room.max - room.min;
+            int tiles = Mathf.Clamp((int)(size.x * size.y * 0.08f), 20, 500);
+            for (int i = 0; i < tiles; i++)
             {
-                Art.Part(root, MeshKit.Box(), curb, new Vector3(x, 0.15f, -hd - 0.35f), new Vector3(1.02f, 0.3f, 0.5f));
-                Art.Part(root, MeshKit.Box(), curb, new Vector3(x, 0.15f, hd + 0.35f), new Vector3(1.02f, 0.3f, 0.5f));
-            }
-            for (float z = -hd; z <= hd; z += 1f)
-            {
-                Art.Part(root, MeshKit.Box(), curb, new Vector3(-hw - 0.35f, 0.15f, z), new Vector3(0.5f, 0.3f, 1.02f));
-                Art.Part(root, MeshKit.Box(), curb, new Vector3(hw + 0.35f, 0.15f, z), new Vector3(0.5f, 0.3f, 1.02f));
+                var p = new Vector2(R(room.min.x, room.max.x), R(room.min.y, room.max.y));
+                if (!sim.InsideRoom(p, 0.5f)) continue;
+                float s = R(0.5f, 1.1f);
+                Art.Part(root, MeshKit.Box(), tile, new Vector3(p.x, 0.01f, p.y), new Vector3(s, 0.03f, s * R(0.7f, 1.2f)), new Vector3(0f, R(0f, 90f), 0f), false);
             }
 
-            // колонны-препятствия (сломанные, с мхом)
+            // стены и препятствия. Невидимые блокираторы Hades (_Impassable_*) не рисуются — только тёмные провалы-дыры.
+            // Стены между камерой и полом (ближний край) низкие, иначе закрывают Ace — в Hades их тоже не видно.
+            var wallMat = Art.LitMat(pal.Wall);
+            var topMat = Art.LitMat(pal.WallTop);
+            var pitMat = Art.LitMat(Color.Lerp(pal.Void, Color.black, 0.3f));
+            var camFwd = new Vector2(Mathf.Sin(CameraRig.Yaw * Mathf.Deg2Rad), Mathf.Cos(CameraRig.Yaw * Mathf.Deg2Rad));
             foreach (var o in sim.Obstacles)
             {
-                var p = new Vector3(o.Pos.x, 0f, o.Pos.y);
-                float h = R(1.4f, 2.4f);
-                Art.Part(root, MeshKit.Prism(8), Art.LitMat(Art.StoneDark), p, new Vector3(o.R * 2.3f, 0.35f, o.R * 2.3f));
-                Art.Part(root, MeshKit.Prism(8), Art.LitMat(Art.Stone), p + Vector3.up * 0.35f, new Vector3(o.R * 1.8f, h, o.R * 1.8f), new Vector3(0f, R(0f, 45f), 0f));
-                Art.Part(root, MeshKit.Ico(0, 0.25f, rnd.Next(99)), Art.LitMat(Art.Moss), p + Vector3.up * (h + 0.3f), new Vector3(o.R * 1.9f, 0.5f, o.R * 1.9f));
+                if (o.Height <= 0f)
+                {
+                    if (o.Type == "Hole" && o.Poly != null) Mesh(root, MeshKit.Polygon(o.Poly, 0.004f), pitMat, false);
+                    continue;
+                }
+                float h = Mathf.Min(o.Height, MaxWall);
+                if (OccludesFloor(sim, o, camFwd)) h = Mathf.Min(h, FrontWall);
+                if (o.Round)
+                {
+                    Art.Part(root, MeshKit.Prism(8), wallMat, Art.W(o.Pos), new Vector3(o.R * 2f, h, o.R * 2f));
+                    continue;
+                }
+                Mesh(root, MeshKit.Extrude(o.Poly, h), wallMat, true);
+                // мох или трава на крыше стены — мягкий силуэт как в TUNIC
+                if (h > 0.8f) Mesh(root, MeshKit.Polygon(o.Poly, h + 0.02f), topMat, false);
             }
 
-            // деревья, кусты, руины вокруг площадки
-            for (int i = 0; i < 70; i++)
+            // опасный пол
+            foreach (var h in sim.Hazards)
             {
-                float a = R(0f, Mathf.PI * 2f), dist = R(1.6f, 9f);
-                var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
-                // точка снаружи прямоугольника площадки
-                var edge = new Vector2(Mathf.Clamp(dir.x * 100f, -hw, hw), Mathf.Clamp(dir.y * 100f, -hd, hd));
-                var pos2 = edge + dir * dist;
-                var pos = new Vector3(pos2.x, 0f, pos2.y);
-                double kind = rnd.NextDouble();
-                if (kind < 0.45) Tree(root, pos, R(0.8f, 1.4f), rnd);
-                else if (kind < 0.8) Bush(root, pos, R(0.5f, 1.1f), rnd);
-                else Ruin(root, pos, rnd);
+                var col = h.Type == "Water" ? Color.Lerp(pal.Hazard, new Color(0.2f, 0.5f, 0.6f), 0.5f) : pal.Hazard;
+                Mesh(root, MeshKit.Polygon(h.Poly, 0.015f), Art.LitMat(col, 1.2f), false);
             }
 
-            // трава и цветы
-            var tuft = Art.LitMat(Art.GrassDark);
-            var flowers = new[] { Art.LitMat(new Color(1f, 0.95f, 0.85f)), Art.LitMat(new Color(1f, 0.8f, 0.3f)), Art.LitMat(new Color(0.95f, 0.55f, 0.7f)) };
-            for (int i = 0; i < 260; i++)
+            // урны и прочее разрушаемое — для вида
+            var urn = Art.LitMat(Color.Lerp(pal.Accent, pal.Wall, 0.5f));
+            foreach (var b in room.breakables)
+                Art.Part(root, MeshKit.Prism(7, 0.7f), urn, Art.W(b.pos), new Vector3(Mathf.Max(0.3f, b.r * 2f), 0.6f, Mathf.Max(0.3f, b.r * 2f)));
+
+            // выходы — арки
+            var arch = Art.LitMat(pal.Accent, 0.6f);
+            foreach (var e in room.exits)
             {
-                var p = new Vector3(R(-hw - 9f, hw + 9f), 0f, R(-hd - 9f, hd + 9f));
-                if (Mathf.Abs(p.x) < hw + 0.7f && Mathf.Abs(p.z) < hd + 0.7f) continue;
-                for (int k = 0; k < 3; k++)
-                    Art.Part(root, MeshKit.Prism(3, 0f, false), tuft, p + new Vector3(R(-0.15f, 0.15f), 0f, R(-0.15f, 0.15f)), new Vector3(0.12f, R(0.25f, 0.45f), 0.12f), new Vector3(R(-15f, 15f), R(0f, 120f), R(-15f, 15f)), false);
-                if (rnd.NextDouble() < 0.3)
-                    Art.Part(root, MeshKit.Ico(0), flowers[rnd.Next(flowers.Length)], p + new Vector3(0.2f, 0.25f, 0.1f), Vector3.one * 0.12f, default, false);
+                var p = Art.W(e.pos);
+                Art.Part(root, MeshKit.Box(), arch, p + new Vector3(0f, 1.2f, 0f), new Vector3(1.6f, 0.25f, 0.35f), new Vector3(0f, -e.angle, 0f));
+                Art.Part(root, MeshKit.Box(), Art.LitMat(pal.Wall), p + new Vector3(0f, 0.6f, 0f), new Vector3(0.3f, 1.2f, 0.3f), new Vector3(0f, -e.angle, 0f));
             }
-            // трава в щелях площадки
-            for (int i = 0; i < 40; i++)
-            {
-                var p = new Vector3(R(-hw + 0.5f, hw - 0.5f), 0f, R(-hd + 0.5f, hd - 0.5f));
-                Art.Part(root, MeshKit.Prism(3, 0f, false), tuft, p, new Vector3(0.1f, R(0.12f, 0.22f), 0.1f), new Vector3(0f, R(0f, 120f), 0f), false);
-            }
+
+            // декор без столкновений
+            var decorMat = Art.LitMat(Color.Lerp(pal.Wall, pal.WallTop, 0.5f));
+            foreach (var d in room.decor)
+                Art.Part(root, MeshKit.Ico(1, 0.1f, rnd.Next(99)), decorMat, Art.W(d.pos) + Vector3.up * (d.h * 0.4f), new Vector3(d.r * 2f, Mathf.Max(0.3f, d.h), d.r * 2f), default, false);
+
+            // бездна под комнатой
+            var abyss = Art.Part(root, MeshKit.Box(), Art.LitMat(pal.Void), new Vector3((room.min.x + room.max.x) * 0.5f, -3f, (room.min.y + room.max.y) * 0.5f),
+                new Vector3(size.x + 80f, 0.5f, size.y + 80f), default, false);
+            abyss.name = "Abyss";
             return root;
         }
 
-        static void Tree(Transform root, Vector3 pos, float s, System.Random rnd)
+        const float MaxWall = 1.8f, FrontWall = 0.4f;
+
+        /// <summary>Стена ближнего края: за ней (дальше от камеры) пол комнаты, а перед ней (к камере) пола нет.
+        /// Колонны посреди комнаты под это не попадают — перед ними тоже пол.</summary>
+        static bool OccludesFloor(ArenaSim sim, Obstacle o, Vector2 camFwd)
         {
-            var t = new GameObject("Tree").transform;
-            t.SetParent(root, false); t.localPosition = pos;
-            Art.Part(t, MeshKit.Prism(6, 0.7f), Art.LitMat(Art.Trunk), Vector3.zero, new Vector3(0.35f * s, 1.3f * s, 0.35f * s));
-            var leaf = Art.LitMat(rnd.NextDouble() < 0.25 ? Art.FoliageWarm : Art.Foliage);
-            Art.Part(t, MeshKit.Ico(1, 0.12f, rnd.Next(99)), leaf, new Vector3(0f, 1.9f * s, 0f), Vector3.one * (1.9f * s));
-            Art.Part(t, MeshKit.Ico(1, 0.12f, rnd.Next(99)), leaf, new Vector3(0.5f * s, 1.5f * s, 0.2f * s), Vector3.one * (1.2f * s));
-            Art.Part(t, MeshKit.Ico(1, 0.12f, rnd.Next(99)), leaf, new Vector3(-0.4f * s, 2.5f * s, -0.2f * s), Vector3.one * (1.1f * s));
+            bool behind = false;
+            for (float d = 0.6f; d <= 3f && !behind; d += 0.6f)
+                if (sim.InsideRoom(o.Pos + camFwd * (o.R + d), 0f)) behind = true;
+            if (!behind) return false;
+            for (float d = 0.6f; d <= 3f; d += 0.6f)
+                if (sim.InsideRoom(o.Pos - camFwd * (o.R + d), 0f)) return false;
+            return true;
         }
 
-        static void Bush(Transform root, Vector3 pos, float s, System.Random rnd)
+        static void Mesh(Transform root, Mesh mesh, Material mat, bool shadows)
         {
-            var mat = Art.LitMat(rnd.NextDouble() < 0.5 ? Art.GrassDark : Art.Moss);
-            Art.Part(root, MeshKit.Ico(1, 0.15f, rnd.Next(99)), mat, pos + Vector3.up * (0.3f * s), new Vector3(1.2f * s, 0.8f * s, 1.1f * s));
-            Art.Part(root, MeshKit.Ico(1, 0.15f, rnd.Next(99)), mat, pos + new Vector3(0.5f * s, 0.25f * s, 0.3f * s), Vector3.one * (0.7f * s));
+            var go = new GameObject(mesh.name);
+            go.transform.SetParent(root, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var r = go.AddComponent<MeshRenderer>();
+            r.sharedMaterial = mat;
+            r.shadowCastingMode = shadows ? UnityEngine.Rendering.ShadowCastingMode.On : UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+    }
+
+    /// <summary>Ловушки комнаты. Шипы выскакивают из площадки; статуи, топоры, пилы и лучники в замахе белеют (PreAttackFlash);
+    /// газ и яд перед выбросом показывают растущий круг облака (LobWarningDecal); взрывной куб с горящим фитилём —
+    /// красный круг ровно радиуса взрыва (BlastWarningDecal).</summary>
+    public sealed class TrapViews
+    {
+        sealed class V
+        {
+            public Trap T;
+            public Transform Root, Moving;
+            public GameObject Warn, Cloud;
+            public Material WarnMat, CloudMat;
+            public Material[] Mats;
+            public Color[] Base;
         }
 
-        static void Ruin(Transform root, Vector3 pos, System.Random rnd)
+        readonly List<V> views = new();
+        readonly ArenaSim sim;
+
+        public TrapViews(ArenaSim sim, Transform parent)
         {
-            var stone = Art.LitMat(Art.Stone);
-            float h = 0.6f + (float)rnd.NextDouble() * 1.6f;
-            Art.Part(root, MeshKit.Box(), stone, pos + Vector3.up * (h * 0.5f), new Vector3(0.8f, h, 0.8f), new Vector3(0f, (float)rnd.NextDouble() * 90f, 0f));
-            Art.Part(root, MeshKit.Ico(0, 0.2f, rnd.Next(99)), Art.LitMat(Art.Moss), pos + Vector3.up * h, new Vector3(0.9f, 0.3f, 0.9f));
+            this.sim = sim;
+            var pad = Art.LitMat(new Color(0.35f, 0.32f, 0.36f));
+            var metal = Art.LitMat(new Color(0.75f, 0.74f, 0.8f));
+            var marble = Art.LitMat(new Color(0.88f, 0.86f, 0.8f));
+            var bronze = Art.LitMat(new Color(0.72f, 0.52f, 0.3f));
+            foreach (var t in sim.Traps)
+            {
+                var v = new V { T = t, Root = new GameObject(t.Type).transform };
+                v.Root.SetParent(parent, false);
+                v.Root.position = Art.W(t.Pos);
+                var face = Quaternion.LookRotation(new Vector3(t.Dir.x, 0f, t.Dir.y));
+                switch (t.Kind)
+                {
+                    case TrapKind.Spike:
+                    case TrapKind.DartPlate:
+                    case TrapKind.AxeTrigger:
+                        PadMesh(v, t, pad);
+                        if (t.Kind == TrapKind.Spike)
+                        {
+                            v.Moving = new GameObject("Spikes").transform;
+                            v.Moving.SetParent(v.Root, false);
+                            float r = PadRadius(t);
+                            int n = Mathf.Clamp(Mathf.RoundToInt(r * 4f), 3, 7);
+                            for (int i = 0; i < n; i++)
+                            for (int k = 0; k < n; k++)
+                            {
+                                var lp = new Vector3((i + 0.5f) / n * 2f - 1f, 0f, (k + 0.5f) / n * 2f - 1f) * r * 0.75f;
+                                if (t.Poly != null && !Geo.InPoly(t.Poly, t.Pos + new Vector2(lp.x, lp.z))) continue;
+                                Art.Part(v.Moving, MeshKit.Prism(4, 0f), metal, lp, new Vector3(0.12f, 0.35f, 0.12f), default, false);
+                            }
+                            v.Moving.localPosition = new Vector3(0f, -0.3f, 0f);
+                        }
+                        else Art.Part(v.Root, MeshKit.Prism(6), Art.LitMat(new Color(0.75f, 0.6f, 0.3f), 0.3f), new Vector3(0f, 0.03f, 0f), new Vector3(0.5f, 0.04f, 0.5f), default, false);
+                        break;
+                    case TrapKind.DartEmitter:
+                        Art.Part(v.Root, MeshKit.Box(), bronze, new Vector3(0f, 0.5f, 0f), new Vector3(0.5f, 1f, 0.5f), face.eulerAngles);
+                        break;
+                    case TrapKind.Axe:
+                        Art.Part(v.Root, MeshKit.Prism(6), Art.LitMat(new Color(0.3f, 0.26f, 0.3f)), new Vector3(0f, 0.6f, 0f), new Vector3(0.25f, 1.2f, 0.25f));
+                        v.Moving = new GameObject("Blade").transform;
+                        v.Moving.SetParent(v.Root, false);
+                        v.Moving.localPosition = new Vector3(0f, 1.1f, 0f);
+                        Art.Part(v.Moving, MeshKit.Box(), metal, new Vector3(0.75f, 0f, 0f), new Vector3(1.3f, 0.12f, 0.7f));
+                        break;
+                    case TrapKind.BlastCube:
+                        Art.Part(v.Root, MeshKit.Box(), Art.LitMat(new Color(0.85f, 0.25f, 0.18f), 0.4f), new Vector3(0f, 0.3f, 0f), Vector3.one * 0.6f);
+                        v.WarnMat = Art.DecalInstance(new Color(1f, 0.1f, 0.05f, 0.7f), 1, 4);
+                        v.Warn = Art.Decal(v.Root, MeshKit.FloorQuad(), v.WarnMat, 0.03f);
+                        v.Warn.transform.localScale = Vector3.one * ((t.P.radius > 0f ? t.P.radius : Arena.Core.Hades.U(400f)) * 2f);
+                        break;
+                    case TrapKind.Gas:
+                    case TrapKind.Poison:
+                    {
+                        var col = t.Kind == TrapKind.Gas ? new Color(0.55f, 0.75f, 0.35f) : new Color(0.35f, 0.85f, 0.45f);
+                        if (t.Poly != null) PadMesh(v, t, Art.LitMat(new Color(0.18f, 0.16f, 0.14f)));
+                        else Art.Part(v.Root, MeshKit.Prism(7), Art.LitMat(new Color(0.18f, 0.16f, 0.14f)), Vector3.zero, new Vector3(1f, 0.05f, 0.6f), default, false);
+                        float d = sim.GasRadius(t) * 2f;
+                        v.WarnMat = Art.DecalInstance(new Color(col.r, col.g, col.b, 0.6f), 1, 4);
+                        v.Warn = Art.Decal(v.Root, MeshKit.FloorQuad(), v.WarnMat, 0.04f);
+                        v.Warn.transform.localScale = Vector3.one * d;
+                        v.CloudMat = Art.DecalInstance(new Color(col.r, col.g, col.b, 0.35f), 3, 5);
+                        v.Cloud = Art.Decal(v.Root, MeshKit.FloorQuad(), v.CloudMat, 0.3f);
+                        v.Cloud.transform.localScale = Vector3.one * d;
+                        break;
+                    }
+                    case TrapKind.Phalanx:
+                        Art.Part(v.Root, MeshKit.Prism(6), marble, new Vector3(0f, 0.15f, 0f), new Vector3(0.9f, 0.3f, 0.9f));
+                        Art.Part(v.Root, MeshKit.Prism(8, 0.7f), marble, new Vector3(0f, 0.3f, 0f), new Vector3(0.55f, 1.3f, 0.5f), face.eulerAngles);
+                        v.Moving = new GameObject("Spear").transform;
+                        v.Moving.SetParent(v.Root, false);
+                        v.Moving.localRotation = face;
+                        v.Moving.localPosition = new Vector3(0f, 0.9f, 0f);
+                        Art.Part(v.Moving, MeshKit.Prism(4, 0f), bronze, new Vector3(0f, 0f, 0.5f), new Vector3(0.08f, 1.1f, 0.08f), new Vector3(90f, 0f, 0f));
+                        break;
+                    case TrapKind.Saw:
+                    case TrapKind.Archer:
+                        Art.Part(v.Root, MeshKit.Prism(6), t.Kind == TrapKind.Saw ? Art.LitMat(new Color(0.35f, 0.22f, 0.24f)) : marble, new Vector3(0f, 0.5f, 0f), new Vector3(0.9f, 1f, 0.9f));
+                        Art.Part(v.Root, MeshKit.Box(), bronze, new Vector3(0f, 0.6f, 0f) + new Vector3(t.Dir.x, 0f, t.Dir.y) * 0.45f, new Vector3(0.35f, 0.35f, 0.35f), face.eulerAngles);
+                        break;
+                    default:
+                        break;
+                }
+                var rs = v.Root.GetComponentsInChildren<Renderer>();
+                var mats = new List<Material>();
+                foreach (var r in rs)
+                {
+                    if (v.Warn != null && r.gameObject == v.Warn) continue;
+                    if (v.Cloud != null && r.gameObject == v.Cloud) continue;
+                    mats.Add(r.material);
+                }
+                v.Mats = mats.ToArray();
+                v.Base = new Color[v.Mats.Length];
+                for (int i = 0; i < v.Mats.Length; i++) v.Base[i] = v.Mats[i].GetColor("_BaseColor");
+                views.Add(v);
+            }
+        }
+
+        static float PadRadius(Trap t)
+        {
+            float r = 0.4f;
+            if (t.Poly != null) foreach (var p in t.Poly) r = Mathf.Max(r, (p - t.Pos).magnitude);
+            return r;
+        }
+
+        static void PadMesh(V v, Trap t, Material mat)
+        {
+            if (t.Poly == null)
+            {
+                Art.Part(v.Root, MeshKit.Box(), mat, new Vector3(0f, 0.02f, 0f), new Vector3(1.2f, 0.06f, 1.2f), default, false);
+                return;
+            }
+            var local = new Vector2[t.Poly.Length];
+            for (int i = 0; i < local.Length; i++) local[i] = t.Poly[i] - t.Pos;
+            var go = new GameObject("Pad");
+            go.transform.SetParent(v.Root, false);
+            go.AddComponent<MeshFilter>().sharedMesh = MeshKit.Extrude(local, 0.05f, -0.02f);
+            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+        }
+
+        public void Sync(float time)
+        {
+            foreach (var v in views)
+            {
+                var t = v.T;
+                v.Root.gameObject.SetActive(t.Phase != TrapPhase.Gone);
+                float warn = t.Warn;
+                // белая вспышка замаха у статуй, топоров, пил и лучников
+                bool flashes = t.Kind is TrapKind.Phalanx or TrapKind.Axe or TrapKind.Saw or TrapKind.Archer;
+                float white = flashes ? 0.8f * warn : 0f;
+                for (int i = 0; i < v.Mats.Length; i++) v.Mats[i].SetColor("_BaseColor", Color.Lerp(v.Base[i], Color.white, white));
+                switch (t.Kind)
+                {
+                    case TrapKind.Spike:
+                    {
+                        // площадка щёлкает (0.2 с), шипы выскакивают и уходят за время перезарядки
+                        float y = -0.3f;
+                        if (t.Phase == TrapPhase.Pre) y = -0.22f;
+                        else if (t.Phase == TrapPhase.Cooldown) y = Mathf.Lerp(-0.3f, 0.05f, Mathf.Clamp01((t.T - (t.Total - 0.8f)) / 0.8f));
+                        v.Moving.localPosition = new Vector3(0f, y, 0f);
+                        break;
+                    }
+                    case TrapKind.BlastCube:
+                    {
+                        bool lit = t.Phase == TrapPhase.Pre;
+                        v.Warn.SetActive(lit);
+                        float pulse = Mathf.Repeat(time * 6f, 1f) < 0.5f ? 1f : 0.55f;
+                        if (lit) v.WarnMat.SetColor("_BaseColor", new Color(1f, 0.12f, 0.05f, 0.75f * pulse));
+                        v.Root.localScale = Vector3.one * (lit ? 1f + 0.08f * pulse : t.Phase == TrapPhase.Cooldown ? 0.6f : 1f);
+                        break;
+                    }
+                    case TrapKind.Gas:
+                    case TrapKind.Poison:
+                    {
+                        // LobWarningDecal: появляется за 0.1 с, заполняется к выбросу
+                        bool pre = t.Phase == TrapPhase.Pre;
+                        v.Warn.SetActive(pre);
+                        if (pre)
+                        {
+                            var c = v.WarnMat.GetColor("_BaseColor");
+                            c.a = 0.25f + 0.55f * warn;
+                            v.WarnMat.SetColor("_BaseColor", c);
+                        }
+                        v.Cloud.SetActive(t.Cloud > 0f);
+                        if (t.Cloud > 0f)
+                        {
+                            var c = v.CloudMat.GetColor("_BaseColor");
+                            c.a = 0.4f * Mathf.Clamp01(t.Cloud / 1f);
+                            v.CloudMat.SetColor("_BaseColor", c);
+                        }
+                        break;
+                    }
+                    case TrapKind.Axe:
+                        if (t.Phase == TrapPhase.Post) v.Moving.localRotation = Quaternion.Euler(0f, Mathf.Repeat(time * 900f, 360f), 0f);
+                        else v.Moving.localRotation = Quaternion.Euler(0f, t.Phase == TrapPhase.Pre ? -30f * warn : 0f, 0f);
+                        break;
+                    case TrapKind.Phalanx:
+                        v.Moving.localPosition = new Vector3(0f, 0.9f, 0f) + v.Moving.localRotation * Vector3.forward * (t.Phase == TrapPhase.Fire ? 1.1f : t.Phase == TrapPhase.Pre ? -0.2f * warn : 0f);
+                        break;
+                }
+            }
         }
     }
 }

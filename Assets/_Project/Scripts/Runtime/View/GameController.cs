@@ -20,12 +20,14 @@ namespace Arena.View
         readonly InputReader input = new();
         readonly Dictionary<int, EnemyView> enemyViews = new();
         readonly List<int> stale = new();
+        readonly HitStopPlayer hitStop = new();
         PlayerView player;
         EffectViews effects;
+        TrapViews traps;
         Hud hud;
         DeckScreen deck;
-        Transform world, lockMarker;
-        float acc, hitFreeze, time;
+        Transform world, lockMarker, roomRoot, trapRoot;
+        float acc, time;
         bool wasGameOver;
 
         void Awake()
@@ -36,7 +38,7 @@ namespace Arena.View
             SetupCamera();
             SetupLight();
             SetupVolume();
-            RoomView.Build(Sim).SetParent(world, false);
+            BuildRoom();
             player = new PlayerView(world);
             effects = new EffectViews(world);
             var lm = Art.DecalInstance(new Color(1f, 0.95f, 0.6f, 0.85f), 1, 7);
@@ -44,6 +46,20 @@ namespace Arena.View
             hud = new Hud();
             deck = new DeckScreen(Sim);
             Rig.Snap(Art.W(Sim.Player.Pos));
+        }
+
+        /// <summary>Комната и ловушки из данных Hades; камера — по масштабу картинки Hades для этой комнаты.</summary>
+        void BuildRoom()
+        {
+            if (roomRoot != null) Destroy(roomRoot.gameObject);
+            if (trapRoot != null) Destroy(trapRoot.gameObject);
+            roomRoot = RoomView.Build(Sim);
+            roomRoot.SetParent(world, false);
+            trapRoot = new GameObject("Traps").transform;
+            trapRoot.SetParent(world, false);
+            traps = new TrapViews(Sim, trapRoot);
+            Rig.SetZoom(Sim.Room.zoom);
+            Rig.Cam.backgroundColor = RoomView.For(Sim.Room.biome).Void;
         }
 
         void SetupCamera()
@@ -117,9 +133,9 @@ namespace Arena.View
 
             if (!Paused)
             {
-                // стоп-кадр при ударе по Ace (SkillEventHitFreeze 0.15 с при timeScale 0.01)
-                float simDt = dt;
-                if (hitFreeze > 0f) { hitFreeze -= dt; simDt *= 0.01f; }
+                // стоп-кадр Hades: замедление всей игры после удара (HitSimSlowParameters)
+                hitStop.Tick(dt);
+                float simDt = dt * hitStop.Scale;
                 time += simDt;
                 acc += simDt;
                 bool first = true;
@@ -143,6 +159,8 @@ namespace Arena.View
         void Restart()
         {
             Sim.Restart();
+            BuildRoom();
+            hitStop.Reset();
             foreach (var v in enemyViews.Values) v.Destroy();
             enemyViews.Clear();
             effects.Clear();
@@ -163,6 +181,7 @@ namespace Arena.View
             foreach (var kv in enemyViews) if (!Sim.Enemies.Contains(kv.Value.E)) stale.Add(kv.Key);
             foreach (var id in stale) { enemyViews[id].Destroy(); enemyViews.Remove(id); }
             effects.Sync(Sim, dt, time);
+            traps.Sync(time);
 
             var l = Sim.Player.Lock;
             lockMarker.gameObject.SetActive(l != null && l.Alive);
@@ -182,15 +201,17 @@ namespace Arena.View
                 {
                     case EventKind.EnemyHit:
                         hud.Number(ev.Pos, ev.Value, ev.Crit, NumberColor(ev));
+                        hitStop.Play(ev.Stop, ev.Kill);
                         break;
                     case EventKind.EnemyDied:
                         effects.Puff(ev.Pos, 1.2f, new Color(0.9f, 0.85f, 1f), 0.4f);
                         Rig.Shake(0.08f);
                         break;
                     case EventKind.PlayerHit:
-                        hitFreeze = 0.15f;
-                        Rig.Shake(0.25f);
-                        hud.HurtFlash();
+                        // Hades: стоп-кадр атакующего, дрожь экрана 3 px за 0.12 с, красная вспышка героя, кровавая виньетка
+                        hitStop.Play(ev.Stop);
+                        Rig.Shake(0.12f);
+                        hud.HurtFlash(ev.Kill);
                         effects.Puff(ev.Pos, 0.9f, new Color(1f, 0.3f, 0.3f), 0.2f);
                         break;
                     case EventKind.PlayerBlocked:
@@ -200,15 +221,32 @@ namespace Arena.View
                         effects.Ring(ev.Pos, ev.Radius, ExplosionColor(ev.Color));
                         break;
                     case EventKind.Attack:
-                        effects.Ring(ev.Pos, ev.Radius * 0.8f, new Color(1f, 0.35f, 0.2f, 0.9f), 0.25f);
-                        Rig.Shake(0.06f);
+                        if (ev.Enemy != null && ev.Enemy.Kind == EnemyKind.Thug)
+                            effects.Shape(Sim.ThugHitShape(ev.Enemy), new Color(1f, 0.85f, 0.75f, 0.55f), 0.18f);
+                        else if (ev.Enemy != null && ev.Enemy.Kind == EnemyKind.Witch)
+                            effects.Puff(ev.Pos, 0.5f, new Color(0.8f, 0.45f, 1f), 0.15f);
+                        else
+                        {
+                            effects.Ring(ev.Pos, ev.Radius * 0.8f, new Color(1f, 0.35f, 0.2f, 0.9f), 0.25f);
+                            Rig.Shake(0.06f);
+                        }
+                        break;
+                    case EventKind.TrapFire:
+                        if (ev.Color == 0) { effects.Puff(ev.Pos, 1.2f, new Color(0.8f, 0.78f, 0.75f), 0.3f, 0.2f); Rig.Shake(0.05f); }
+                        break;
+                    case EventKind.BoltHit:
+                        effects.Puff(ev.Pos, 0.6f, new Color(0.8f, 0.45f, 1f), 0.2f);
+                        break;
+                    case EventKind.RoomClear:
+                        hitStop.Play(HitStop.LastKill);
+                        hud.ShowBanner("Комната пройдена", 1.4f);
                         break;
                     case EventKind.Teleport:
                         effects.Puff(ev.Pos, 1f, ExplosionColor(ev.Color), 0.3f);
                         effects.Puff(ev.To, 1f, ExplosionColor(ev.Color), 0.3f);
                         break;
                     case EventKind.WaveStart:
-                        hud.ShowBanner($"Волна {Mathf.RoundToInt(ev.Value)}");
+                        if (ev.Value > 1f) hud.ShowBanner($"Волна {Mathf.RoundToInt(ev.Value)}");
                         break;
                 }
             }
