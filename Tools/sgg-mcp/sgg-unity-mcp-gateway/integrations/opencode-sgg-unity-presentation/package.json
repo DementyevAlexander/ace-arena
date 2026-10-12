@@ -1,0 +1,20 @@
+{
+  "name": "@sungeargames/opencode-sgg-unity-presentation",
+  "version": "2.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "engines": {
+    "opencode": ">=2.0.25 <3"
+  },
+  "dependencies": {
+    "@opencode/plugin": "2.0.25"
+  },
+  "sgg_presentation": {
+    "trusted_previous_manifest_sha256": [
+      "bb8319e8aba5bf8ada436ea95c5f1ba47324fc9bba7044630394c4aea6cdad5c"
+    ]
+  }
+}

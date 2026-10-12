@@ -1,0 +1,6 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+  <ui:VisualElement name="Root" class="menu-root">
+    <ui:Button name="Duplicate" class="primary-button" text="Start" />
+    <ui:Button name="Duplicate" class="secondary-button" text="Options" />
+  </ui:VisualElement>
+</ui:UXML>

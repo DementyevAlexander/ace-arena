@@ -1,0 +1,7 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+  <Style src="project://database/Assets/UI/Good.uss" />
+  <ui:VisualElement name="Root" class="menu-root">
+    <ui:Button name="StartButton" class="primary-button" text="Start" />
+    <ui:Label name="TitleLabel" class="title" text="Main Menu" />
+  </ui:VisualElement>
+</ui:UXML>

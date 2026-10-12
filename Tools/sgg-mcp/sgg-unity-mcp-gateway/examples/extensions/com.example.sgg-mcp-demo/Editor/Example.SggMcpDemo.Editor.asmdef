@@ -1,0 +1,8 @@
+{
+  "name": "Example.SggMcpDemo.Editor",
+  "references": [],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "autoReferenced": true
+}

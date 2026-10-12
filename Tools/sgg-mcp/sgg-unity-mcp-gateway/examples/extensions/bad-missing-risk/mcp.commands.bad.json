@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "package": "com.example.bad-missing-risk",
+  "commands": [
+    {
+      "id": "example.unsafe_unknown",
+      "title": "Unsafe unknown",
+      "description": "Intentionally invalid: risk and idempotency are missing.",
+      "handler": "Example.BadMissingRisk.Editor.ExampleCommands.Run",
+      "timeout_ms": 5000,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ]
+}

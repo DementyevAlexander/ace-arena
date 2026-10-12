@@ -1,0 +1,22 @@
+name: static release readiness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-readiness:
+    name: manual static readiness only (not a release pass)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run check:static
+      - run: npm run build:gateway-runtime
+      - run: npm run check:notices
+      - run: git diff --exit-code -- THIRD_PARTY_NOTICES.md sbom.cdx.json unity/Packages/com.sungeargames.unity-mcp/Editor/GatewayRuntime

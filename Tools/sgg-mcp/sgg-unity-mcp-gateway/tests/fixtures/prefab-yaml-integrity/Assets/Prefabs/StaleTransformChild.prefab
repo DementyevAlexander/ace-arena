@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!224 &100100
+RectTransform:
+  m_GameObject: {fileID: 100101}
+  m_Father: {fileID: 0}
+  m_Children:
+  - {fileID: 100200}
+--- !u!1 &100101
+GameObject:
+  m_Name: Canvas
+  m_Component:
+  - component: {fileID: 100100}
+--- !u!224 &100200
+RectTransform:
+  m_GameObject: {fileID: 100201}
+  m_Father: {fileID: 100100}
+  m_Children:
+  - {fileID: 999999}
+--- !u!1 &100201
+GameObject:
+  m_Name: Panel
+  m_Component:
+  - component: {fileID: 100200}
+--- !u!1001 &100300
+PrefabInstance:
+  m_SourcePrefab: {fileID: 100100000, guid: 0123456789abcdef0123456789abcdef, type: 3}

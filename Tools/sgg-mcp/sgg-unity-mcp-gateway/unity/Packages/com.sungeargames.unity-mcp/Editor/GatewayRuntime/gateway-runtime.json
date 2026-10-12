@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "version": "2026.10.12-2",
+  "entrypoint": "gateway-cli.mjs",
+  "gateway_virtual_commands_count": 62,
+  "config": "config/gateway.example.json",
+  "policy": "config/policy.example.json",
+  "artifacts": {
+    "gateway_cli": {
+      "path": "gateway-cli.mjs",
+      "sha256": "012af9b456d7ac419c00dbd414d2a29f73a24a0703000e018d665f55e2ecd826"
+    },
+    "legal_comments": {
+      "path": "gateway-cli.LEGAL.txt",
+      "sha256": "a71be842a6025b1feb7bf585b9aee1c87e809e4e9ae73b566d50045beae27d4c"
+    },
+    "third_party_notices": {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "sha256": "8e6df03f0ebba1bc7a8498024cd2365cd1ef044708e6087c441512075d724f92"
+    },
+    "sbom": {
+      "path": "sbom.cdx.json",
+      "sha256": "97c25e1a23de194924e5ab0041a52b2a89ed7fecaee2074235c483e48c41f791"
+    },
+    "opencode_presentation_manifest": {
+      "path": "opencode-presentation/sgg-plugin-manifest.json",
+      "sha256": "fb36e673195d9275a4dd46d8acf42477a0cff49694d918cba1127f1f64d66824"
+    },
+    "opencode_presentation_package": {
+      "path": "opencode-presentation/package.json",
+      "sha256": "791bc5eecbf5e9d0d99300bf3888b423358335705091caf338528fb4117ed214"
+    },
+    "opencode_presentation_server": {
+      "path": "opencode-presentation/server.js",
+      "sha256": "91b99b55c5f82418f37f75790264811e84e4330468a9db96073e9ad9310c7f21"
+    }
+  }
+}

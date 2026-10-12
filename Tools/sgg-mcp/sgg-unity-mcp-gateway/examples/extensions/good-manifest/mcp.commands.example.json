@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "package": "com.example.good-manifest",
+  "commands": [
+    {
+      "id": "example.status",
+      "title": "Example status",
+      "description": "Read bounded status from an example package.",
+      "handler": "Example.GoodManifest.Editor.ExampleCommands.Status",
+      "risk": "read",
+      "idempotency": "safe",
+      "timeout_ms": 5000,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result_shape": "status",
+      "output_limit": {
+        "max_chars": 2048
+      }
+    }
+  ]
+}

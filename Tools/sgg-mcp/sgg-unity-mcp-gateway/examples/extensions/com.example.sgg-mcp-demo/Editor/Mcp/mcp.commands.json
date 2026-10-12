@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "package": "com.example.sgg-mcp-demo",
+  "commands": [
+    {
+      "id": "demo.status",
+      "title": "Demo status",
+      "description": "Read a bounded status payload from the demo extension package.",
+      "handler": "Example.SggMcpDemo.Editor.ExampleCommands.Status",
+      "risk": "read",
+      "idempotency": "safe",
+      "timeout_ms": 5000,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "tags": ["demo", "extension"],
+      "capability": "demo_extension",
+      "result_shape": "status",
+      "output_limit": {
+        "max_chars": 2048
+      }
+    },
+    {
+      "id": "demo.report.generate",
+      "title": "Generate demo report",
+      "description": "Demonstrate bounded execute-risk report generation metadata and gateway job support.",
+      "handler": "Example.SggMcpDemo.Editor.ExampleCommands.GenerateReport",
+      "risk": "execute",
+      "idempotency": "unsafe",
+      "timeout_ms": 30000,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "max_items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "dry_run": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "tags": ["demo", "extension", "report"],
+      "capability": "demo_extension_reports",
+      "result_shape": "object_details",
+      "output_limit": {
+        "max_chars": 4096
+      },
+      "feature_flag": "demo_reports",
+      "supports_job": true,
+      "supports_cancel": false
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "plugin_id": "sgg-unity.presentation",
+  "version": "1.0.0",
+  "opencode_range": ">=1.18.21 <2",
+  "trusted_previous_manifest_sha256": [],
+  "files": [
+    {
+      "path": "package.json",
+      "bytes": 224,
+      "sha256": "8004dc2eaffc81a838b6a1ebe9169e029f2c12319f26fe5ae599ab28cd84f654"
+    },
+    {
+      "path": "server.js",
+      "bytes": 5619,
+      "sha256": "59b53b44c8bfb0024f772754c3caf6df9ae468857465c3ae4e25e553b3f464c7"
+    }
+  ]
+}

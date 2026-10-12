@@ -1,0 +1,3 @@
+*.bat text eol=crlf
+*.cmd text eol=crlf
+unity/Packages/com.sungeargames.unity-mcp/Editor/GatewayRuntime/** text eol=lf

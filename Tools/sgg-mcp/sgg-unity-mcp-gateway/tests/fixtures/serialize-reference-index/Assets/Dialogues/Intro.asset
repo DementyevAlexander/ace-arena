@@ -1,0 +1,15 @@
+%YAML 1.1
+--- !u!114 &11400000
+MonoBehaviour:
+  references:
+    RefIds:
+    - rid: 1
+      type: {class: SayTextNode, ns: Game.Dialogue.Nodes, asm: Game.Runtime}
+      data: {}
+    - rid: 2
+      type: {class: 'GenericNode`1[[Game.Dialogue.Payload, Game.Runtime]]', ns: Game.Dialogue.Nodes, asm: Game.Runtime}
+      data: {}
+    - rid: 3
+      type: {class: ReallyLongNode, ns: Game.Dialogue.Nodes.Really.Long.Namespace,
+        asm: Game.Runtime}
+      data: {}

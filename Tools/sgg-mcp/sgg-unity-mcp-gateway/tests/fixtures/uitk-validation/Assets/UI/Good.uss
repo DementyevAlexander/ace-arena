@@ -1,0 +1,12 @@
+.menu-root {
+  flex-direction: column;
+  flex-grow: 1;
+}
+
+.primary-button {
+  unity-font-style: bold;
+}
+
+.title {
+  font-size: 24px;
+}

@@ -1,0 +1,11 @@
+{
+  "name": "com.example.unity-mcp-module",
+  "version": "2026.5.24-1",
+  "license": "LicenseRef-Stinger-Royalty-Free-EULA-1.0",
+  "displayName": "Example Unity MCP Module",
+  "description": "Generic example package that contributes a Unity MCP command.",
+  "unity": "2022.3",
+  "author": {
+    "name": "Example"
+  }
+}

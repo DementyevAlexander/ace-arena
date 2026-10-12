@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "fixture_kind": "synthetic_native_controls_with_owner_reviewed_visual_body",
+  "evidence": {
+    "unity_version": "6000.6.2f1",
+    "body_and_labels_source": "Owner-reviewed September 29 screenshot documented in roadmap/problem-report-ledger.ru.md; line breaks are layout, not matching requirements",
+    "label_and_control_id_corroboration": [
+      "problem_20261005T221237_d8972bfba5bc",
+      "problem_20261007T055928_7dd49b0592bb"
+    ],
+    "native_topology_source": "Synthetic standard dialog: Edit 1019, Button 1/2, optional empty Static 1040; not an authoritative live native control trace",
+    "process_window_and_control_identity_source": "Synthetic test identities; historical Computer Use indices/actions do not authorize native interaction"
+  },
+  "row": {
+    "hwnd": "0x219500",
+    "pid": 21901,
+    "process_name": "Unity",
+    "process_start_utc": "2026-10-07T05:00:00.0000000Z",
+    "window_thread_id": 2190,
+    "window_visible": true,
+    "window_enabled": true,
+    "class_name": "#32770",
+    "window_title": "Scene Backup Detected",
+    "modal_like_reason": "dialog_class",
+    "inspection_complete": true,
+    "child_texts": [
+      "Scene backups from a previous Editor session have been detected. Unity attempts to backup scenes when an Editor instance does not close correctly.\n\nDo you want to keep these scene backups in Assets/_Recovery/?",
+      "Keep Backups",
+      "Delete"
+    ],
+    "child_controls": [
+      { "hwnd": "0x219509", "parent_hwnd": "0x219500", "pid": 21901, "window_thread_id": 2190, "visible": true, "enabled": true, "control_id": 1040, "class_name": "Static", "text": "", "read_only": false, "multiline": false },
+      { "hwnd": "0x219510", "parent_hwnd": "0x219500", "pid": 21901, "window_thread_id": 2190, "visible": true, "enabled": true, "control_id": 1019, "class_name": "Edit", "text": "Scene backups from a previous Editor session have been detected. Unity attempts to backup scenes when an Editor instance does not close correctly.\n\nDo you want to keep these scene backups in Assets/_Recovery/?", "read_only": true, "multiline": true },
+      { "hwnd": "0x219511", "parent_hwnd": "0x219500", "pid": 21901, "window_thread_id": 2190, "visible": true, "enabled": true, "control_id": 1, "class_name": "Button", "text": "Keep Backups", "read_only": false, "multiline": false },
+      { "hwnd": "0x219512", "parent_hwnd": "0x219500", "pid": 21901, "window_thread_id": 2190, "visible": true, "enabled": true, "control_id": 2, "class_name": "Button", "text": "Delete", "read_only": false, "multiline": false }
+    ]
+  }
+}

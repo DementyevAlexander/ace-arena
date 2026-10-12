@@ -1,0 +1,25 @@
+{
+  "name": "SGG.UnityMCP.Editor.CanonicalPath.Tests",
+  "rootNamespace": "SGG.UnityMCP.Editor.CanonicalPath.Tests",
+  "references": [
+    "SGG.UnityMCP.Editor",
+    "SGG.UnityMCP.Editor.CanonicalPath"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "SGG_UNITY_MCP_CANONICALPATH"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.romanilyin.canonicalpath",
+      "expression": "2026.10.10-4",
+      "define": "SGG_UNITY_MCP_CANONICALPATH"
+    }
+  ]
+}

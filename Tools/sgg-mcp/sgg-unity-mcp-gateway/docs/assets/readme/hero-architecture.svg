@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="340" viewBox="0 0 960 340" role="img" aria-label="SGG Unity MCP Gateway architecture">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8b949e"/></marker>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#161b22"/><stop offset="1" stop-color="#0d1117"/></linearGradient>
+  </defs>
+  <rect x="0.5" y="0.5" width="959" height="339" rx="18" fill="#0d1117" stroke="#30363d"/>
+  <text x="480" y="35" text-anchor="middle" fill="#f0f6fc" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">One Gateway. Explicit projects. Discoverable Unity capabilities.</text>
+
+  <rect x="105" y="65" width="750" height="58" rx="12" fill="url(#g)" stroke="#484f58"/>
+  <text x="480" y="89" text-anchor="middle" fill="#f0f6fc" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">OpenCode 2+ · Cursor · Unity AI Assistant · Generic MCP client</text>
+  <text x="480" y="109" text-anchor="middle" fill="#8b949e" font-family="Segoe UI, Arial, sans-serif" font-size="12">six stable MCP tools · native elicitation or exact pending approval</text>
+
+  <line x1="480" y1="123" x2="480" y2="153" stroke="#8b949e" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="250" y="157" width="460" height="78" rx="14" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="480" y="184" text-anchor="middle" fill="#58a6ff" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">SGG Unity MCP Gateway</text>
+  <text x="480" y="206" text-anchor="middle" fill="#c9d1d9" font-family="Segoe UI, Arial, sans-serif" font-size="12">routing · command catalogs · policy · approvals · jobs · artifacts · audit</text>
+  <text x="480" y="224" text-anchor="middle" fill="#8b949e" font-family="Segoe UI, Arial, sans-serif" font-size="11">CanonicalPath identity · local-first transport · bounded results</text>
+
+  <line x1="330" y1="235" x2="220" y2="267" stroke="#8b949e" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="480" y1="235" x2="480" y2="267" stroke="#8b949e" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="630" y1="235" x2="740" y2="267" stroke="#8b949e" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <rect x="105" y="271" width="230" height="50" rx="11" fill="#161b22" stroke="#3fb950"/>
+    <text x="220" y="293" text-anchor="middle" fill="#f0f6fc" font-size="14" font-weight="600">Unity Project A</text>
+    <text x="220" y="311" text-anchor="middle" fill="#8b949e" font-size="11">lightweight Editor bridge</text>
+    <rect x="365" y="271" width="230" height="50" rx="11" fill="#161b22" stroke="#a371f7"/>
+    <text x="480" y="293" text-anchor="middle" fill="#f0f6fc" font-size="14" font-weight="600">Unity Project B</text>
+    <text x="480" y="311" text-anchor="middle" fill="#8b949e" font-size="11">project-specific catalog</text>
+    <rect x="625" y="271" width="230" height="50" rx="11" fill="#161b22" stroke="#d29922"/>
+    <text x="740" y="293" text-anchor="middle" fill="#f0f6fc" font-size="14" font-weight="600">Unity Project C</text>
+    <text x="740" y="311" text-anchor="middle" fill="#8b949e" font-size="11">package-contributed commands</text>
+  </g>
+</svg>

@@ -1,0 +1,12 @@
+* @romanilyin
+
+.github/workflows/* @romanilyin
+.github/dependabot.yml @romanilyin
+config/** @romanilyin
+scripts/** @romanilyin
+src/** @romanilyin
+tests/** @romanilyin
+unity/Packages/com.sungeargames.unity-mcp/** @romanilyin
+LICENSE* @romanilyin
+NOTICE* @romanilyin
+SECURITY.md @romanilyin

@@ -1,0 +1,124 @@
+{
+  "mcp": {
+    "host": "127.0.0.1",
+    "port": 27182,
+    "token_env": "SGG_UNITY_MCP_TOKEN",
+    "allowed_origins": [],
+    "allow_non_loopback": false,
+    "max_body_bytes": 1048576,
+    "request_timeout_ms": 30000,
+    "shutdown_timeout_ms": 5000,
+    "sessions": {
+      "max_active": 128,
+      "idle_ttl_ms": 1800000,
+      "cleanup_interval_ms": 60000
+    },
+    "rate_limit": {
+      "window_ms": 60000,
+      "max_requests": 120,
+      "max_buckets": 4096,
+      "cleanup_interval_ms": 60000,
+      "trusted_proxy": false,
+      "trusted_proxy_peers": []
+    }
+  },
+  "registry": {
+    "instances_dir": "%LOCALAPPDATA%/SGG/UnityMcpGateway/instances",
+    "stale_after_ms": 90000,
+    "cleanup_after_ms": 600000,
+    "cache_max_entries": 1024,
+    "cache_ttl_ms": 600000,
+    "invalid_diagnostics_max": 32,
+    "scan_max_files": 1024
+  },
+  "logging": {
+    "level": "info",
+    "audit_enabled": true,
+    "audit_dir": "%LOCALAPPDATA%/SGG/UnityMcpGateway/audit"
+  },
+  "cache": {
+    "asset_index_root": "%LOCALAPPDATA%/SGG/UnityMcpGateway/index"
+  },
+  "test_runs": {
+    "storage": {
+      "max_bytes": 209715200,
+      "max_bindings": 192000,
+      "retention_days": 30
+    }
+  },
+  "approvals": {
+    "dir": "%LOCALAPPDATA%/SGG/UnityMcpGateway/approvals",
+    "hmac_key_file": "%LOCALAPPDATA%/SGG/UnityMcpGateway/secrets/approval-hmac-v1.key",
+    "default_ttl_ms": 300000,
+    "auto_allow_ask": false,
+    "auto_allow_known_unity_popups": false,
+    "auto_allow_stale_registry_cleanup_without_elicitation": true
+  },
+  "skills": {
+    "unity_user_skills_root": "%APPDATA%/Unity/AIAssistantSkills"
+  },
+  "scene_authoring": {
+    "mono_behaviour_allowlist": []
+  },
+  "official_relay": {
+    "enabled": false,
+    "command": "%UNITY_OFFICIAL_MCP_RELAY%",
+    "args": ["--mcp"],
+    "env": {},
+    "allow_tools": [],
+    "tool_risks": {},
+    "unity_relative_path_fields": {},
+    "connect_timeout_ms": 3000,
+    "call_timeout_ms": 30000
+  },
+  "features": {
+    "semantic_scene_inspection": false,
+    "asset_index": false,
+    "asset_semantic_index": false,
+    "serialize_reference_index": false,
+    "asset_readonly": false,
+    "asset_safe_writes": false,
+    "editor_csharp_execution": false,
+    "editor_utilities": false,
+    "editor_screenshots": false,
+    "game_view_focus_capture": false,
+    "desktop_screenshots": false,
+    "editor_safe_writes": false,
+    "package_registry_network": false,
+    "addressables_readonly": false,
+    "gameplay_data_readonly": false,
+    "runtime_state_debugging": false,
+    "unity_api_reflection": false,
+    "unity_docs_local": false,
+    "profiler_readonly": false,
+    "profiler_recording": false,
+    "ui_readonly": false,
+    "ui_text_readonly": false,
+    "ugui_inspection": false,
+    "ugui_visual_inspection": false,
+    "ugui_interaction_tests": false,
+    "uitk_interaction_tests": false,
+    "ugui_safe_writes": false,
+    "scene_authoring_composite_safe_writes": false,
+    "prefab_authoring_composite_safe_writes": false,
+    "mono_behaviour_safe_writes": false,
+    "serialized_safe_writes": false,
+    "unityevent_safe_writes": false,
+    "uitk_inspection": false,
+    "uitk_validation": false,
+    "uitk_safe_writes": false,
+    "uitk_migration": false,
+    "uitk_migration_preview": false,
+    "semantic_unity_diff": false,
+    "knowledge_resources": false,
+    "build_test_automation": false,
+    "official_unity_mcp_relay": false,
+    "sgg_mcp_diagnostics": false,
+    "sgg_mcp_plans": false,
+    "sgg_mcp_pipelines": false,
+    "sgg_mcp_skills": false,
+    "sgg_mcp_checkpoints": false,
+    "sgg_mcp_artifacts": false,
+    "sgg_mcp_policy": false
+  }
+}

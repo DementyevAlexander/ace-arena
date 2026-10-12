@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "package": "com.example.unity-mcp-module",
+  "commands": [
+    {
+      "id": "example.status",
+      "title": "Example status",
+      "description": "Read example module status",
+      "handler": "Example.UnityMcpModule.Editor.ExampleCommands.Status",
+      "risk": "read",
+      "idempotency": "safe",
+      "timeout_ms": 10000
+    }
+  ]
+}

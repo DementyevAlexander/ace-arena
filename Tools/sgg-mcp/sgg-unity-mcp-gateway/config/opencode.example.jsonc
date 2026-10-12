@@ -1,0 +1,20 @@
+{
+  // Add this block to opencode.jsonc.
+  // Recommended for OpenCode in WSL on the same Windows machine:
+  "mcp": {
+    "servers": { "sgg-unity-mcp": {
+      "type": "local",
+      "command": [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$root=Join-Path $env:LOCALAPPDATA 'SGG\\UnityMcpGateway'; $pointer=Join-Path $root 'gateway\\active-runtime.json'; $runtime=(Get-Content -Raw $pointer | ConvertFrom-Json).runtime_root; $node=Join-Path $root 'runtime\\node-v22.16.0-win-x64\\node.exe'; $cli=Join-Path $runtime 'gateway-cli.mjs'; & $node $cli stdio-shim --url 'http://127.0.0.1:27182/mcp' --token-env 'SGG_UNITY_MCP_TOKEN' --legacy-text-result"
+      ],
+      "disabled": false,
+      "protocol": "legacy",
+      "timeout": { "startup": 30000, "catalog": 30000, "execution": 3900000 }
+    } }
+  }
+}

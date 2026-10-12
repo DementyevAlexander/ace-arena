@@ -1,0 +1,8 @@
+%YAML 1.1
+--- !u!114 &11400001
+MonoBehaviour:
+  references:
+    RefIds:
+    - rid: 1
+      type: {class: Outer/Inner, ns: Game.Nested, asm: Game.Runtime}
+      data: {}

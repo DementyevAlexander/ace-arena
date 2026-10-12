@@ -1,0 +1,33 @@
+name: Documentation request
+description: Suggest a public docs improvement or clarification.
+title: "docs: "
+labels:
+  - documentation
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep requests generic and public-facing. Do not include private implementation notes, private URLs, customer/project identifiers, or proprietary asset names.
+  - type: textarea
+    id: page
+    attributes:
+      label: Page or Area
+      description: Which README, docs page, example, or workflow needs clarification?
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: Suggested Change
+      description: What should be added, removed, or clarified?
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Documentation Boundaries
+      options:
+        - label: This request does not ask docs to claim hosted service behavior, official Unity affiliation, or enterprise auth.
+          required: true
+        - label: This request keeps Unity capabilities as command catalog entries, not new top-level MCP tools.
+          required: true

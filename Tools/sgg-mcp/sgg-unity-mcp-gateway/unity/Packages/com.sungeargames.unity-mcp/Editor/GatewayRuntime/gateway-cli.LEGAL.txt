@@ -1,0 +1,10 @@
+/*! SGG Unity MCP Gateway licensing: see THIRD_PARTY_NOTICES.md for bundled third-party licenses. */
+
+Bundled license information:
+
+@modelcontextprotocol/server/dist/src-CX2iR2pK.mjs:
+  /*!
+  * content-type
+  * Copyright(c) 2015 Douglas Christopher Wilson
+  * MIT Licensed
+  */
