@@ -294,8 +294,8 @@ namespace Arena.View
             // к концу замаха — ярче и мигает, чтобы не пропустить момент удара
             float pulse = k > 0.75f ? (Mathf.Repeat(time * 14f, 1f) < 0.5f ? 1f : 0.65f) : 1f;
             outlineMat.SetColor("_BaseColor", new Color(1f, 0.6f, 0.15f, (0.75f + 0.25f * k) * pulse));
-            fillMat.SetColor("_BaseColor", new Color(1f, 0.2f, 0.1f, (0.25f + 0.45f * k) * pulse));
-            edgeMat.SetColor("_BaseColor", new Color(1f, 0.3f, 0.15f, 0.18f));
+            fillMat.SetColor("_BaseColor", new Color(1f, 0.15f, 0.08f, (0.45f + 0.4f * k) * pulse));
+            edgeMat.SetColor("_BaseColor", new Color(1f, 0.35f, 0.15f, 0.3f));
         }
 
         public void Destroy() => Object.Destroy(root.gameObject);

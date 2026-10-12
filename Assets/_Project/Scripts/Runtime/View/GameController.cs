@@ -168,7 +168,7 @@ namespace Arena.View
             lockMarker.gameObject.SetActive(l != null && l.Alive);
             if (l != null)
             {
-                lockMarker.position = Art.W(l.Pos, 0.06f);
+                lockMarker.position = Art.W(l.Pos, Art.FloorTop + 0.06f);
                 lockMarker.localScale = Vector3.one * (l.R * 2.8f + Mathf.Sin(time * 8f) * 0.08f);
             }
             Rig.Follow(Art.W(Sim.Player.Pos), dt);

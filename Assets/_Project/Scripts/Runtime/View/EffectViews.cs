@@ -53,11 +53,11 @@ namespace Arena.View
         {
             var mat = Art.DecalInstance(color, 1, 6);
             var go = Art.Decal(root, MeshKit.FloorQuad(), mat, 0.05f);
-            go.transform.position = Art.W(pos, 0.05f);
+            go.transform.position = Art.W(pos, Art.FloorTop + 0.05f);
             flashes.Add(new Flash { Go = go, Mat = mat, Color = color, Life = life, From = Vector3.one * radius * 1.2f, To = Vector3.one * radius * 2.1f });
             var mat2 = Art.DecalInstance(new Color(color.r, color.g, color.b, color.a * 0.45f), 0, 5);
             var go2 = Art.Decal(root, MeshKit.FloorQuad(), mat2, 0.045f);
-            go2.transform.position = Art.W(pos, 0.045f);
+            go2.transform.position = Art.W(pos, Art.FloorTop + 0.045f);
             flashes.Add(new Flash { Go = go2, Mat = mat2, Color = mat2.GetColor("_BaseColor"), Life = life * 0.8f, From = Vector3.one * radius * 1.6f, To = Vector3.one * radius * 2f });
         }
 

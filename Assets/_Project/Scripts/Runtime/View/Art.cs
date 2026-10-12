@@ -124,9 +124,12 @@ namespace Arena.View
             return go;
         }
 
+        /// <summary>Верх самых высоких плит пола: декали кладутся выше, иначе плитки их перекрывают.</summary>
+        public const float FloorTop = 0.07f;
+
         public static GameObject Decal(Transform parent, Mesh mesh, Material mat, float y = 0.02f)
         {
-            var go = Part(parent, mesh, mat, new Vector3(0f, y, 0f), Vector3.one, default, false);
+            var go = Part(parent, mesh, mat, new Vector3(0f, FloorTop + y, 0f), Vector3.one, default, false);
             go.GetComponent<MeshRenderer>().receiveShadows = false;
             return go;
         }
