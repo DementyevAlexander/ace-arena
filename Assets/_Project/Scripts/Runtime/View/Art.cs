@@ -167,5 +167,28 @@ namespace Arena.View
         };
 
         public static Vector3 W(Vector2 p, float y = 0f) => new(p.x, y, p.y);
+
+        /// <summary>Цвет свойства формы — им светятся снаряды, зоны, духи и подписи.</summary>
+        public static Color TraitColor(Arena.Core.Trait t) => t switch
+        {
+            Arena.Core.Trait.Fire => new Color(1f, 0.55f, 0.15f),
+            Arena.Core.Trait.Frost => new Color(0.55f, 0.85f, 1f),
+            Arena.Core.Trait.Lightning => new Color(1f, 0.95f, 0.45f),
+            Arena.Core.Trait.Rot => new Color(0.55f, 0.92f, 0.3f),
+            Arena.Core.Trait.Doom => new Color(0.78f, 0.42f, 1f),
+            Arena.Core.Trait.Ricochet => new Color(0.92f, 0.92f, 0.95f),
+            Arena.Core.Trait.Split => new Color(0.4f, 1f, 0.8f),
+            Arena.Core.Trait.Pierce => new Color(1f, 0.38f, 0.38f),
+            Arena.Core.Trait.Return => new Color(0.45f, 0.7f, 1f),
+            Arena.Core.Trait.Echo => new Color(0.72f, 0.76f, 1f),
+            Arena.Core.Trait.Pull => new Color(0.55f, 0.35f, 1f),
+            Arena.Core.Trait.Push => new Color(1f, 0.82f, 0.35f),
+            Arena.Core.Trait.Blast => new Color(1f, 0.42f, 0.15f),
+            Arena.Core.Trait.Reap => new Color(0.35f, 0.95f, 0.85f),
+            _ => new Color(0.85f, 1f, 0.4f),
+        };
+
+        /// <summary>Цвет карты: её первого свойства, без свойств — холодная душа.</summary>
+        public static Color CardTint(Arena.Core.SkillCard c) => c == null ? Night.Soul : c.Own.HasValue ? TraitColor(c.Own.Value) : c.Souls.Count > 0 ? TraitColor(c.Souls[0]) : Night.Soul;
     }
 }

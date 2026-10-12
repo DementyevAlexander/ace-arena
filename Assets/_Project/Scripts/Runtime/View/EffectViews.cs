@@ -11,6 +11,10 @@ namespace Arena.View
         readonly Dictionary<int, EffectView> views = new();
         readonly List<int> stale = new();
         readonly List<Flash> flashes = new();
+        readonly List<ZapLine> zaps = new();
+        // пулы: кольцо (внешнее и внутреннее), вспышка-сфера, молния — объекты и материалы переиспользуются
+        readonly Stack<Flash>[] freeFlashes = { new(), new(), new() };
+        readonly Stack<LineRenderer> freeZaps = new();
 
         public EffectViews(Transform parent)
         {
@@ -30,12 +34,21 @@ namespace Arena.View
             foreach (var kv in views) if (kv.Value.F.Done || !sim.Effects.Contains(kv.Value.F)) stale.Add(kv.Key);
             foreach (var id in stale) { views[id].Destroy(); views.Remove(id); }
 
+            for (int i = zaps.Count - 1; i >= 0; i--)
+            {
+                var z = zaps[i];
+                z.T += dt;
+                if (z.T >= z.Life) { z.Line.gameObject.SetActive(false); freeZaps.Push(z.Line); zaps.RemoveAt(i); continue; }
+                var c = z.Color; c.a *= 1f - z.T / z.Life;
+                z.Line.startColor = z.Line.endColor = c;
+            }
+
             for (int i = flashes.Count - 1; i >= 0; i--)
             {
                 var fl = flashes[i];
                 fl.T += dt;
                 float k = fl.T / fl.Life;
-                if (k >= 1f) { Object.Destroy(fl.Go); Object.Destroy(fl.Mat); flashes.RemoveAt(i); continue; }
+                if (k >= 1f) { fl.Go.SetActive(false); freeFlashes[fl.Kind].Push(fl); flashes.RemoveAt(i); continue; }
                 fl.Go.transform.localScale = fl.From + (fl.To - fl.From) * (1f - (1f - k) * (1f - k));
                 var c = fl.Color; c.a *= 1f - k;
                 fl.Mat.SetColor("_BaseColor", c);
@@ -51,32 +64,89 @@ namespace Arena.View
         /// <summary>Кольцо на полу, расширяется и гаснет.</summary>
         public void Ring(Vector2 pos, float radius, Color color, float life = 0.35f)
         {
-            var mat = Art.DecalInstance(color, 1, 6);
-            var go = Art.Decal(root, MeshKit.FloorQuad(), mat, 0.05f);
-            go.transform.position = Art.W(pos, Art.FloorTop + 0.05f);
-            flashes.Add(new Flash { Go = go, Mat = mat, Color = color, Life = life, From = Vector3.one * radius * 1.2f, To = Vector3.one * radius * 2.1f });
-            var mat2 = Art.DecalInstance(new Color(color.r, color.g, color.b, color.a * 0.45f), 0, 5);
-            var go2 = Art.Decal(root, MeshKit.FloorQuad(), mat2, 0.045f);
-            go2.transform.position = Art.W(pos, Art.FloorTop + 0.045f);
-            flashes.Add(new Flash { Go = go2, Mat = mat2, Color = mat2.GetColor("_BaseColor"), Life = life * 0.8f, From = Vector3.one * radius * 1.6f, To = Vector3.one * radius * 2f });
+            Spawn(0, Art.W(pos, Art.FloorTop + 0.05f), color, life, Vector3.one * radius * 1.2f, Vector3.one * radius * 2.1f);
+            Spawn(1, Art.W(pos, Art.FloorTop + 0.045f), new Color(color.r, color.g, color.b, color.a * 0.45f), life * 0.8f, Vector3.one * radius * 1.6f, Vector3.one * radius * 2f);
+        }
+
+        /// <summary>Вспышка из пула: 0 — кольцо, 1 — заливка кольца, 2 — сфера.</summary>
+        void Spawn(int kind, Vector3 at, Color color, float life, Vector3 from, Vector3 to)
+        {
+            Flash fl;
+            if (freeFlashes[kind].Count > 0) { fl = freeFlashes[kind].Pop(); fl.Go.SetActive(true); }
+            else
+            {
+                fl = new Flash { Kind = kind };
+                if (kind == 2)
+                {
+                    fl.Mat = new Material(Art.LitMat(Color.white, 2f, true));
+                    fl.Go = Art.Part(root, MeshKit.Ico(1), fl.Mat, Vector3.zero, Vector3.one, default, false);
+                }
+                else
+                {
+                    fl.Mat = Art.DecalInstance(Color.white, kind == 0 ? 1 : 0, kind == 0 ? 6 : 5);
+                    fl.Go = Art.Decal(root, MeshKit.FloorQuad(), fl.Mat, 0.05f);
+                }
+            }
+            fl.Go.transform.position = at;
+            fl.Go.transform.localScale = from;
+            fl.Color = color; fl.Life = life; fl.T = 0f; fl.From = from; fl.To = to;
+            fl.Mat.SetColor("_BaseColor", color);
+            if (kind == 2) fl.Mat.SetColor("_EmissionColor", color * 2f);
+            flashes.Add(fl);
+        }
+
+        /// <summary>Молния: ломаная от a до b, гаснет за 0.15 с.</summary>
+        public void Zap(Vector2 a, Vector2 b, Color color)
+        {
+            LineRenderer line;
+            if (freeZaps.Count > 0) { line = freeZaps.Pop(); line.gameObject.SetActive(true); }
+            else
+            {
+                var go = new GameObject("Zap");
+                go.transform.SetParent(root, false);
+                line = go.AddComponent<LineRenderer>();
+                line.sharedMaterial = Art.LitMat(Color.white, 3f, true);
+                line.widthMultiplier = 0.08f;
+                line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+            const int n = 7;
+            line.positionCount = n;
+            var side = new Vector2(-(b - a).y, (b - a).x).normalized;
+            for (int i = 0; i < n; i++)
+            {
+                float k = (float)i / (n - 1);
+                float off = i == 0 || i == n - 1 ? 0f : Random.Range(-0.25f, 0.25f);
+                line.SetPosition(i, Art.W(Vector2.Lerp(a, b, k) + side * off, 0.8f));
+            }
+            line.startColor = line.endColor = color;
+            zaps.Add(new ZapLine { Line = line, Color = color, Life = 0.15f });
+        }
+
+        sealed class ZapLine
+        {
+            public LineRenderer Line;
+            public Color Color;
+            public float T, Life;
         }
 
         /// <summary>Вспышка-сфера (попадание, телепорт).</summary>
-        public void Puff(Vector2 pos, float size, Color color, float life = 0.25f, float y = 0.6f)
-        {
-            var mat = new Material(Art.LitMat(color, 2f, true));
-            var go = Art.Part(root, MeshKit.Ico(1), mat, Art.W(pos, y), Vector3.one * size, default, false);
-            flashes.Add(new Flash { Go = go, Mat = mat, Color = color, Life = life, From = Vector3.one * size * 0.5f, To = Vector3.one * size * 1.3f });
-        }
+        public void Puff(Vector2 pos, float size, Color color, float life = 0.25f, float y = 0.6f) =>
+            Spawn(2, Art.W(pos, y), color, life, Vector3.one * size * 0.5f, Vector3.one * size * 1.3f);
 
         sealed class Flash
         {
+            public int Kind;
             public GameObject Go;
             public Material Mat;
             public Color Color;
             public float T, Life;
             public Vector3 From, To;
         }
+    }
+
+    static class ColorExt
+    {
+        public static Color WithA(this Color c, float a) => new(c.r, c.g, c.b, a);
     }
 
     sealed class EffectView
@@ -196,6 +266,195 @@ namespace Arena.View
                     line.widthMultiplier = 0.12f; line.positionCount = 2;
                     line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                     break;
+                default:
+                    if (f.Kind >= EffectKind.FormShot) BuildForm(f);
+                    break;
+            }
+        }
+
+        // ---------- режим форм ----------
+
+        Color tint;
+
+        void BuildForm(Effect f)
+        {
+            tint = Art.CardTint(f.Card);
+            switch (f.Kind)
+            {
+                case EffectKind.FormShot:
+                    Add(Art.Part(root, MeshKit.Ico(1), Art.LitMat(tint, 3f), new Vector3(0f, 0.75f, 0f), Vector3.one * 0.34f, default, false));
+                    Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(Color.white, 4f), new Vector3(0f, 0.75f, 0f), Vector3.one * 0.16f, default, false));
+                    Trail(root, tint, 0.26f, 0.2f, 0.75f);
+                    break;
+                case EffectKind.FormBolt:
+                    Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(tint, 3f), new Vector3(0f, 0.85f, 0f), Vector3.one * 0.22f, default, false));
+                    Trail(root, tint, 0.14f, 0.15f, 0.85f);
+                    break;
+                case EffectKind.FormZone:
+                {
+                    var fm = Art.DecalInstance(new Color(tint.r, tint.g, tint.b, 0.16f), f.Phase == 1 ? -1 : 0, 1); owned.Add(fm);
+                    Add(Art.Decal(root, f.Phase == 1 ? MeshKit.FloorLane() : MeshKit.FloorQuad(), fm, 0.026f));
+                    var rm = Art.DecalInstance(new Color(tint.r, tint.g, tint.b, 0.8f), f.Phase == 1 ? 2 : 1, 2); owned.Add(rm);
+                    Add(Art.Decal(root, f.Phase == 1 ? MeshKit.FloorLane() : MeshKit.FloorQuad(), rm, 0.03f));
+                    for (int i = 0; i < 5; i++)
+                        Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(tint, 2.5f), Vector3.zero, Vector3.one * 0.12f, default, false));
+                    break;
+                }
+                case EffectKind.FormSpirit:
+                {
+                    // дух: бледный череп в саване, глаза цвета свойства
+                    var shroud = Art.LitMat(new Color(0.55f, 0.6f, 0.68f, 0.55f), 0.6f, true);
+                    Add(Art.Part(root, MeshKit.Prism(7, 0.2f), shroud, new Vector3(0f, 0.55f, 0f), new Vector3(0.42f, 0.6f, 0.42f), new Vector3(180f, 0f, 0f), false));
+                    Add(Art.Part(root, MeshKit.Ico(1), Art.LitMat(new Color(0.86f, 0.83f, 0.76f), 0.3f), new Vector3(0f, 1.15f, 0f), new Vector3(0.32f, 0.34f, 0.3f), default, false));
+                    Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(tint, 4f), new Vector3(-0.07f, 1.17f, 0.13f), Vector3.one * 0.07f, default, false));
+                    Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(tint, 4f), new Vector3(0.07f, 1.17f, 0.13f), Vector3.one * 0.07f, default, false));
+                    if (f.Card.Has(Arena.Core.Trait.Lightning))
+                    {
+                        line = new GameObject("Arc").AddComponent<LineRenderer>();
+                        line.transform.SetParent(root, false);
+                        line.sharedMaterial = Art.LitMat(Art.TraitColor(Arena.Core.Trait.Lightning), 3f, true);
+                        line.widthMultiplier = 0.07f; line.positionCount = 6;
+                        line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    }
+                    break;
+                }
+                case EffectKind.FormBarrier:
+                case EffectKind.FormWall:
+                {
+                    float a = f.Kind == EffectKind.FormWall ? 0.18f : 0.26f;
+                    Add(Art.Part(root, MeshKit.Ico(1), Art.LitMat(new Color(tint.r, tint.g, tint.b, a), 1.4f, true), new Vector3(0f, 0.7f, 0f), Vector3.one, default, false));
+                    var rm = Art.DecalInstance(new Color(tint.r, tint.g, tint.b, 0.85f), 1, 3); owned.Add(rm);
+                    Add(Art.Decal(root, MeshKit.FloorQuad(), rm, 0.04f));
+                    break;
+                }
+                case EffectKind.FormTrail:
+                {
+                    var c = f.Phase == 0 ? Art.TraitColor(Arena.Core.Trait.Fire) : Art.TraitColor(Arena.Core.Trait.Frost);
+                    var m = Art.DecalInstance(new Color(c.r, c.g, c.b, 0.45f), -1, 2); owned.Add(m);
+                    var d = Art.Decal(root, MeshKit.FloorLane(), m, 0.028f);
+                    Add(d);
+                    for (int i = 0; i < 6; i++)
+                        Add(Art.Part(root, MeshKit.Prism(4, 0f), Art.LitMat(c, 2.5f), Vector3.zero, new Vector3(0.22f, 0.4f, 0.22f), default, false));
+                    break;
+                }
+                case EffectKind.FormShade:
+                    Add(Art.Part(root, MeshKit.Prism(9, 0.38f), Art.LitMat(new Color(tint.r, tint.g, tint.b, 0.35f), 1.5f, true), Vector3.zero, new Vector3(0.6f, 1f, 1.1f), default, false));
+                    Trail(root, tint, 0.5f, 0.25f, 0.5f);
+                    break;
+                case EffectKind.FormVortex:
+                {
+                    var m = Art.DecalInstance(new Color(0.18f, 0.05f, 0.35f, 0.7f), 3, 2); owned.Add(m);
+                    var d = Art.Decal(root, MeshKit.FloorQuad(), m, 0.03f); d.transform.localScale = Vector3.one * f.R * 2.2f; Add(d);
+                    for (int i = 0; i < 6; i++)
+                        Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(Art.TraitColor(Arena.Core.Trait.Pull), 2.5f), Vector3.zero, Vector3.one * 0.12f, default, false));
+                    break;
+                }
+                case EffectKind.FormDashReturn:
+                {
+                    var m = Art.DecalInstance(new Color(tint.r, tint.g, tint.b, 0.6f), 1, 2); owned.Add(m);
+                    var d = Art.Decal(root, MeshKit.FloorQuad(), m, 0.03f); d.transform.localScale = Vector3.one * 0.9f; Add(d);
+                    break;
+                }
+            }
+        }
+
+        void SyncForm(Effect f, ArenaSim sim, float time)
+        {
+            switch (f.Kind)
+            {
+                case EffectKind.FormShot:
+                    root.localScale = Vector3.one * f.Grow * (0.85f + 0.3f * f.Mul);
+                    break;
+                case EffectKind.FormZone:
+                {
+                    root.rotation = f.Phase == 1 ? Quaternion.LookRotation(new Vector3(f.Dir.x, 0f, f.Dir.y)) : Quaternion.identity;
+                    float fade = Mathf.Clamp01(Mathf.Min(f.Age * 6f, f.Phase == 2 ? 1f : f.Life * 3f + 0.25f));
+                    if (f.Phase == 1)
+                    {
+                        root.position = Art.W(f.Start);
+                        float len = (f.To - f.Start).magnitude, w = sim.FormCfg.zoneRiftWidth * 2f * f.Grow;
+                        parts[0].localScale = parts[1].localScale = new Vector3(w, 1f, len);
+                    }
+                    else parts[0].localScale = parts[1].localScale = Vector3.one * (f.R * f.Grow * 2f);
+                    float pulse = 0.75f + 0.25f * Mathf.Sin(time * 6f + f.Id);
+                    owned[0].SetColor("_BaseColor", new Color(tint.r, tint.g, tint.b, 0.16f * fade * f.Mul + 0.04f));
+                    owned[1].SetColor("_BaseColor", new Color(tint.r, tint.g, tint.b, 0.8f * fade * pulse));
+                    for (int i = 0; i < 5; i++)
+                    {
+                        float a = time * 1.6f + i * 1.2566f;
+                        float rr = f.Phase == 1 ? 0f : f.R * f.Grow * 0.8f;
+                        var pos = f.Phase == 1
+                            ? new Vector3(0f, 0.25f + 0.15f * Mathf.Sin(time * 3f + i), (f.To - f.Start).magnitude * Mathf.Repeat(time * 0.4f + i * 0.2f, 1f))
+                            : new Vector3(Mathf.Cos(a) * rr, 0.25f + 0.15f * Mathf.Sin(time * 3f + i), Mathf.Sin(a) * rr);
+                        parts[2 + i].localPosition = pos;
+                        parts[2 + i].gameObject.SetActive(fade > 0.3f);
+                    }
+                    break;
+                }
+                case EffectKind.FormSpirit:
+                {
+                    var face = sim.Player.Face;
+                    root.rotation = Quaternion.LookRotation(new Vector3(face.x, 0f, face.y));
+                    root.localScale = Vector3.one * (f.Grow * (0.8f + 0.2f * f.Mul));
+                    root.position += Vector3.up * (0.12f * Mathf.Sin(time * 3f + f.Id));
+                    if (line != null)
+                    {
+                        var a = sim.Player.Pos; var b = f.Pos;
+                        var side = new Vector2(-(b - a).y, (b - a).x).normalized;
+                        for (int i = 0; i < 6; i++)
+                        {
+                            float k = i / 5f;
+                            float off = i == 0 || i == 5 ? 0f : Mathf.Sin(time * 40f + i * 2.1f) * 0.18f;
+                            line.SetPosition(i, Art.W(Vector2.Lerp(a, b, k) + side * off, 0.8f));
+                        }
+                        line.useWorldSpace = true;
+                    }
+                    break;
+                }
+                case EffectKind.FormBarrier:
+                case EffectKind.FormWall:
+                {
+                    root.rotation = Quaternion.identity;
+                    float s = f.R * f.Grow * 2f * (1f + 0.04f * Mathf.Sin(time * 12f));
+                    parts[0].localScale = Vector3.one * s;
+                    parts[1].localScale = Vector3.one * s;
+                    break;
+                }
+                case EffectKind.FormTrail:
+                {
+                    root.position = Vector3.zero; root.rotation = Quaternion.identity;
+                    var a = f.Points[0]; var b = f.Points[1];
+                    var d = b - a;
+                    float len = Mathf.Max(0.05f, d.magnitude);
+                    parts[0].position = Art.W(a, Art.FloorTop + 0.028f);
+                    parts[0].rotation = Quaternion.LookRotation(new Vector3(d.x, 0f, d.y).normalized + new Vector3(0f, 0f, 1e-4f));
+                    parts[0].localScale = new Vector3(f.R * 2f, 1f, len);
+                    float fade = Mathf.Clamp01(f.Life);
+                    owned[0].SetColor("_BaseColor", owned[0].GetColor("_BaseColor").WithA(0.45f * fade));
+                    for (int i = 0; i < 6; i++)
+                    {
+                        var pt = Vector2.Lerp(a, b, (i + 0.5f) / 6f);
+                        parts[1 + i].position = Art.W(pt, 0.2f);
+                        parts[1 + i].localScale = new Vector3(0.22f, (0.3f + 0.15f * Mathf.Sin(time * 16f + i)) * fade, 0.22f);
+                    }
+                    break;
+                }
+                case EffectKind.FormShade:
+                    root.gameObject.SetActive(f.T <= 0f);
+                    break;
+                case EffectKind.FormVortex:
+                    root.rotation = Quaternion.identity;
+                    for (int i = 0; i < 6; i++)
+                    {
+                        float a = -time * (4f + i * 0.5f) + i;
+                        float rr = f.R * (1f - Mathf.Repeat(time * 1.2f + i * 0.17f, 1f));
+                        parts[1 + i].localPosition = new Vector3(Mathf.Cos(a) * rr, 0.3f, Mathf.Sin(a) * rr);
+                    }
+                    break;
+                case EffectKind.FormDashReturn:
+                    root.rotation = Quaternion.identity;
+                    root.localScale = Vector3.one * (0.7f + 0.3f * Mathf.Sin(time * 10f));
+                    break;
             }
         }
 
@@ -293,6 +552,9 @@ namespace Arena.View
                     root.position = Vector3.zero;
                     line.SetPosition(0, Art.W(sim.Player.Pos, 0.7f));
                     line.SetPosition(1, Art.W(f.Pos, 0.9f));
+                    break;
+                default:
+                    if (f.Kind >= EffectKind.FormShot) SyncForm(f, sim, time);
                     break;
             }
         }

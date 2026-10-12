@@ -35,6 +35,9 @@ namespace Arena.View
             }
         }
 
+        /// <summary>Сбрасывает накопленные нажатия (после паузы и меню).</summary>
+        public void Flush() => pressedAcc = releasedAcc = 0;
+
         static bool AnyPadButton(Gamepad p) =>
             p.buttonWest.wasPressedThisFrame || p.buttonNorth.wasPressedThisFrame || p.buttonEast.wasPressedThisFrame || p.buttonSouth.wasPressedThisFrame;
 

@@ -172,6 +172,40 @@ namespace Arena.View
             return m;
         });
 
+        /// <summary>Обводка замкнутого многоугольника на полу (x, z) одинаковой толщины width внутрь фигуры: на изгибах вершина
+        /// внутреннего края сдвигается по биссектрисе, чтобы толщина не менялась. Пишет в переданный меш (его можно перестраивать).</summary>
+        public static void Stroke(Mesh m, IReadOnlyList<Vector2> poly, float width)
+        {
+            int n = poly.Count;
+            float area = 0f;
+            for (int i = 0; i < n; i++) { var a = poly[i]; var b = poly[(i + 1) % n]; area += a.x * b.y - b.x * a.y; }
+            float sign = area >= 0f ? 1f : -1f; // против часовой — внутренняя нормаль слева
+            var inner = new Vector2[n];
+            for (int i = 0; i < n; i++)
+            {
+                var p0 = poly[(i + n - 1) % n]; var p1 = poly[i]; var p2 = poly[(i + 1) % n];
+                var d0 = (p1 - p0).normalized; var d1 = (p2 - p1).normalized;
+                var n0 = new Vector2(-d0.y, d0.x) * sign; var n1 = new Vector2(-d1.y, d1.x) * sign;
+                var mid = n0 + n1;
+                mid = mid.sqrMagnitude < 1e-6f ? n0 : mid.normalized;
+                float k = Mathf.Max(Vector2.Dot(mid, n0), 0.35f);
+                inner[i] = p1 + mid * (width / k);
+            }
+            var v = new List<Vector3>(n * 2);
+            var t = new List<int>(n * 12);
+            for (int i = 0; i < n; i++) { v.Add(new Vector3(poly[i].x, 0f, poly[i].y)); v.Add(new Vector3(inner[i].x, 0f, inner[i].y)); }
+            for (int i = 0; i < n; i++)
+            {
+                int a = i * 2, b = a + 1, c = (i + 1) % n * 2, d = c + 1;
+                // обе стороны: какая лицевая, зависит от обхода; лишняя отсекается
+                t.Add(a); t.Add(c); t.Add(d); t.Add(a); t.Add(d); t.Add(b);
+                t.Add(a); t.Add(d); t.Add(c); t.Add(a); t.Add(b); t.Add(d);
+            }
+            m.Clear();
+            m.SetVertices(v); m.SetTriangles(t, 0);
+            m.RecalculateNormals(); m.RecalculateBounds();
+        }
+
         /// <summary>Многоугольник препятствия арены (x, z против часовой стрелки), поднятый на высоту h: стенки и крыша.
         /// Не кэшируется — у каждого препятствия своя форма. Многоугольник может быть невыпуклым.</summary>
         public static Mesh Extrude(IReadOnlyList<Vector2> poly, float h, bool sides = true, bool top = true)

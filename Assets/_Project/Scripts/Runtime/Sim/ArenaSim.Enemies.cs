@@ -25,13 +25,19 @@ namespace Arena.Sim
             e.Cd -= dt;
 
             e.Rooted -= dt;
-            if (!UpdateStatuses(e, dt))
+            float slow = UpdateFormStatuses(e, dt); // иней и зона замедляют ходьбу
+            if (e.Dead) return;
+            bool cc = UpdateStatuses(e, dt);
+            if (!cc)
             {
                 if (e.Kind == EnemyKind.Wastrel) UpdateWastrel(e, dt);
                 else UpdateCasket(e, dt);
+                if (slow < 1f) e.Pos = before + (e.Pos - before) * slow;
             }
             if (e.Rooted > 0f) e.Pos = before; // круг каста: стоит, но атакует
+            var free = e.Pos;
             CollideCircle(ref e.Pos, e.R, before);
+            if (e.KnockT > 0f && e.KnockDmg > 0f) KnockImpact(e, (e.Pos - free).sqrMagnitude > 0.0001f);
             e.Moved = (e.Pos - before).magnitude;
         }
 
@@ -56,7 +62,9 @@ namespace Arena.Sim
             {
                 e.Pull -= dt;
                 var d = e.PullTo - e.Pos;
-                if (d.magnitude > 0.15f) e.Pos += d.normalized * (2.4f * dt);
+                float speed = e.PullSpeed > 0f ? e.PullSpeed : 2.4f;
+                if (d.magnitude > 0.15f) e.Pos += d.normalized * Mathf.Min(speed * dt, d.magnitude);
+                if (e.Pull <= 0f) e.PullSpeed = 0f;
                 return true;
             }
             if (e.Fear > 0f)
@@ -69,6 +77,21 @@ namespace Arena.Sim
                 return true;
             }
             return false;
+        }
+
+        /// <summary>Отталкивание свойства: отброшенный враг ударился о стену или другого врага — урон обоим.</summary>
+        void KnockImpact(Enemy e, bool wall)
+        {
+            Enemy other = null;
+            foreach (var o in Enemies)
+                if (o != e && o.Alive && (o.Pos - e.Pos).magnitude <= o.R + e.R + 0.05f) { other = o; break; }
+            if (!wall && other == null) return;
+            float dmg = e.KnockDmg;
+            e.KnockDmg = 0f;
+            e.KnockT = Mathf.Min(e.KnockT, 0.05f);
+            Damage(e, dmg, false);
+            if (other != null) { Damage(other, dmg, false); if (other.Alive) ApplyCc(other, Arena.Core.CcKind.Stun, 0.3f); }
+            Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = e.Pos, Radius = 0.6f, Color = 1 });
         }
 
         // ---------- Общее: AggroAI из Hades II ----------
@@ -346,7 +369,7 @@ namespace Arena.Sim
                     Add(new Effect
                     {
                         Kind = EffectKind.EnemyBolt, Pos = e.Pos + e.Dir * 0.42f, Dir = e.Dir, Speed = c.boltSpeed, Life = c.boltLife,
-                        R = c.boltRadius, Damage = c.damage,
+                        R = c.boltRadius, Damage = c.damage, Target = e, // Target — кто стрелял (Возврат барьера)
                     });
                     e.Vel = -e.Dir * (c.kickSpeed * Mathf.Pow(c.kickFalloff, e.Strike));
                     Events.Add(new SimEvent { Kind = EventKind.Attack, Pos = e.Pos + e.Dir * 0.42f, To = e.Dir, Enemy = e, Radius = 0.3f });

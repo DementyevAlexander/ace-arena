@@ -146,10 +146,13 @@ namespace Arena.Sim
         public void Damage(Enemy e, float amount, bool crit, bool dot = false, DotKind dotKind = DotKind.Bleed)
         {
             if (e.Dead) return;
+            if (e.RotT > 0f) amount *= 1f + FormCfg.rotVuln * e.RotLvl; // гниль: уязвимость
             e.Hp -= amount;
             e.Flash = 0.12f;
             Events.Add(new SimEvent { Kind = EventKind.EnemyHit, Pos = e.Pos, Value = amount, Crit = crit, Enemy = e, Color = dot ? 10 + (int)dotKind : -1 });
-            if (e.Hp <= 0f) Kill(e);
+            if (e.DoomT > 0f && !doomBursting) e.DoomAcc += amount;
+            if (e.LinkT > 0f && !sharing) ShareDamage(e, amount);
+            if (e.Hp <= 0f && !e.Dead) Kill(e);
         }
 
         void Kill(Enemy e)
@@ -162,6 +165,8 @@ namespace Arena.Sim
             Events.Add(new SimEvent { Kind = EventKind.EnemyDied, Pos = e.Pos, Enemy = e });
             if (e.MarkBleed > 0f) SpreadDeath(e, UpgradeKind.DeathBleed);
             if (e.MarkPoison > 0f) SpreadDeath(e, UpgradeKind.DeathPoison);
+            if (e.RotT > 0f) SpreadRot(e);
+            if (FormsMode) OnKillForms();
         }
 
         void SpreadDeath(Enemy dead, UpgradeKind kind)
@@ -192,6 +197,7 @@ namespace Arena.Sim
             var p = Player;
             if (GameOver) return false;
             if (p.Invulnerable) return false;
+            if (FormsMode && BarrierAbsorb(from, null)) return false; // барьер формы
             if (p.Shield > 0f)
             {
                 // Aegis Cloak: щит принимает удар и взрывается

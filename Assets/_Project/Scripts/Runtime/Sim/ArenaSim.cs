@@ -82,6 +82,7 @@ namespace Arena.Sim
                 foreach (var o in new[] { new Vector2(-5.5f, 3f), new Vector2(5.5f, 3f), new Vector2(-6f, -3.5f), new Vector2(6f, -3.5f) })
                     Obstacles.Add(new Obstacle { Pos = o, R = 0.7f });
             Wave = 0; Kills = 0; GameOver = false; Time = 0f; waveTimer = 0f; pending.Clear(); spawnTimer = 0f;
+            if (FormsMode) ResetForms();
         }
 
         public void Step(float dt, SimInput input)
@@ -146,6 +147,7 @@ namespace Arena.Sim
 
         void UpdatePlayer(float dt, SimInput input)
         {
+            if (FormsMode) { UpdatePlayerForms(dt, input); return; }
             var p = Player;
             p.HitInvuln -= dt; p.BuffInvuln -= dt; p.DashInvuln -= dt; p.HitStun -= dt; p.Haste -= dt; p.Slow -= dt; p.Shoes -= dt;
             if (p.Hidden > 0f)
@@ -442,6 +444,7 @@ namespace Arena.Sim
         void UpdateWaves(float dt)
         {
             var c = ArenaCfg;
+            if (FormsMode && RewardPending) return; // идёт выбор карточки
             if (Wave == 0) { StartWave(true); return; }
             if (pending.Count > 0)
             {
@@ -453,7 +456,10 @@ namespace Arena.Sim
                 spawnTimer = Rand(c.spawnIntervalMin, c.spawnIntervalMax);
                 return;
             }
-            if (AliveCount() > c.waveRemaining) { waveTimer = c.waveDelay; return; }
+            // режим форм: каждая вторая волна добивается до конца, потом — выбор карточки
+            bool reward = FormsMode && Wave % c.wavesPerReward == 0;
+            if (AliveCount() > (reward ? 0 : c.waveRemaining)) { waveTimer = c.waveDelay; return; }
+            if (reward && rewardWave != Wave) { rewardWave = Wave; OpenReward(); return; }
             waveTimer -= dt;
             if (waveTimer <= 0f) StartWave(false);
         }
@@ -488,7 +494,7 @@ namespace Arena.Sim
                 case 3: return new List<EnemyKind> { EnemyKind.Wastrel, EnemyKind.Casket };
             }
             var list = new List<EnemyKind>();
-            int budget = c.budget;
+            int budget = c.budget + (FormsMode ? Rewards * c.budgetPerReward : 0);
             while (budget >= Mathf.Min(c.wastrelCost, c.casketCost))
             {
                 bool w = budget >= c.wastrelCost && (budget < c.casketCost || rng.NextDouble() < 0.5);

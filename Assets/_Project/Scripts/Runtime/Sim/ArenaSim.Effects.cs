@@ -12,6 +12,7 @@ namespace Arena.Sim
                 var f = Effects[i];
                 if (f.Done) continue;
                 f.Age += dt;
+                if (f.Kind >= EffectKind.FormShot) { UpdateFormEffect(f, dt); continue; }
                 switch (f.Kind)
                 {
                     case EffectKind.Dagger:
@@ -92,6 +93,7 @@ namespace Arena.Sim
             f.Pos += f.Dir * (f.Speed * dt);
             f.T += f.Speed * dt; // пройденный путь
             if (f.Life <= 0f || f.T >= c.boltRange || !InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R)) { f.Done = true; return; }
+            if (FormsMode && CatchBolt(f)) return; // барьер или его копия
             if ((Player.Pos - f.Pos).magnitude <= f.R + PlayerCfg.radius && !Player.Invulnerable)
             {
                 if (HurtPlayer(f.Damage, f.Pos, 0f, 0f, 0f, 2)) Player.Slow = c.slowTime; // без отброса, свой хитстоп

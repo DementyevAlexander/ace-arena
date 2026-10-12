@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Arena.Sim;
 using UnityEngine;
 
@@ -105,7 +106,7 @@ namespace Arena.View
                 aimLineBack.localScale = aimLine.localScale;
             }
             // посох: рывок — вытянутый силуэт, спринт — наклон, удар — разворот корпуса с косой
-            if (st.Move == StaffMove.Blink && st.BlinkFireT >= 0f) body.localScale = new Vector3(0.7f, 0.9f, 1.6f);
+            if ((st.Move == StaffMove.Blink && st.BlinkFireT >= 0f) || sim.FormDashing) body.localScale = new Vector3(0.7f, 0.9f, 1.6f);
             if (st.Move == StaffMove.Sprint) body.localEulerAngles = new Vector3(22f, 0f, 0f);
             if (st.Move is StaffMove.Swing or StaffMove.DashStrike) body.localEulerAngles = new Vector3(0f, -55f, 0f);
             else if (st.Lock > 0f || st.LockCancel > 0f) body.localEulerAngles = new Vector3(8f, 40f, 0f);
@@ -127,7 +128,8 @@ namespace Arena.View
         readonly TelegraphView tele;
         readonly GameObject spawnDecal;
         readonly Material spawnMat;
-        readonly Transform[] statusIcons = new Transform[7];
+        readonly Transform[] statusIcons = new Transform[11];
+        static readonly bool[] StatusOn = new bool[11];
         float t;
 
         public EnemyView(Enemy e, Transform parent)
@@ -160,7 +162,8 @@ namespace Arena.View
             statusRoot = new GameObject("Status").transform;
             statusRoot.SetParent(bar, false);
             statusRoot.localPosition = new Vector3(-0.4f, 0.18f, 0f);
-            Color[] sc = { new(1f, 0.9f, 0.2f), new(0.7f, 0.42f, 1f), new(0.45f, 0.65f, 1f), new(1f, 0.19f, 0.28f), new(1f, 0.6f, 0.12f), new(0.48f, 0.88f, 0.29f), new(0.85f, 0.4f, 1f) };
+            Color[] sc = { new(1f, 0.9f, 0.2f), new(0.7f, 0.42f, 1f), new(0.45f, 0.65f, 1f), new(1f, 0.19f, 0.28f), new(1f, 0.6f, 0.12f), new(0.48f, 0.88f, 0.29f), new(0.85f, 0.4f, 1f),
+                new(0.55f, 0.85f, 1f), new(0.55f, 0.92f, 0.3f), new(0.78f, 0.42f, 1f), new(1f, 0.85f, 0.45f) }; // + иней, гниль, приговор, связь
             for (int i = 0; i < statusIcons.Length; i++)
             {
                 statusIcons[i] = Art.Part(statusRoot, MeshKit.Ico(0), Art.DecalMat(sc[i], -1, 22), Vector3.zero, Vector3.one * 0.13f, default, false).transform;
@@ -256,6 +259,10 @@ namespace Arena.View
             Color tint = Color.clear;
             if (e.Flash > 0f) tint = Color.white;
             else if (windup) tint = Color.Lerp(new Color(1f, 0.3f, 0.2f, 0f), new Color(1f, 0.15f, 0.1f, 0.85f), Mathf.Repeat(time * 8f, 1f) < 0.5f ? 1f : 0.4f);
+            else if (e.Frozen > 0f) tint = new Color(0.62f, 0.88f, 1f, 0.75f);                      // заморожен
+            else if (e.Burn > 0f) tint = new Color(1f, 0.5f, 0.1f, 0.2f + 0.15f * Mathf.Sin(time * 25f)); // горит
+            else if (e.RotT > 0f) tint = new Color(0.45f, 0.8f, 0.2f, 0.3f);                         // гниёт
+            else if (e.DoomT > 0f) tint = new Color(0.7f, 0.3f, 1f, 0.2f + 0.2f * Mathf.Repeat(time * 2f, 1f)); // приговорён
             for (int i = 0; i < flashMats.Length; i++)
                 flashMats[i].SetColor("_BaseColor", Color.Lerp(baseColors[i], new Color(tint.r, tint.g, tint.b, 1f), tint.a));
 
@@ -265,12 +272,11 @@ namespace Arena.View
             alert.gameObject.SetActive(e.Alert > 0f && !e.Dead);
             if (e.Alert > 0f) alert.localScale = Vector3.one * (1f + Mathf.Max(0f, e.Alert - 0.6f) * 2f);
 
-            bool[] on =
-            {
-                e.Stun > 0f, e.Fear > 0f, e.Pull > 0f || e.PullAce > 0f,
-                HasDot(e, DotKind.Bleed) || e.MarkBleed > 0f, HasDot(e, DotKind.Burn) || HasDot(e, DotKind.Lava),
-                HasDot(e, DotKind.Poison) || HasDot(e, DotKind.Noxious) || e.MarkPoison > 0f, HasDot(e, DotKind.Hex),
-            };
+            var on = StatusOn; // общий буфер — без выделения памяти каждый кадр
+            on[0] = e.Stun > 0f; on[1] = e.Fear > 0f; on[2] = e.Pull > 0f || e.PullAce > 0f;
+            on[3] = HasDot(e, DotKind.Bleed) || e.MarkBleed > 0f; on[4] = HasDot(e, DotKind.Burn) || HasDot(e, DotKind.Lava) || e.Burn > 0f;
+            on[5] = HasDot(e, DotKind.Poison) || HasDot(e, DotKind.Noxious) || e.MarkPoison > 0f; on[6] = HasDot(e, DotKind.Hex);
+            on[7] = e.Frost > 0 || e.Frozen > 0f; on[8] = e.RotT > 0f; on[9] = e.DoomT > 0f; on[10] = e.LinkT > 0f;
             int n = 0;
             for (int i = 0; i < on.Length; i++)
             {
@@ -289,26 +295,36 @@ namespace Arena.View
         public void Destroy()
         {
             tele.Destroy();
+            // свои экземпляры материалов (вспышки, круг появления) вместе с объектом не удаляются
+            foreach (var m in flashMats) Object.Destroy(m);
+            Object.Destroy(spawnMat);
             Object.Destroy(Root.gameObject);
         }
     }
 
-    /// <summary>Обозначение атаки на земле: контур зоны сразу целиком + заливка, которая растёт до контура к моменту удара.</summary>
+    /// <summary>Обозначение атаки на земле: контур зоны сразу целиком + заливка, которая растёт до контура к моменту удара.
+    /// Контур — отдельный меш одной толщины (OutlineWidth) по всей фигуре: он не растягивается вместе с размером зоны.</summary>
     public sealed class TelegraphView
     {
+        const float OutlineWidth = 0.045f;
+
         readonly Transform root, outline, fill, edge;
         readonly Material outlineMat, fillMat, edgeMat;
+        readonly Mesh outlineMesh;
+        readonly List<Vector2> poly = new();
         TeleShape shape = (TeleShape)(-1);
+        Vector4 built = new(-1f, -1f, -1f, -1f);
 
         public TelegraphView(Transform parent)
         {
             root = new GameObject("Telegraph").transform;
             root.SetParent(parent, false);
-            outlineMat = Art.DecalInstance(Art.DangerEdge, 1, 2);
+            outlineMat = Art.DecalInstance(Art.DangerEdge, -1, 4);
             fillMat = Art.DecalInstance(Art.Danger, 0, 3);
             edgeMat = Art.DecalInstance(new Color(1f, 0.25f, 0.15f, 0.2f), 0, 1);
             edge = Art.Decal(root, MeshKit.FloorQuad(), edgeMat, 0.025f).transform;
-            outline = Art.Decal(root, MeshKit.FloorQuad(), outlineMat, 0.03f).transform;
+            outlineMesh = new Mesh { name = "TelegraphOutline" };
+            outline = Art.Decal(root, outlineMesh, outlineMat, 0.04f).transform;
             fill = Art.Decal(root, MeshKit.FloorQuad(), fillMat, 0.035f).transform;
             root.gameObject.SetActive(false);
         }
@@ -328,49 +344,90 @@ namespace Arena.View
                     TeleShape.Fan => MeshKit.FloorFan(Mathf.Round(t.Angle)),
                     _ => MeshKit.FloorQuad(),
                 };
-                outline.GetComponent<MeshFilter>().sharedMesh = mesh;
                 fill.GetComponent<MeshFilter>().sharedMesh = mesh;
                 edge.GetComponent<MeshFilter>().sharedMesh = mesh;
-                outlineMat.SetTexture("_BaseMap", lane ? Art.Rect() : Art.Ring());
                 fillMat.SetTexture("_BaseMap", lane ? null : Art.Disc());
                 edgeMat.SetTexture("_BaseMap", lane ? null : Art.Disc());
+                built = new Vector4(-1f, -1f, -1f, -1f);
             }
             float k = t.Progress;
             root.position = Art.W(t.Center);
             root.rotation = Quaternion.LookRotation(new Vector3(t.Dir.x, 0f, t.Dir.y));
+            BuildOutline(t);
             if (t.Shape == TeleShape.Ellipse)
             {
                 var full = new Vector3(t.Side * 2f, 1f, t.Forward * 2f);
-                outline.localScale = full;
                 edge.localScale = full;
                 fill.localScale = new Vector3(full.x * k, 1f, full.z * k);
             }
             else if (t.Shape == TeleShape.Trapezoid)
             {
-                outline.localScale = new Vector3(t.Side, 1f, t.Forward);
-                edge.localScale = outline.localScale;
+                edge.localScale = new Vector3(t.Side, 1f, t.Forward);
                 fill.localScale = new Vector3(t.Side, 1f, t.Forward * k);
             }
             else if (t.Shape == TeleShape.Fan)
             {
-                outline.localScale = Vector3.one * t.Forward;
-                edge.localScale = outline.localScale;
+                edge.localScale = Vector3.one * t.Forward;
                 fill.localScale = Vector3.one * (t.Forward * k);
             }
             else
             {
-                outline.localScale = new Vector3(t.Side * 2f, 1f, t.Forward);
-                edge.localScale = outline.localScale;
+                edge.localScale = new Vector3(t.Side * 2f, 1f, t.Forward);
                 fill.localScale = new Vector3(t.Side * 2f, 1f, t.Forward * k);
             }
             // к концу замаха — ярче и мигает, чтобы не пропустить момент удара
             float pulse = k > 0.75f ? (Mathf.Repeat(time * 14f, 1f) < 0.5f ? 1f : 0.65f) : 1f;
-            outlineMat.SetColor("_BaseColor", new Color(1f, 0.6f, 0.15f, (0.75f + 0.25f * k) * pulse));
+            outlineMat.SetColor("_BaseColor", new Color(1f, 0.6f, 0.15f, (0.8f + 0.2f * k) * pulse));
             fillMat.SetColor("_BaseColor", new Color(1f, 0.15f, 0.08f, (0.45f + 0.4f * k) * pulse));
             edgeMat.SetColor("_BaseColor", new Color(1f, 0.35f, 0.15f, 0.3f));
         }
 
-        public void Destroy() => Object.Destroy(root.gameObject);
+        /// <summary>Контур в настоящих размерах фигуры (x — поперёк, z — вперёд); перестраивается, только когда размеры меняются.</summary>
+        void BuildOutline(Telegraph t)
+        {
+            var key = new Vector4(t.Forward, t.Side, t.Base, t.Angle);
+            if ((key - built).sqrMagnitude < 1e-6f) return;
+            built = key;
+            poly.Clear();
+            switch (t.Shape)
+            {
+                case TeleShape.Ellipse:
+                    for (int i = 0; i < 48; i++)
+                    {
+                        float a = i * Mathf.PI * 2f / 48f;
+                        poly.Add(new Vector2(Mathf.Sin(a) * t.Side, Mathf.Cos(a) * t.Forward));
+                    }
+                    break;
+                case TeleShape.Trapezoid:
+                    poly.Add(new Vector2(-t.Base, 0f)); poly.Add(new Vector2(-t.Side, t.Forward));
+                    poly.Add(new Vector2(t.Side, t.Forward)); poly.Add(new Vector2(t.Base, 0f));
+                    break;
+                case TeleShape.Fan:
+                {
+                    poly.Add(Vector2.zero);
+                    int n = Mathf.Max(6, Mathf.CeilToInt(t.Angle * 2f / 8f));
+                    for (int i = 0; i <= n; i++)
+                    {
+                        float a = Mathf.Deg2Rad * (-t.Angle + 2f * t.Angle * i / n);
+                        poly.Add(new Vector2(Mathf.Sin(a), Mathf.Cos(a)) * t.Forward);
+                    }
+                    break;
+                }
+                default:
+                    poly.Add(new Vector2(-t.Side, 0f)); poly.Add(new Vector2(-t.Side, t.Forward));
+                    poly.Add(new Vector2(t.Side, t.Forward)); poly.Add(new Vector2(t.Side, 0f));
+                    break;
+            }
+            MeshKit.Stroke(outlineMesh, poly, OutlineWidth);
+            outline.localScale = Vector3.one;
+        }
+
+        public void Destroy()
+        {
+            Object.Destroy(outlineMesh);
+            Object.Destroy(outlineMat); Object.Destroy(fillMat); Object.Destroy(edgeMat);
+            Object.Destroy(root.gameObject);
+        }
     }
 
     /// <summary>Поворачивает объект к камере (полоски здоровья).</summary>

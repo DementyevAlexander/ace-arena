@@ -1,5 +1,6 @@
 using System.Collections;
 using System.IO;
+using Arena.Core;
 using Arena.Sim;
 using Arena.View;
 using NUnit.Framework;
@@ -24,6 +25,11 @@ namespace Arena.Tests
             yield return null;
             var gc = Object.FindFirstObjectByType<GameController>();
             Assert.IsNotNull(gc);
+            // режим форм: игра начинается с выбора карточки
+            Assert.IsTrue(gc.Sim.FormsMode);
+            Assert.IsTrue(gc.Sim.RewardPending);
+            yield return Capture("00_reward");
+            gc.Sim.TakeOffer(0, gc.Sim.Offers[0].Form == FormKind.Dash ? ArenaSim.DashSlot : 1);
             yield return new WaitForSeconds(2.6f);
             Assert.Greater(gc.Sim.Wave, 0);
             Assert.Greater(gc.Sim.Enemies.Count, 0);
@@ -44,21 +50,21 @@ namespace Arena.Tests
             yield return new WaitForSeconds(1.5f);
             yield return Capture("03_after");
 
-            // посох: каст, затем удар и спецатака (ввод подаём прямо в симуляцию)
+            // формы: зона с пламенем, дух с молнией, очередь снарядов (ввод подаём прямо в симуляцию)
             var sim = gc.Sim;
             sim.Player.BuffInvuln = 5f;
-            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 2, Held = 0 });
+            sim.Forms[1].Card = new SkillCard(FormKind.Zone, Trait.Fire);
+            sim.Forms[2].Card = new SkillCard(FormKind.Summon, Trait.Lightning);
+            sim.Forms[1].Reset(); sim.Forms[2].Reset();
+            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 1 });
+            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 2 });
             for (int i = 0; i < 20; i++) { sim.Step(1f / 60f, default); yield return null; }
-            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 0 });
-            for (int i = 0; i < 5; i++) { sim.Step(1f / 60f, default); }
-            yield return Capture("04_staff_swing");
-            for (int i = 0; i < 20; i++) { sim.Step(1f / 60f, default); yield return null; }
-            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 1, Held = 1 << 1 });
-            for (int i = 0; i < 50; i++) { sim.Step(1f / 60f, new SimInput { Held = 1 << 1 }); }
-            yield return Capture("05_staff_special_charge");
-            sim.Step(1f / 60f, default);
-            for (int i = 0; i < 12; i++) { sim.Step(1f / 60f, default); yield return null; }
-            yield return Capture("06_staff_ball");
+            yield return Capture("04_zone_spirit");
+            sim.Step(1f / 60f, new SimInput { Pressed = 1, Held = 1 });
+            for (int i = 0; i < 40; i++) { sim.Step(1f / 60f, new SimInput { Held = 1 }); yield return null; }
+            yield return Capture("05_shots");
+            for (int i = 0; i < 30; i++) { sim.Step(1f / 60f, default); yield return null; }
+            yield return Capture("06_after");
         }
 
         static IEnumerator Capture(string name)
@@ -66,12 +72,17 @@ namespace Arena.Tests
             var dir = System.Environment.GetEnvironmentVariable("ARENA_CAPTURE_DIR");
             if (string.IsNullOrEmpty(dir)) yield break;
             yield return null;
-            // В batch-режиме WaitForEndOfFrame не приходит — рендерим камеру в текстуру сами (без экранного интерфейса)
+            // В batch-режиме WaitForEndOfFrame не приходит — рендерим камеру в текстуру сами; интерфейс на время снимка
+            // переводим из оверлея на камеру, иначе его в текстуре не будет
             var cam = Camera.main;
             var rt = new RenderTexture(1600, 900, 24);
             var prev = cam.targetTexture;
             cam.targetTexture = rt;
+            var canvases = Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude);
+            foreach (var c in canvases) { c.renderMode = RenderMode.ScreenSpaceCamera; c.worldCamera = cam; c.planeDistance = 1f; }
+            Canvas.ForceUpdateCanvases();
             cam.Render();
+            foreach (var c in canvases) c.renderMode = RenderMode.ScreenSpaceOverlay;
             cam.targetTexture = prev;
             var old = RenderTexture.active;
             RenderTexture.active = rt;

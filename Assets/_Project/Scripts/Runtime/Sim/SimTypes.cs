@@ -24,6 +24,7 @@ namespace Arena.Sim
     {
         EnemyHit, EnemyDied, EnemySpawned, EnemyAlert, PlayerHit, PlayerBlocked,
         Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak, HitStop, Shake,
+        Zap, RewardReady, // режим форм: молния от Pos до To; выбор карточки
     }
 
     public struct SimEvent
@@ -215,6 +216,17 @@ namespace Arena.Sim
         public readonly List<Dot> Dots = new();
         public float MarkBleed, MarkPoison;
         public float Moved;
+        // статусы свойств (режим форм)
+        public float Burn, BurnT, BurnTick;   // Scorch: запас урона, выгорает за BurnT
+        public int Frost;                     // стаки инея, на FrostToFreeze — заморозка
+        public float FrostT, Frozen;
+        public float RotT; public int RotLvl; // гниль: уязвимость, при смерти заражает соседей
+        public float DoomT, DoomAcc, DoomFrac; // приговор: копит урон и через DoomT отдаёт его долю
+        public Effect DoomBy;                 // метка духа — сработает, когда дух исчезнет
+        public float LinkT;                   // Hitch: часть урона уходит другим связанным
+        public float ZoneSlowT;
+        public float PullSpeed;               // скорость притяжения (0 — 2.4, как Black Hole)
+        public float KnockDmg;                // отброс свойства: урон при ударе о стену или врага
 
         public bool Alive => !Dead && State != AiState.Spawn;
         public bool UnderCc => Stun > 0f || Fear > 0f || Pull > 0f || PullAce > 0f;
@@ -225,6 +237,8 @@ namespace Arena.Sim
         Dagger, FiveCard, WildCard, Missile, Rose, Bat, BlackHole, Cone, DashHit, FireTrail, Cloud, Tether, AegisShield,
         EnemyBolt, // самонаводящийся снаряд Casket
         StaffWedge, StaffBall, CastCircle, // посох: хитбокс удара, снаряд спецатаки, круг каста
+        // режим форм (ArenaSim.Forms)
+        FormShot, FormBolt, FormZone, FormSpirit, FormBarrier, FormWall, FormTrail, FormShade, FormEchoShot, FormDashReturn, FormVortex,
     }
 
     /// <summary>Чем нанесён удар: главная карта, её улучшение и собственный эффект.</summary>
@@ -262,6 +276,15 @@ namespace Arena.Sim
         public DotKind Dot;
         public float Stun, Back, Length; // посох: оглушение при попадании, форма трапеции
         public HashSet<Enemy> SharedHit;  // общий список задетых на несколько хитбоксов (ExcludeSameWaveHits)
+        // режим форм
+        public FormSlot FSlot;
+        public SkillCard Card;
+        public FormKind As;               // по правилам какой формы снаряд накладывает свойства
+        public int Bounces, Charges;
+        public float Mul = 1f, Grow = 1f;
+        public bool Echoed;
+        public Effect Parent;
+        public readonly List<Enemy> Marks = new();
     }
 
     public sealed class Obstacle

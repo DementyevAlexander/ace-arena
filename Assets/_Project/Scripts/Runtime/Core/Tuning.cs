@@ -166,5 +166,8 @@ namespace Arena.Core
         public float wakeUpDelay = 0.3f;        // первая волна стоит в комнате заранее: WakeUpDelay и реакция 0.15–0.45 с
         public float wakeReactionMin = 0.15f;
         public float wakeReactionMax = 0.45f;
+        /// <summary>Режим форм: карточки — после каждой второй волны, когда она добита; бюджет случайных волн растёт с каждым выбором.</summary>
+        public int wavesPerReward = 2;
+        public int budgetPerReward = 8;
     }
 }

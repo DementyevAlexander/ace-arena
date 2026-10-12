@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Arena.Core;
 using Arena.Sim;
 using Arena.UI;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -17,6 +18,13 @@ namespace Arena.View
         public ArenaSim Sim { get; private set; }
         public CameraRig Rig { get; private set; }
         public bool Paused { get; private set; }
+        /// <summary>Тесты: подменяет ввод игрока (null — клавиатура, мышь, геймпад).</summary>
+        public System.Func<SimInput> TestInput;
+        /// <summary>Время частей прошлого кадра, мс — для нагрузочного теста (то же видно в Profiler по маркерам Arena.*).</summary>
+        public float SimMs, ViewsMs, HudMs;
+
+        static readonly ProfilerMarker SimMarker = new("Arena.Sim"), ViewsMarker = new("Arena.Views"), HudMarker = new("Arena.Hud");
+        readonly System.Diagnostics.Stopwatch watch = new();
 
         readonly InputReader input = new();
         readonly Dictionary<int, EnemyView> enemyViews = new();
@@ -24,7 +32,8 @@ namespace Arena.View
         PlayerView player;
         EffectViews effects;
         Hud hud;
-        DeckScreen deck;
+        RewardScreen reward; // выбор карточки и просмотр скиллов; прежняя колода (DeckScreen) из интерфейса убрана
+        bool viewSkills, pauseMenu;
         Transform world, lockMarker;
         float acc, time;
         // хитстоп (HitSimSlowParameters): шаги профиля, время с начала, длительность; новый не начинается, пока идёт прежний
@@ -38,6 +47,7 @@ namespace Arena.View
             Application.targetFrameRate = 120;
             // подключённая арена — Resources/Arenas/index.json (active); без неё — классическая комната
             Sim = new ArenaSim(System.Environment.TickCount, layout: ArenaCatalog.LoadActive());
+            Sim.EnableForms(); // скиллы — формы со свойствами; посох и карты DandyAce остаются в коде, но не предлагаются
             world = new GameObject("World").transform;
             bool night = Sim.Layout != null; // арены Hades — ночной город, классическая комната — дневная поляна
             SetupCamera(night);
@@ -49,7 +59,7 @@ namespace Arena.View
             var lm = Art.DecalInstance(new Color(1f, 0.95f, 0.6f, 0.85f), 1, 7);
             lockMarker = Art.Decal(world, MeshKit.FloorQuad(), lm, 0.06f).transform;
             hud = new Hud();
-            deck = new DeckScreen(Sim);
+            reward = new RewardScreen(Sim);
             Rig.Snap(Art.W(Sim.Player.Pos));
             if (Sim.Layout != null) hud.ShowBanner(Sim.Layout.title, 2f);
         }
@@ -142,13 +152,17 @@ namespace Arena.View
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             input.Poll();
 
-            if (input.DeckPressed && !Sim.GameOver) { deck.Show(!deck.Visible); Paused = deck.Visible; }
+            if (input.DeckPressed && !Sim.GameOver && !Sim.RewardPending) viewSkills = !viewSkills;
             else if (input.PausePressed)
             {
-                if (deck.Visible) { deck.Show(false); Paused = false; }
-                else Paused = !Paused;
+                if (viewSkills) viewSkills = false;
+                else if (!Sim.RewardPending) pauseMenu = !pauseMenu;
             }
             if (input.RestartPressed || (Sim.GameOver && wasGameOver && input.PausePressed)) Restart();
+            bool wasPaused = Paused;
+            reward.Sync(viewSkills);
+            Paused = pauseMenu || reward.Visible;
+            if (wasPaused && !Paused) input.Flush(); // клик по карточке не должен стать выстрелом
 
             if (!Paused)
             {
@@ -159,21 +173,28 @@ namespace Arena.View
                 acc += simDt;
                 bool first = true;
                 int guard = 0;
-                while (acc >= Step && guard++ < 6)
-                {
-                    acc -= Step;
-                    Sim.Step(Step, input.Build(Rig.Cam, first));
-                    first = false;
-                    HandleEvents();
-                }
+                watch.Restart();
+                using (SimMarker.Auto())
+                    while (acc >= Step && guard++ < 6)
+                    {
+                        acc -= Step;
+                        Sim.Step(Step, TestInput?.Invoke() ?? input.Build(Rig.Cam, first));
+                        first = false;
+                        HandleEvents();
+                    }
+                SimMs = (float)watch.Elapsed.TotalMilliseconds;
                 if (Sim.GameOver && !wasGameOver) hud.ShowBanner("Смерть повержена — R, чтобы начать заново", 999f);
                 wasGameOver = Sim.GameOver;
             }
 
             UpdateCameraFeel(Paused ? 0f : dt);
-            SyncViews(Paused ? 0f : dt);
-            hud.Sync(Sim, Rig.Cam, input.UseMouse, dt, Paused);
-            if (Paused && !deck.Visible) hud.ShowBanner("Пауза", 0.1f);
+            watch.Restart();
+            using (ViewsMarker.Auto()) SyncViews(Paused ? 0f : dt);
+            ViewsMs = (float)watch.Elapsed.TotalMilliseconds;
+            watch.Restart();
+            using (HudMarker.Auto()) hud.Sync(Sim, Rig.Cam, input.UseMouse, dt, Paused);
+            HudMs = (float)watch.Elapsed.TotalMilliseconds;
+            if (pauseMenu) hud.ShowBanner("Пауза", 0.1f);
         }
 
         void Restart()
@@ -184,7 +205,7 @@ namespace Arena.View
             effects.Clear();
             hud.ShowBanner("", 0f);
             Paused = false; wasGameOver = false;
-            deck.Show(false);
+            viewSkills = false; pauseMenu = false;
         }
 
         void SyncViews(float dt)
@@ -217,6 +238,8 @@ namespace Arena.View
                 switch (ev.Kind)
                 {
                     case EventKind.EnemyHit:
+                        // тики Scorch — без цифр, как в Hades (BurnEffect: SkipDamageText); горение видно по цвету врага
+                        if (Sim.FormsMode && ev.Color == 10 + (int)DotKind.Burn) break;
                         hud.Number(ev.Pos, ev.Value, ev.Crit, NumberColor(ev));
                         break;
                     case EventKind.EnemyDied:
@@ -247,6 +270,9 @@ namespace Arena.View
                     case EventKind.Teleport:
                         effects.Puff(ev.Pos, 1f, ExplosionColor(ev.Color), 0.3f);
                         effects.Puff(ev.To, 1f, ExplosionColor(ev.Color), 0.3f);
+                        break;
+                    case EventKind.Zap:
+                        effects.Zap(ev.Pos, ev.To, ev.Color == 1 ? new Color(1f, 0.8f, 0.45f, 0.9f) : new Color(1f, 0.97f, 0.6f, 1f));
                         break;
                     case EventKind.WaveStart:
                         hud.ShowBanner($"Волна {Mathf.RoundToInt(ev.Value)}");
