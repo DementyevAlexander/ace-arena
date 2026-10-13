@@ -32,6 +32,7 @@
   "C_MiniBoss01"
  ],
  "enabled": [
+  "N_Combat06",
   "A_Combat01"
  ]
 }

@@ -23,12 +23,13 @@ namespace Arena.Sim
     public enum EventKind
     {
         EnemyHit, EnemyDied, EnemySpawned, EnemyAlert, PlayerHit, PlayerBlocked,
-        Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak,
+        Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak, HitStop, Shake,
         RoomClear, TrapFire, BoltHit, PropBroken, DoorsOpen, RoomEnter,
+        Zap, RewardReady, // режим форм: молния от Pos до To; выбор карточки
     }
 
     /// <summary>Стоп-кадр Hades (HitSimSlowParameters): замедление всей игры после удара.</summary>
-    public enum HitStop { None, Quick, Long, Instant, HurtHeavy, HurtLight, HurtSmall, LastKill }
+    public enum HitStop { None, Quick, Long, Instant, HurtHeavy, HurtLight, HurtSmall, LastKill, WastrelHit1, WastrelHit2, CasketBolt }
 
     public struct SimEvent
     {
@@ -129,7 +130,10 @@ namespace Arena.Sim
         public float Hp;
         public float HitInvuln;
         public float BuffInvuln;
+        public float DashInvuln; // рывок посоха: INVULNERABLE на время заряда и 16 кадров после
         public float Haste;
+        public float Slow; // замедление от снаряда Casket (HeroOnHitStun: скорость × 0.7)
+
         public float Shoes;
         public float Shield;
         public float Hidden;
@@ -146,17 +150,23 @@ namespace Arena.Sim
         public float KnockT;
         public float ShoeTrailT;
         public Effect ShoeTrail;
+        public readonly StaffState Staff = new();
 
-        public bool Invulnerable => HitInvuln > 0f || BuffInvuln > 0f || Hidden > 0f;
+        public bool Invulnerable => HitInvuln > 0f || BuffInvuln > 0f || DashInvuln > 0f || Hidden > 0f;
         public bool Aiming => Cast != null && Cast.Phase == CastPhase.Aim;
+        /// <summary>HeroOnHitStun ветки Hades II — то же оглушение героя, что и <see cref="Stun"/>.</summary>
+        public float HitStun { get => Stun; set => Stun = value; }
     }
 
-    public enum EnemyKind { Ghost, Stomper, Thug, Witch }
+    /// <summary>Ghost и Stomper — DandyAce и Пуфф; Thug и Witch — Hades; Wastrel и Casket — Hades II.</summary>
+    public enum EnemyKind { Ghost, Stomper, Thug, Witch, Wastrel, Casket }
 
-    /// <summary>Cover, Peek — HideAndPeekAI ведьмы; PreFire — пауза Thug между замахом и выпадом.</summary>
-    public enum AiState { Spawn, Wander, Alert, Chase, Windup, Strike, Recover, Lunge, PreFire, Cover, Peek }
+    /// <summary>Cover, Peek — HideAndPeekAI ведьмы Hades; Hide, Approach — то же у Casket (Hades II); PreFire — пауза Thug между замахом и выпадом.</summary>
+    public enum AiState { Spawn, Wander, Alert, Chase, Windup, Strike, Recover, Lunge, PreFire, Cover, Peek, Hide, Approach }
 
-    public enum TeleShape { Ellipse, Lane }
+    /// <summary>Ellipse — эллипс (круг) с центром Center; Lane — полоса; Trapezoid — от Center вперёд, ширина растёт
+    /// от Base до Side; Fan — сектор радиуса Forward с полууглом Angle (градусы).</summary>
+    public enum TeleShape { Ellipse, Lane, Trapezoid, Fan }
 
     /// <summary>Обозначение будущей атаки на земле. Заполняется от 0 до 1 к моменту удара; удар бьёт ровно эту фигуру.</summary>
     public sealed class Telegraph
@@ -165,7 +175,9 @@ namespace Arena.Sim
         public Vector2 Center;
         public Vector2 Dir;
         public float Forward; // эллипс: полуось вдоль Dir; полоса: длина
-        public float Side;    // эллипс: полуось поперёк; полоса: полуширина
+        public float Side;    // эллипс: полуось поперёк; полоса: полуширина; трапеция: полуширина на конце
+        public float Base;    // трапеция: полуширина у начала
+        public float Angle;   // сектор: полуугол, градусы
         public float Total;
         public float T;
 
@@ -179,6 +191,19 @@ namespace Arena.Sim
             {
                 float a = Forward + pad, b = Side + pad;
                 return f * f / (a * a) + s * s / (b * b) <= 1f;
+            }
+            if (Shape == TeleShape.Trapezoid)
+            {
+                float half = Mathf.Lerp(Base, Side, Mathf.Clamp01(f / Mathf.Max(Forward, 0.001f)));
+                return f >= -pad && f <= Forward + pad && Mathf.Abs(s) <= half + pad;
+            }
+            if (Shape == TeleShape.Fan)
+            {
+                float r = d.magnitude;
+                if (r > Forward + pad) return false;
+                if (r <= pad) return true;
+                // запас по краю сектора — на ширину тела
+                return Vector2.Angle(Dir, d) <= Angle + Mathf.Rad2Deg * Mathf.Asin(Mathf.Clamp01(pad / r));
             }
             return f >= -pad && f <= Forward + pad && Mathf.Abs(s) <= Side + pad;
         }
@@ -194,6 +219,14 @@ namespace Arena.Sim
         public AiState State;
         public float T, Cd, Lost, Alert;
         public int Strike;
+        public Vector2 Home;       // точка появления — вокруг неё бродит, пока не заметил (AIWanderDistance)
+        public bool Aggro;
+        public float React = -1f;  // задержка реакции перед агрессией (AggroReactionTime), −1 — ещё не заметил
+        public bool Attacker;      // Casket: сейчас атакует (MaxAttackers)
+        public bool Retry;         // замах сорван оглушением — после него повторить с места
+        public bool SpawnAggro;    // появился волной — сразу в бой
+        public float ChaseT;       // сколько идёт к цели (тайм-аут MoveWithinRange)
+        public float Rooted;       // в круге каста: не может двигаться (ImpactSlow × 0.05 + ImpactGrip)
         public bool Dead;
         public float DeathT;
         public float SpawnInvuln;
@@ -206,9 +239,9 @@ namespace Arena.Sim
         public readonly List<Dot> Dots = new();
         public float MarkBleed, MarkPoison;
         public float Moved;
-        // Hades: точка появления, агрессия, телеграф без зоны (белая вспышка и дрожь), отбрасывание с Grip
-        public Vector2 Home, CoverPos;
-        public bool Aggro, PreSpawned;
+        // Hades: агрессия, телеграф без зоны (белая вспышка и дрожь), отбрасывание с Grip
+        public Vector2 CoverPos;
+        public bool PreSpawned;
         public float AggroT;
         /// <summary>Длительность и остаток белой вспышки замаха (PreAttackEnd: последние min(0.5, замах) с).</summary>
         public float WarnTotal, WarnT;
@@ -219,6 +252,17 @@ namespace Arena.Sim
         /// бонусы улучшений «против оглушённых» на него не реагируют.</summary>
         public float HitStun;
         public bool HadesKind => Kind is EnemyKind.Thug or EnemyKind.Witch;
+        // статусы свойств (режим форм)
+        public float Burn, BurnT, BurnTick;   // Scorch: запас урона, выгорает за BurnT
+        public int Frost;                     // стаки инея, на FrostToFreeze — заморозка
+        public float FrostT, Frozen;
+        public float RotT; public int RotLvl; // гниль: уязвимость, при смерти заражает соседей
+        public float DoomT, DoomAcc, DoomFrac; // приговор: копит урон и через DoomT отдаёт его долю
+        public Effect DoomBy;                 // метка духа — сработает, когда дух исчезнет
+        public float LinkT;                   // Hitch: часть урона уходит другим связанным
+        public float ZoneSlowT;
+        public float PullSpeed;               // скорость притяжения (0 — 2.4, как Black Hole)
+        public float KnockDmg;                // отброс свойства: урон при ударе о стену или врага
 
         public bool Alive => !Dead && State != AiState.Spawn;
         public bool UnderCc => Stun > 0f || Fear > 0f || Pull > 0f || PullAce > 0f;
@@ -227,6 +271,10 @@ namespace Arena.Sim
     public enum EffectKind
     {
         Dagger, FiveCard, WildCard, Missile, Rose, Bat, BlackHole, Cone, DashHit, FireTrail, Cloud, Tether, AegisShield,
+        EnemyBolt, // самонаводящийся снаряд Casket
+        StaffWedge, StaffBall, CastCircle, // посох: хитбокс удара, снаряд спецатаки, круг каста
+        // режим форм (ArenaSim.Forms)
+        FormShot, FormBolt, FormZone, FormSpirit, FormBarrier, FormWall, FormTrail, FormShade, FormEchoShot, FormDashReturn, FormVortex,
     }
 
     /// <summary>Чем нанесён удар: главная карта, её улучшение и собственный эффект.</summary>
@@ -249,7 +297,7 @@ namespace Arena.Sim
     {
         public int Id;
         public EffectKind Kind;
-        public Vector2 Pos, Dir, Start;
+        public Vector2 Pos, Dir, Start, To;
         public float Speed, Life, Age, R, T, Hold, Tick;
         public int Phase;
         public bool Done;
@@ -262,6 +310,17 @@ namespace Arena.Sim
         public readonly List<float> PointAge = new();
         public float Damage;
         public DotKind Dot;
+        public float Stun, Back, Length; // посох: оглушение при попадании, форма трапеции
+        public HashSet<Enemy> SharedHit;  // общий список задетых на несколько хитбоксов (ExcludeSameWaveHits)
+        // режим форм
+        public FormSlot FSlot;
+        public SkillCard Card;
+        public FormKind As;               // по правилам какой формы снаряд накладывает свойства
+        public int Bounces, Charges;
+        public float Mul = 1f, Grow = 1f;
+        public bool Echoed;
+        public Effect Parent;
+        public readonly List<Enemy> Marks = new();
     }
 
     /// <summary>Препятствие комнаты: многоугольник и описанная окружность (быстрая проверка).</summary>
@@ -274,6 +333,8 @@ namespace Arena.Sim
         public string Type;
         /// <summary>Круглое препятствие (колонна) — без многоугольника.</summary>
         public bool Round => Poly == null || Poly.Length < 3;
+        /// <summary>StopsProjectiles: false — вода, обрыв, низкий бордюр (снаряды пролетают, ходить нельзя).</summary>
+        public bool Shots = true;
     }
 
     /// <summary>Снаряд врага (сгусток ведьмы, дротик ловушки).</summary>

@@ -38,6 +38,8 @@ namespace Arena.Core
             public string type;
             /// <summary>Высота при отрисовке (стена, колонна, низкий камень).</summary>
             public float h = 1f;
+            /// <summary>StopsProjectiles: false — вода, обрыв, низкий бордюр (ходить нельзя, снаряды пролетают).</summary>
+            public bool shots = true;
         }
 
         [Serializable]
@@ -102,6 +104,17 @@ namespace Arena.Core
             /// <summary>После заданных волн — генерация волн по бюджету сложности, как GeneratedTartarus.</summary>
             public bool generated = true;
             public int activeCap = 10;
+            /// <summary>Кого генерировать и почём (DifficultyRating). Пусто — враги Тартара: Thug 10, Witch 5.</summary>
+            public string[] pool = Array.Empty<string>();
+            public float[] ratings = Array.Empty<float>();
+            /// <summary>Бюджет сгенерированного набора: budget + budgetPerDepth × глубина (Тартар: 30 + 11 × глубина; Эреб: 55).</summary>
+            public float budget = 30f;
+            public float budgetPerDepth = 11f;
+            /// <summary>Сгенерированный набор — одна волна (Эреб) или 1–3 волны (Тартар).</summary>
+            public bool singleWave;
+            /// <summary>Следующая волна — через waveDelay, когда живых осталось не больше waveRemaining (Эреб: 0.5 с и 1).</summary>
+            public float waveDelay = 1f;
+            public int waveRemaining;
         }
 
         [Serializable]
@@ -129,7 +142,7 @@ namespace Arena.Core
                 return Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg;
             }
             Vector2[] Ps(Vector2[] a) { var o = new Vector2[a.Length]; for (int i = 0; i < a.Length; i++) o[i] = P(a[i]); return o; }
-            Poly[] Polys(Poly[] a) => Array.ConvertAll(a, x => new Poly { p = Ps(x.p), type = x.type, h = x.h });
+            Poly[] Polys(Poly[] a) => Array.ConvertAll(a, x => new Poly { p = Ps(x.p), type = x.type, h = x.h, shots = x.shots });
             Point[] Points(Point[] a) => Array.ConvertAll(a, x => new Point { pos = P(x.pos), angle = A(x.angle), role = x.role });
             var m = new RoomDef
             {
@@ -151,6 +164,42 @@ namespace Arena.Core
         }
 
         [NonSerialized] public bool Flipped;
+
+        /// <summary>Арена Hades II, из которой сделана комната: по ней рисуется ночной город. null — комната Hades.</summary>
+        [NonSerialized] public ArenaLayout Layout;
+        public bool IsHades2 => Layout != null;
+
+        /// <summary>Арена Hades II (Resources/Arenas) в формате комнаты: пол — рамка арены, стены — её препятствия,
+        /// волны — как бой Эреба (FIntroFight, затем GeneratedF на бюджет 55: Wastrel 18, Casket 12).</summary>
+        public static RoomDef FromArena(ArenaLayout a)
+        {
+            var mn = a.boundsMin;
+            var mx = a.boundsMax;
+            var r = new RoomDef
+            {
+                name = a.id, biome = a.biome, source = a.source, zoom = a.zoom > 0f ? a.zoom : 1f,
+                heroStart = a.playerStart, min = mn, max = mx, Layout = a,
+                floor = new[] { new Poly { type = "Floor", h = 0f, p = new[] { mn, new Vector2(mx.x, mn.y), mx, new Vector2(mn.x, mx.y) } } },
+                walls = a.walls.ConvertAll(w => new Poly { p = w.points.ToArray(), type = w.kind, h = w.height, shots = w.projectiles }).ToArray(),
+                spawns = a.spawns.ConvertAll(p => new Point { pos = p, role = "" }).ToArray(),
+                exits = a.exit != Vector2.zero ? new[] { new Point { pos = a.exit } } : Array.Empty<Point>(),
+                encounter = new Encounter
+                {
+                    name = "FIntroFight", activeCap = 4, generated = true, singleWave = true,
+                    pool = new[] { "Wastrel", "Casket" }, ratings = new[] { 18f, 12f }, budget = 55f, budgetPerDepth = 0f,
+                    waveDelay = 0.5f, waveRemaining = 1,
+                    waves = new[]
+                    {
+                        new Wave { enemies = new[] { "Wastrel" }, preSpawned = true, intervalMin = 0.2f, intervalMax = 0.4f },
+                        new Wave { enemies = new[] { "Casket", "Casket", "Casket" }, intervalMin = 0.2f, intervalMax = 0.4f },
+                        new Wave { enemies = new[] { "Wastrel", "Casket" }, intervalMin = 0.2f, intervalMax = 0.4f },
+                    },
+                },
+            };
+            var d = (mn + mx) * 0.5f - r.heroStart;
+            r.heroAngle = d.sqrMagnitude > 0.01f ? Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg : 90f;
+            return r;
+        }
 
         /// <summary>Прямоугольная пустая комната — для тестов и запасного варианта.</summary>
         public static RoomDef Box(float halfWidth, float halfDepth, string name = "Box")
@@ -184,13 +233,28 @@ namespace Arena.Core
             return index;
         }
 
-        public static IReadOnlyList<string> All => Load().rooms;
+        static List<string> all;
+
+        /// <summary>Все комнаты: 30 из Hades (Resources/Rooms) и 30 арен Hades II (Resources/Arenas).</summary>
+        public static IReadOnlyList<string> All
+        {
+            get
+            {
+                if (all != null) return all;
+                all = new List<string>(Load().rooms);
+                all.AddRange(ArenaCatalog.Index().arenas);
+                return all;
+            }
+        }
+
         public static IReadOnlyList<string> Enabled => Load().enabled;
 
         public static RoomDef Get(string name)
         {
             var ta = Resources.Load<TextAsset>("Rooms/" + name);
-            return ta == null ? null : JsonUtility.FromJson<RoomDef>(ta.text);
+            if (ta != null) return JsonUtility.FromJson<RoomDef>(ta.text);
+            var arena = ArenaCatalog.Load(name);
+            return arena != null ? RoomDef.FromArena(arena) : null;
         }
 
         /// <summary>Комната за дверью: случайная из подключённых (сейчас подключена одна — та же комната).</summary>

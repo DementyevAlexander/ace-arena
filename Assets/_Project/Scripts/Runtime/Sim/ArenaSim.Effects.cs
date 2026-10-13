@@ -1,3 +1,4 @@
+using Arena.Core;
 using UnityEngine;
 
 namespace Arena.Sim
@@ -11,6 +12,7 @@ namespace Arena.Sim
                 var f = Effects[i];
                 if (f.Done) continue;
                 f.Age += dt;
+                if (f.Kind >= EffectKind.FormShot) { UpdateFormEffect(f, dt); continue; }
                 switch (f.Kind)
                 {
                     case EffectKind.Dagger:
@@ -55,6 +57,18 @@ namespace Arena.Sim
                         f.Pos = Player.Pos;
                         if (Player.Shield <= 0f) f.Done = true;
                         break;
+                    case EffectKind.EnemyBolt:
+                        UpdateBolt(f, dt);
+                        break;
+                    case EffectKind.StaffWedge:
+                        UpdateStaffWedge(f, dt);
+                        break;
+                    case EffectKind.StaffBall:
+                        UpdateStaffBall(f, dt);
+                        break;
+                    case EffectKind.CastCircle:
+                        UpdateCastCircle(f, dt);
+                        break;
                     default:
                         f.Life -= dt;
                         if (f.Life <= 0f) f.Done = true;
@@ -63,11 +77,37 @@ namespace Arena.Sim
             }
         }
 
+        /// <summary>Снаряд Casket (MageRanged, HOMING): летит 4.25 ю/с, доворачивает на Смерть, гаснет через Range 12.15 ю
+        /// или Fuse 5 с, бьётся о препятствия. Попадание — урон и замедление × 0.7 на 0.2 с без отброса.
+        /// Во время неуязвимости (рывок, телепорт) пролетает насквозь.</summary>
+        void UpdateBolt(Effect f, float dt)
+        {
+            var c = CasketCfg;
+            f.Life -= dt;
+            var to = Player.Pos - f.Pos;
+            if (to.sqrMagnitude > 0.0001f && Player.Hidden <= 0f)
+            {
+                float a = Vector2.SignedAngle(f.Dir, to);
+                float turn = Mathf.Clamp(a, -c.boltTurn * dt, c.boltTurn * dt) * Mathf.Deg2Rad;
+                f.Dir = new Vector2(f.Dir.x * Mathf.Cos(turn) - f.Dir.y * Mathf.Sin(turn), f.Dir.x * Mathf.Sin(turn) + f.Dir.y * Mathf.Cos(turn)).normalized;
+            }
+            f.Pos += f.Dir * (f.Speed * dt);
+            f.T += f.Speed * dt; // пройденный путь
+            if (f.Life <= 0f || f.T >= c.boltRange || !InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R)) { f.Done = true; return; }
+            if (FormsMode && CatchBolt(f)) return; // барьер или его копия
+            if ((Player.Pos - f.Pos).magnitude <= f.R + PlayerCfg.radius && !Player.Invulnerable)
+            {
+                if (HurtPlayer(f.Damage, f.Pos, HitStop.CasketBolt, 0f)) Player.Slow = c.slowTime; // без отброса, свой хитстоп
+                Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = f.Pos, Radius = 0.35f, Color = 5 });
+                f.Done = true;
+            }
+        }
+
         void Fly(Effect f, float dt, bool pierce)
         {
             f.Life -= dt;
             f.Pos += f.Dir * (f.Speed * dt);
-            if (f.Life <= 0f || !InsideRoom(f.Pos, 0f) || HitsObstacle(f.Pos, f.R * 0.5f)) { HitRoomObjects(f.Pos, f.R); f.Done = true; return; }
+            if (f.Life <= 0f || !InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R * 0.5f)) { HitRoomObjects(f.Pos, f.R); f.Done = true; return; }
             HitRoomObjects(f.Pos, f.R);
             foreach (var e in Enemies)
             {
@@ -83,7 +123,7 @@ namespace Arena.Sim
         {
             f.Life -= dt;
             f.Pos += f.Dir * (f.Speed * dt);
-            bool boom = f.Life <= 0f || !InsideRoom(f.Pos, 0.2f) || HitsObstacle(f.Pos, f.R);
+            bool boom = f.Life <= 0f || !InsideRoom(f.Pos, 0.2f) || BlocksShot(f.Pos, f.R);
             foreach (var e in Enemies) if (e.Alive && (e.Pos - f.Pos).magnitude < f.R + e.R) boom = true;
             if (!boom) return;
             HitRoomObjects(f.Pos, 0.9f);

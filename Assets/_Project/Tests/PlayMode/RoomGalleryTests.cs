@@ -13,7 +13,7 @@ namespace Arena.Tests
     /// Кадры пишутся, только если задана ARENA_CAPTURE_DIR; без неё тест просто проверяет, что комнаты играются.</summary>
     public class RoomGalleryTests
     {
-        [UnityTest]
+        [UnityTest, Timeout(1800000)] // 60 комнат по 4 с игры
         public IEnumerator EveryRoomPlays()
         {
             LogAssert.ignoreFailingMessages = true;

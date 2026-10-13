@@ -10,7 +10,9 @@ namespace Arena.View
         public static readonly float BaseSize = Arena.Core.Hades.U(540f);
         public readonly Camera Cam;
         Vector3 focus;
-        float shake;
+        float shake, shakeAmp, shakeT, shakeDur, baseSize = BaseSize;
+        /// <summary>Приближение поверх зума комнаты (ChargeCameraMotion Ω-атаки).</summary>
+        public float ZoomMul = 1f;
 
         public CameraRig(Camera cam)
         {
@@ -24,23 +26,38 @@ namespace Arena.View
             cam.backgroundColor = new Color(0.62f, 0.78f, 0.74f);
         }
 
+        /// <summary>Масштаб как в Hades: при зуме 1 экран 1080p показывает 1080 пикселей мира по высоте,
+        /// это 1080 × 4.1 / 540 = 8.2 юнита, то есть половина высоты ортокамеры 4.1. Зум комнаты Hades (ZoomFraction) — делитель.</summary>
+        public void SetHadesZoom(float zoom) { baseSize = 4.1f / Mathf.Max(0.3f, zoom); Cam.orthographicSize = baseSize; }
+
         public void Snap(Vector3 target) { focus = target; Apply(); }
 
         /// <summary>ZoomFraction комнаты Hades: меньше 1 — камера дальше.</summary>
-        public void SetZoom(float zoom) => Cam.orthographicSize = BaseSize / Mathf.Clamp(zoom <= 0f ? 1f : zoom, 0.4f, 2f);
+        public void SetZoom(float zoom) => SetHadesZoom(zoom <= 0f ? 1f : zoom);
 
         public void Shake(float amount) => shake = Mathf.Max(shake, amount);
+
+        /// <summary>Тряска Hades (Distance в юнитах, Duration): затухает до нуля за duration.</summary>
+        public void Shake(float amount, float duration)
+        {
+            if (amount <= 0f || duration <= 0f) return;
+            if (shakeT < shakeDur && shakeAmp * (1f - shakeT / shakeDur) > amount) return;
+            shakeAmp = amount; shakeDur = duration; shakeT = 0f;
+        }
 
         public void Follow(Vector3 target, float dt)
         {
             focus = Vector3.Lerp(focus, target, 1f - Mathf.Exp(-dt * 6f));
             shake = Mathf.Max(0f, shake - dt * 1.5f);
+            shakeT += dt;
+            Cam.orthographicSize = baseSize / Mathf.Max(0.1f, ZoomMul);
             Apply();
         }
 
         void Apply()
         {
-            var off = shake > 0f ? (Vector3)(Random.insideUnitCircle * shake) : Vector3.zero;
+            float amp = Mathf.Max(shake, shakeT < shakeDur ? shakeAmp * (1f - shakeT / shakeDur) : 0f);
+            var off = amp > 0f ? (Vector3)(Random.insideUnitCircle * amp) : Vector3.zero;
             Cam.transform.position = focus - Cam.transform.forward * Distance + Cam.transform.rotation * off;
         }
     }

@@ -110,6 +110,11 @@ namespace Arena.Sim
         {
             if (e.Dead || e.State is AiState.Strike or AiState.Lunge) return;
             e.HitStun = Mathf.Max(e.HitStun, duration);
+            if (e.Kind is EnemyKind.Wastrel or EnemyKind.Casket)
+            {
+                if (e.State is AiState.Windup or AiState.Recover or AiState.Hide) InterruptHades2(e);
+                return;
+            }
             if (e.State is AiState.Windup or AiState.PreFire)
             {
                 e.Tele = null;
@@ -124,6 +129,7 @@ namespace Arena.Sim
         /// Hades: замах (PreAttack, PreFire) прерывается, начавшийся удар — нет; потом враг начинает замах заново.</summary>
         void InterruptAttack(Enemy e)
         {
+            if (e.Kind is EnemyKind.Wastrel or EnemyKind.Casket) { InterruptHades2(e); return; }
             if (e.HadesKind)
             {
                 if (e.State is AiState.Windup or AiState.PreFire) { e.WarnT = 0f; e.State = AiState.Chase; e.T = 0f; }
@@ -134,6 +140,30 @@ namespace Arena.Sim
                 e.Tele = null;
                 e.State = AiState.Chase;
                 e.Cd = Mathf.Max(e.Cd, 0.6f);
+            }
+        }
+
+        /// <summary>Контроль по правилам Hades II (EndThreadWaitsOnStun): сорванный замах после оглушения повторяется с места
+        /// (у второго удара Wastrel — DoNotRepeatOnAttackFail, он снова идёт в бой с первого); паузы восстановления и укрытия
+        /// обрываются; уже выпущенный хитбокс Wastrel доживает свой Fuse (см. FiredHitboxWhileStunned); залп Casket прерывается.</summary>
+        void InterruptHades2(Enemy e)
+        {
+            switch (e.State)
+            {
+                case AiState.Windup:
+                    e.Tele = null;
+                    e.Retry = !(e.Kind == EnemyKind.Wastrel && e.Strike == 2);
+                    e.State = AiState.Chase; e.ChaseT = 0f;
+                    break;
+                case AiState.Strike when e.Kind == EnemyKind.Casket:
+                    BeginHide(e);
+                    break;
+                case AiState.Recover:
+                    e.T = 0f;
+                    break;
+                case AiState.Hide:
+                    e.T = Mathf.Min(e.T, 0f);
+                    break;
             }
         }
 
@@ -173,14 +203,17 @@ namespace Arena.Sim
         public void Damage(Enemy e, float amount, bool crit, bool dot = false, DotKind dotKind = DotKind.Bleed, HitStop stop = HitStop.None)
         {
             if (e.Dead) return;
+            if (e.RotT > 0f) amount *= 1f + FormCfg.rotVuln * e.RotLvl; // гниль: уязвимость
             e.Hp -= amount;
             // Hades: красная вспышка 0.03 с и дрожь 6 ед. за 0.15 с (CombatPresentation.lua:1901, 1930)
             e.Flash = 0.03f;
             e.Shake = 0.15f;
             bool kill = e.Hp <= 0f;
             Events.Add(new SimEvent { Kind = EventKind.EnemyHit, Pos = e.Pos, Value = amount, Crit = crit, Enemy = e, Color = dot ? 10 + (int)dotKind : -1, Stop = dot ? HitStop.None : stop, Kill = kill || crit });
+            if (e.DoomT > 0f && !doomBursting) e.DoomAcc += amount;
+            if (e.LinkT > 0f && !sharing) ShareDamage(e, amount);
             if (e.HadesKind && !dot) Aggro(e);
-            if (kill) Kill(e);
+            if (e.Hp <= 0f && !e.Dead) Kill(e);
         }
 
         void Kill(Enemy e)
@@ -195,6 +228,8 @@ namespace Arena.Sim
             Events.Add(new SimEvent { Kind = EventKind.EnemyDied, Pos = e.Pos, Enemy = e });
             if (e.MarkBleed > 0f) SpreadDeath(e, UpgradeKind.DeathBleed);
             if (e.MarkPoison > 0f) SpreadDeath(e, UpgradeKind.DeathPoison);
+            if (e.RotT > 0f) SpreadRot(e);
+            if (FormsMode) OnKillForms();
         }
 
         void SpreadDeath(Enemy dead, UpgradeKind kind)
@@ -217,14 +252,15 @@ namespace Arena.Sim
             HitRoomObjects(center, radius);
         }
 
-        /// <summary>Удар по Ace. Возвращает true, если урон прошёл.
+        /// <summary>Удар по герою. Возвращает true, если урон прошёл.
         /// knock — импульс внешней скорости (тормозит Grip героя, gripMul/gripTime — эффект GRIP жертвы с остановкой в конце),
-        /// stun — ZagreusOnHitStun. Неуязвимость — по правилу Hades: только за пачку урона за 0.6 с.</summary>
+        /// stun — HeroOnHitStun (стоит и не поворачивается, атаковать может). Неуязвимость — по правилу Hades: только за пачку урона за 0.6 с.</summary>
         public bool HurtPlayer(float dmg, Vector2 from, HitStop stop = HitStop.HurtSmall, float knock = 3.3f, float stun = 0f, float gripMul = 1f, float gripTime = 0f)
         {
             var p = Player;
             if (GameOver) return false;
-            if (p.Invulnerable || p.Dashing) return false;
+            if (p.Invulnerable || p.Dashing || FormDashing) return false;
+            if (FormsMode && BarrierAbsorb(from, null)) return false; // барьер формы
             if (p.Shield > 0f)
             {
                 // Aegis Cloak: щит принимает удар и взрывается
@@ -233,10 +269,11 @@ namespace Arena.Sim
                 return false;
             }
             p.Hp -= dmg;
+            p.RecentDamage.RemoveAll(d => Time - d.x > PlayerCfg.iFrameWindow);
             p.RecentDamage.Add(new Vector2(Time, dmg));
             float recent = 0f;
             foreach (var r in p.RecentDamage) recent += r.y;
-            if (recent >= Mathf.Max(PlayerCfg.iFrameThreshold * PlayerCfg.hp, PlayerCfg.iFrameMinDamage))
+            if (p.Hp > 0f && recent >= Mathf.Max(PlayerCfg.iFrameThreshold * PlayerCfg.hp, PlayerCfg.iFrameMinDamage))
             {
                 p.HitInvuln = PlayerCfg.iFrameDuration;
                 p.RecentDamage.Clear();

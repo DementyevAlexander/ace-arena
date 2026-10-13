@@ -6,14 +6,14 @@ using UnityEngine.UI;
 
 namespace Arena.UI
 {
-    /// <summary>Колода (Tab): 4 слота «главная + улучшение» и запас из 11 карт. Клик по карте, потом по месту — поменять местами.</summary>
+    /// <summary>Колода (Tab): 4 слота «главная + улучшение» и запас из 15 карт (по умолчанию в слотах — посох). Клик по карте, потом по месту — поменять местами.</summary>
     public sealed class DeckScreen
     {
-        static readonly string[] Keys = { "ЛКМ / X", "ПКМ / Y", "Q / B", "Space / A" };
+        static readonly string[] Keys = { "ЛКМ / X", "ПКМ / Y", "Q / B", "Space, Shift / A" };
 
         readonly Canvas canvas;
         readonly ArenaSim sim;
-        readonly CardFace[] faces = new CardFace[19];
+        readonly CardFace[] faces = new CardFace[23];
         readonly Text info;
         int selected = -1, hover = -1, focus;
 
@@ -38,10 +38,10 @@ namespace Arena.UI
                 faces[4 + i] = Place(t, 4 + i, new Vector2(x, -425f), new Vector2(200f, 110f));
             }
             UiKit.Label(t, "Запас", 22, new Color(1f, 0.85f, 0.45f), new Vector2(0f, 1f), new Vector2(80f, -560f), new Vector2(200f, 30f), TextAnchor.MiddleLeft).rectTransform.pivot = new Vector2(0f, 0.5f);
-            for (int i = 0; i < 11; i++)
+            for (int i = 0; i < 15; i++)
             {
-                int row = i / 6, col = i % 6;
-                faces[8 + i] = Place(t, 8 + i, new Vector2(80f + col * 165f, -585f - row * 215f), new Vector2(150f, 200f));
+                int row = i / 8, col = i % 8;
+                faces[8 + i] = Place(t, 8 + i, new Vector2(80f + col * 142f, -585f - row * 200f), new Vector2(132f, 185f));
             }
 
             var panel = UiKit.Image(t, "Info", new Color(0.16f, 0.08f, 0.24f, 0.95f), new Vector2(1f, 1f), new Vector2(-60f, -140f), new Vector2(560f, 860f), new Vector2(1f, 1f));

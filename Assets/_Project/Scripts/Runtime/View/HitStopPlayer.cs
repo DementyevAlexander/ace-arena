@@ -28,6 +28,10 @@ namespace Arena.View
             HitStop.HurtLight => new Pattern { Wait = 0.02f, Fraction = 0.25f, Hold = 0.16f, LerpOut = 0.1f },  // сгусток ведьмы
             HitStop.HurtSmall => new Pattern { Wait = 0.04f, Fraction = 0.01f, Hold = 0.06f, LerpOut = 0.1f },  // SmallEnemyMelee
             HitStop.LastKill => new Pattern { Wait = 0.15f, Fraction = 0.35f, LerpIn = 0.08f, Hold = 0.6f, LerpOut = 0.4f },
+            // Hades II (ProjectileData_EnemyF.lua): удары Wastrel и снаряд Casket
+            HitStop.WastrelHit1 => new Pattern { Wait = 0.02f, Fraction = 0.1f, Hold = 0.1f, LerpOut = 0.07f },
+            HitStop.WastrelHit2 => new Pattern { Wait = 0.02f, Fraction = 0.1f, Hold = 0.22f, LerpOut = 0.07f },
+            HitStop.CasketBolt => new Pattern { Fraction = 0.25f, Hold = 0.11f, LerpOut = 0.1f },
             _ => default,
         };
 

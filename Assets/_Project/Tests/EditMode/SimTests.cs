@@ -234,12 +234,12 @@ namespace Arena.Tests
         public void BurstDamageGivesIFrames()
         {
             var s = T.NewSim();
-            s.HurtPlayer(59f, Vector2.up);
-            s.HurtPlayer(59f, Vector2.up);
-            Assert.LessOrEqual(s.Player.HitInvuln, 0f, "118 < 25% от 500 — неуязвимости ещё нет");
-            s.HurtPlayer(59f, Vector2.up);
+            s.HurtPlayer(30f, Vector2.up);
+            s.HurtPlayer(30f, Vector2.up);
+            Assert.LessOrEqual(s.Player.HitInvuln, 0f, "60 < max(25% HP, 15 урона Hades ≈ 83) — неуязвимости ещё нет");
+            s.HurtPlayer(30f, Vector2.up);
             Assert.AreEqual(1.3f, s.Player.HitInvuln, 1e-4f);
-            Assert.IsFalse(s.HurtPlayer(59f, Vector2.up));
+            Assert.IsFalse(s.HurtPlayer(30f, Vector2.up));
         }
     }
 
@@ -260,9 +260,11 @@ namespace Arena.Tests
         [Test]
         public void FifteenCardsFivePerColor()
         {
-            Assert.AreEqual(15, CardCatalog.All.Length);
-            foreach (CardColor c in System.Enum.GetValues(typeof(CardColor)))
-                Assert.AreEqual(5, System.Array.FindAll(CardCatalog.All, x => x.Color == c).Length, c.ToString());
+            var cards = System.Array.FindAll(CardCatalog.All, x => !ArenaSim.IsStaff(x.Id));
+            Assert.AreEqual(15, cards.Length, "15 карт DandyAce (ещё 4 — приёмы посоха Мелинои)");
+            Assert.AreEqual(19, CardCatalog.All.Length);
+            foreach (var c in new[] { CardColor.Pink, CardColor.Yellow, CardColor.Blue })
+                Assert.AreEqual(5, System.Array.FindAll(cards, x => x.Color == c).Length, c.ToString());
             for (int i = 0; i < CardCatalog.All.Length; i++) Assert.AreEqual(i, (int)CardCatalog.All[i].Id);
         }
 
@@ -326,7 +328,7 @@ namespace Arena.Tests
             Assert.AreEqual(AiState.Windup, g.State);
             Assert.IsTrue(g.Tele.Contains(s.Player.Pos, s.PlayerCfg.radius));
             T.Run(s, 0.8f);
-            Assert.AreEqual(500f - 50f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp - 50f, s.Player.Hp, 0.01f);
         }
 
         [Test]
@@ -339,7 +341,7 @@ namespace Arena.Tests
             s.Player.Pos = center; // самый неудобный случай — центр зоны
             T.Run(s, 0.2f);        // реакция 0.2 с
             T.Run(s, 0.65f, new SimInput { Move = Vector2.right });
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f, "успел выйти из зоны до удара");
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f, "успел выйти из зоны до удара");
         }
 
         [Test]
@@ -350,7 +352,7 @@ namespace Arena.Tests
             Assert.AreEqual(CardId.JumpScare, s.Slots[3].Main);
             T.Press(s, 3, Vector2.right);
             T.Run(s, 0.4f);
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f);
             Assert.Greater(s.Player.Pos.x, 3f);
         }
 
@@ -362,7 +364,7 @@ namespace Arena.Tests
             s.ApplyCc(g, CcKind.Stun, 1f);
             Assert.IsNull(g.Tele);
             T.Run(s, 0.8f);
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f);
         }
     }
 
@@ -382,7 +384,7 @@ namespace Arena.Tests
             Assert.AreEqual(AiState.Windup, e.State);
             Assert.AreEqual(TeleShape.Lane, e.Tele.Shape);
             T.Run(s, 0.9f);
-            Assert.AreEqual(500f - 59f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp - 59f, s.Player.Hp, 0.01f);
         }
 
         [Test]
@@ -394,7 +396,7 @@ namespace Arena.Tests
             Assert.AreEqual(AiState.Windup, e.State);
             T.Run(s, 0.25f);
             T.Run(s, 0.6f, new SimInput { Move = Vector2.right });
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f);
         }
     }
 }

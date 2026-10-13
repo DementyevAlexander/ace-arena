@@ -1,3 +1,4 @@
+using Arena.Core;
 using System.Collections;
 using System.IO;
 using Arena.Sim;
@@ -22,42 +23,55 @@ namespace Arena.Tests
                 UnityEngine.Rendering.GraphicsSettings.useScriptableRenderPipelineBatching = false;
             SceneManager.LoadScene("Game");
             yield return null;
-            var gc = Object.FindFirstObjectByType<GameController>();
+            var gc = Object.FindAnyObjectByType<GameController>();
             Assert.IsNotNull(gc);
+            // режим форм: игра начинается с выбора карточки на улице Эфиры
+            Assert.IsTrue(gc.Sim.FormsMode);
+            Assert.IsTrue(gc.Sim.RewardPending);
+            Assert.IsTrue(gc.Sim.Room.IsHades2);
+            yield return Capture("00_reward");
+            gc.Sim.TakeOffer(0, gc.Sim.Offers[0].Form == FormKind.Dash ? ArenaSim.DashSlot : 1);
             yield return new WaitForSeconds(2.6f);
             Assert.Greater(gc.Sim.Wave, 0);
             Assert.Greater(gc.Sim.Enemies.Count, 0);
             yield return Capture("01_wave");
 
-            // Hades: Thug в замахе белеет, ведьма стреляет, у Ghost и топотуна — их зоны на земле
+            // враги всех трёх игр рядом с героем: Wastrel и Casket (зоны на земле), Thug (белеет в замахе), ведьма, Ghost
             var p = gc.Sim.Player.Pos;
             gc.Sim.Player.BuffInvuln = 30f;
             foreach (var e in gc.Sim.Enemies) e.Pos = p + new Vector2(6f, 5f);
-            var thug = gc.Sim.SpawnEnemy(EnemyKind.Thug, p + new Vector2(1.6f, 0.6f));
+            var w = gc.Sim.SpawnEnemy(EnemyKind.Wastrel, p + new Vector2(0f, 2.4f));
+            w.State = AiState.Chase; w.Cd = 0f;
+            var cs = gc.Sim.SpawnEnemy(EnemyKind.Casket, p + new Vector2(2.5f, -0.5f));
+            cs.State = AiState.Chase; cs.Cd = 0f;
+            var thug = gc.Sim.SpawnEnemy(EnemyKind.Thug, p + new Vector2(-1.6f, 0.6f));
             thug.State = AiState.Chase; thug.T = 0f; thug.Aggro = true;
-            var witch = gc.Sim.SpawnEnemy(EnemyKind.Witch, p + new Vector2(-4f, 3f));
-            witch.State = AiState.Peek; witch.T = 3f; witch.Aggro = true;
             var g = gc.Sim.SpawnEnemy(EnemyKind.Ghost, p + new Vector2(-1.5f, -2.4f));
             g.State = AiState.Chase; g.Cd = 0f;
-            var st = gc.Sim.SpawnEnemy(EnemyKind.Stomper, p + new Vector2(1.5f, -1.5f));
-            st.State = AiState.Chase; st.Cd = 0f;
             // ждём по игровому времени: в batch-режиме кадры медленные, а шаг кадра в симуляции ограничен
             for (int i = 0; i < 900 && thug.WarnT < 0.5f; i++) yield return null;
             Assert.Greater(thug.WarnT, 0f, "Thug в конце замаха белеет");
             yield return Capture("02_thug_windup");
-            for (int i = 0; i < 900 && (g.Tele == null || g.Tele.Progress < 0.6f); i++) yield return null;
-            Assert.IsNotNull(g.Tele);
+            for (int i = 0; i < 900 && (w.Tele == null || w.Tele.Progress < 0.6f); i++) yield return null;
+            Assert.IsNotNull(w.Tele);
             yield return Capture("03_telegraphs");
-            for (int i = 0; i < 900 && gc.Sim.Bolts.Count == 0; i++) yield return null;
-            yield return Capture("04_witch_bolt");
-
-            // прицел жёлтой карты
-            gc.Sim.Player.Cast = new Cast { Slot = 2, Phase = CastPhase.Aim, Target = gc.Sim.Player.Pos + new Vector2(2.5f, 1.5f) };
-            yield return null;
-            yield return Capture("05_reticle");
-            gc.Sim.Player.Cast = null;
             yield return new WaitForSeconds(1.5f);
-            yield return Capture("06_after");
+            yield return Capture("04_after");
+
+            // формы: зона с пламенем, дух с молнией, очередь снарядов (ввод подаём прямо в симуляцию)
+            var sim = gc.Sim;
+            sim.Player.BuffInvuln = 5f;
+            sim.Forms[1].Card = new SkillCard(FormKind.Zone, Trait.Fire);
+            sim.Forms[2].Card = new SkillCard(FormKind.Summon, Trait.Lightning);
+            sim.Forms[1].Reset(); sim.Forms[2].Reset();
+            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 1 });
+            sim.Step(1f / 60f, new SimInput { Pressed = 1 << 2 });
+            for (int i = 0; i < 20; i++) { sim.Step(1f / 60f, default); yield return null; }
+            yield return Capture("05_zone_spirit");
+            sim.Step(1f / 60f, new SimInput { Pressed = 1, Held = 1 });
+            for (int i = 0; i < 40; i++) { sim.Step(1f / 60f, new SimInput { Held = 1 }); yield return null; }
+            yield return Capture("06_shots");
+            for (int i = 0; i < 30; i++) { sim.Step(1f / 60f, default); yield return null; }
         }
 
         static IEnumerator Capture(string name)

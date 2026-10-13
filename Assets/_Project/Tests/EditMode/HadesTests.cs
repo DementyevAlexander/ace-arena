@@ -25,7 +25,7 @@ namespace Arena.Tests
             T.Run(s, 0.3f);
             Assert.Greater(e.WarnT, 0.5f, "к концу замаха враг белеет");
             T.Run(s, 0.4f);
-            Assert.AreEqual(500f - 100f, s.Player.Hp, 0.01f, "10 урона Hades × 10");
+            Assert.AreEqual(s.PlayerCfg.hp - s.ThugCfg.damage, s.Player.Hp, 0.01f, "10 урона Hades в масштабе урона врагов");
             Assert.Greater(s.Player.Stun, 0f, "ZagreusOnHitStun 0.2 с");
             Assert.Less(s.Player.Pos.y, -0.1f, "отбрасывание назад от Thug");
         }
@@ -37,7 +37,7 @@ namespace Arena.Tests
             s.Step(T.Dt, default);
             T.Run(s, 0.53f, new SimInput { Move = Vector2.right });
             T.Run(s, 0.3f);
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f, "AITrackTargetDuringCharge = false: удар туда, куда смотрел в начале");
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f, "AITrackTargetDuringCharge = false: удар туда, куда смотрел в начале");
         }
 
         [Test]
@@ -50,7 +50,7 @@ namespace Arena.Tests
             Assert.AreEqual(AiState.Chase, e.State);
             Assert.AreEqual(0f, e.WarnT);
             T.Run(s, 0.45f);
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f);
         }
 
         [Test]
@@ -78,7 +78,7 @@ namespace Arena.Tests
             T.Run(s, 0.55f);
             Assert.AreEqual(1, s.Bolts.Count, "сгусток после замаха 0.5 с");
             T.Run(s, 1.6f);
-            Assert.AreEqual(500f - 50f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp - s.WitchCfg.damage, s.Player.Hp, 0.01f);
         }
 
         [Test]
@@ -97,11 +97,13 @@ namespace Arena.Tests
     public class RoomTests
     {
         [Test]
-        public void ThirtyRoomsOnlyFirstEnabled()
+        public void SixtyRoomsTwoEnabledStartInEphyra()
         {
-            Assert.AreEqual(30, RoomLibrary.All.Count);
-            Assert.AreEqual(1, RoomLibrary.Enabled.Count);
-            Assert.AreEqual("A_Combat01", RoomLibrary.Enabled[0]);
+            Assert.AreEqual(60, RoomLibrary.All.Count, "30 комнат Hades и 30 арен Hades II");
+            Assert.AreEqual(2, RoomLibrary.Enabled.Count);
+            Assert.AreEqual("N_Combat06", RoomLibrary.Enabled[0], "старт — улица Эфиры, как в прежнем билде");
+            Assert.AreEqual("A_Combat01", RoomLibrary.Enabled[1]);
+            Assert.IsTrue(RoomLibrary.Default().IsHades2);
         }
 
         [Test]
@@ -162,7 +164,7 @@ namespace Arena.Tests
             s.Step(T.Dt, default);
             Assert.AreEqual(TrapPhase.Pre, trap.Phase, "шаг на площадку");
             T.Run(s, 0.25f);
-            Assert.AreEqual(500f - 50f, s.Player.Hp, 0.01f, "5 урона Hades × 10 через 0.2 с");
+            Assert.AreEqual(s.PlayerCfg.hp - 5f * Hades.EnemyDamageScale, s.Player.Hp, 0.01f, "5 урона Hades через 0.2 с");
         }
     }
 }
@@ -256,7 +258,7 @@ namespace Arena.Tests
             Assert.IsTrue(s.InsideRoom(c, 0f), "по магме можно ходить, как в Hades");
             s.Player.Pos = c;
             T.Run(s, 1.1f);
-            Assert.Less(s.Player.Hp, 500f, "магма жжёт");
+            Assert.Less(s.Player.Hp, s.PlayerCfg.hp, "магма жжёт");
         }
 
         [Test]
@@ -288,7 +290,7 @@ namespace Arena.Tests
             Assert.AreEqual(1, s.RoomsCleared);
             Assert.AreEqual(2, s.Depth, "следующая комната глубже");
             Assert.IsFalse(s.DoorsOpen);
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f, "здоровье переносится");
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f, "здоровье переносится");
             T.Run(s, 2f);
             Assert.Greater(s.Enemies.Count, 0, "в новой комнате — сгенерированные волны");
         }
@@ -332,7 +334,7 @@ namespace Arena.Tests
             Assert.AreEqual(0.5f, e.HitStun, 1e-4f);
             Assert.IsFalse(e.UnderCc, "это не контроль: бонусы против оглушённых не срабатывают");
             T.Run(s, 0.4f);
-            Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+            Assert.AreEqual(s.PlayerCfg.hp, s.Player.Hp, 0.01f);
         }
 
         [Test]
@@ -347,7 +349,7 @@ namespace Arena.Tests
             var slot = s.Slots[0];
             s.HitEnemy(e, new HitSource { Slot = slot, Card = slot.Card, Up = slot.Upgrade, Base = 10f });
             T.Run(s, 0.2f);
-            Assert.Less(s.Player.Hp, 500f, "начавшийся удар долетает");
+            Assert.Less(s.Player.Hp, s.PlayerCfg.hp, "начавшийся удар долетает");
         }
     }
 
@@ -389,7 +391,7 @@ namespace Arena.Tests
             var s = R.Room("C_Combat01");
             var t = R.First(s, TrapKind.Phalanx);
             var spot = t.Pos + t.Dir * Hades.U(150f);
-            Assert.IsTrue(RunUntil(s, 3f, () => s.Player.Hp < 500f, () => s.Player.Pos = spot), "укол копьём через 0.5 с замаха");
+            Assert.IsTrue(RunUntil(s, 3f, () => s.Player.Hp < s.PlayerCfg.hp, () => s.Player.Pos = spot), "укол копьём через 0.5 с замаха");
         }
 
         [Test]
@@ -419,7 +421,7 @@ namespace Arena.Tests
             Assert.AreEqual(TrapPhase.Pre, cube.Phase, "удар поджигает фитиль");
             s.Player.Pos = cube.Pos + Vector2.right * 1.5f;
             Assert.IsTrue(RunUntil(s, 2f, () => cube.Phase == TrapPhase.Gone));
-            Assert.Less(s.Player.Hp, 500f, "рядом с кубом — урон от взрыва");
+            Assert.Less(s.Player.Hp, s.PlayerCfg.hp, "рядом с кубом — урон от взрыва");
         }
     }
 }

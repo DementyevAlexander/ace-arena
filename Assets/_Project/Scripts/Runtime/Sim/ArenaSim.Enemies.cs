@@ -17,6 +17,7 @@ namespace Arena.Sim
                     e.State = AiState.Wander; e.T = 0f;
                     e.SpawnInvuln = e.PreSpawned || e.HadesKind ? 0f : ArenaCfg.spawnInvulnerability;
                     if (e.HadesKind) { e.AggroT = e.PreSpawned ? Rand(0.05f, 0.45f) : Rand(0.05f, 0.2f); if (Wave >= 2 && !e.PreSpawned) e.Aggro = true; }
+                    if (e.SpawnAggro) MakeAggro(e); // Hades II: враги волны выходят агрессивными
                 }
                 return;
             }
@@ -25,6 +26,9 @@ namespace Arena.Sim
             UpdateDots(e, dt);
             if (e.Dead) return;
             e.Cd -= dt;
+            e.Rooted -= dt;
+            float slow = UpdateFormStatuses(e, dt); // свойства режима форм: иней и зона замедляют ходьбу
+            if (e.Dead) return;
 
             // внешняя скорость (отбрасывание Hades) гасится сцеплением Grip
             if (e.ExtVel.sqrMagnitude > 0f)
@@ -34,15 +38,22 @@ namespace Arena.Sim
             }
             if (!UpdateStatuses(e, dt))
             {
+                var walkFrom = e.Pos;
                 switch (e.Kind)
                 {
                     case EnemyKind.Ghost: UpdateGhost(e, dt); break;
                     case EnemyKind.Stomper: UpdateStomper(e, dt); break;
                     case EnemyKind.Thug: UpdateThug(e, dt); break;
-                    default: UpdateWitch(e, dt); break;
+                    case EnemyKind.Witch: UpdateWitch(e, dt); break;
+                    case EnemyKind.Wastrel: UpdateWastrel(e, dt); break;
+                    default: UpdateCasket(e, dt); break;
                 }
+                if (slow < 1f) e.Pos = walkFrom + (e.Pos - walkFrom) * slow;
             }
-            CollideCircle(ref e.Pos, e.R);
+            if (e.Rooted > 0f) e.Pos = before; // круг каста: стоит, но атакует
+            var free = e.Pos;
+            CollideCircle(ref e.Pos, e.R, before);
+            if (e.KnockT > 0f && e.KnockDmg > 0f) KnockImpact(e, (e.Pos - free).sqrMagnitude > 0.0001f);
             e.Moved = (e.Pos - before).magnitude;
         }
 
@@ -52,7 +63,12 @@ namespace Arena.Sim
             var toPlayer = Player.Pos - e.Pos;
             if (e.KnockT > 0f) { e.KnockT -= dt; e.Pos += e.KnockVel * (dt * Mathf.Clamp01(e.KnockT / 0.25f + 0.3f)); return true; }
             if (e.HitStun > 0f) { e.HitStun -= dt; if (e.State is not (AiState.Strike or AiState.Lunge)) return true; }
-            if (e.Stun > 0f) { e.Stun -= dt; return true; }
+            if (e.Stun > 0f)
+            {
+                e.Stun -= dt;
+                if (e.Kind == EnemyKind.Wastrel && e.State == AiState.Strike) FiredHitboxWhileStunned(e, dt);
+                return true;
+            }
             if (e.PullAce > 0f)
             {
                 e.PullAce -= dt;
@@ -63,13 +79,19 @@ namespace Arena.Sim
             {
                 e.Pull -= dt;
                 var d = e.PullTo - e.Pos;
-                if (d.magnitude > 0.15f) e.Pos += d.normalized * (2.4f * dt);
+                float speed = e.PullSpeed > 0f ? e.PullSpeed : 2.4f;
+                if (d.magnitude > 0.15f) e.Pos += d.normalized * Mathf.Min(speed * dt, d.magnitude);
+                if (e.Pull <= 0f) e.PullSpeed = 0f;
                 return true;
             }
             if (e.Fear > 0f)
             {
                 e.Fear -= dt;
-                float speed = e.Kind switch { EnemyKind.Ghost => GhostCfg.fearSpeed, EnemyKind.Stomper => StomperCfg.fearSpeed, EnemyKind.Thug => ThugCfg.speed, _ => WitchCfg.speed };
+                float speed = e.Kind switch
+                {
+                    EnemyKind.Ghost => GhostCfg.fearSpeed, EnemyKind.Stomper => StomperCfg.fearSpeed, EnemyKind.Thug => ThugCfg.speed,
+                    EnemyKind.Witch => WitchCfg.speed, EnemyKind.Wastrel => WastrelCfg.fearSpeed, _ => CasketCfg.fearSpeed,
+                };
                 var away = -toPlayer.normalized;
                 e.Pos += away * (speed * dt);
                 e.Face = away;
@@ -213,7 +235,7 @@ namespace Arena.Sim
             }
         }
 
-        /// <summary>Простое обтекание препятствий: если препятствие впереди, уходим вбок.</summary>
+        /// <summary>Простое обтекание: колонна впереди — уходим вбок, стена арены впереди — поворачиваем к свободному направлению.</summary>
         Vector2 Steer(Enemy e, Vector2 dir)
         {
             foreach (var o in Obstacles)
@@ -225,6 +247,16 @@ namespace Arena.Sim
                 if (Vector2.Dot(side, dir) < 0f) side = -side;
                 float w = 1f - Mathf.Clamp01((l - o.R - e.R) / 1f);
                 dir = (dir + side * (1.5f * w)).normalized;
+            }
+            if (HitsObstacle(e.Pos + dir * 0.8f, e.R))
+            {
+                // стена впереди: ищем ближайшее свободное направление, поворачивая в обе стороны
+                for (int k = 1; k <= 6; k++)
+                    foreach (int sgn in new[] { 1, -1 })
+                    {
+                        var d = Rotate(dir, sgn * k * 25f * Mathf.Deg2Rad);
+                        if (!HitsObstacle(e.Pos + d * 0.8f, e.R)) return d;
+                    }
             }
             return dir;
         }

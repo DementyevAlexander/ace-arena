@@ -43,7 +43,7 @@ namespace Arena.Core
         {
             if (up == null || main == null) return default;
             var m = CardCatalog.Get(main.Value);
-            bool pink = m.Color == CardColor.Pink;
+            bool pink = m.Color is CardColor.Pink or CardColor.Staff; // посох — как розовые: улучшение даёт бонус урона
             float cc = m.CcDuration;
             switch (up.Value)
             {
