@@ -1,0 +1,14 @@
+{
+  "name": "SGG.UnityMCP.Editor.Tests",
+  "rootNamespace": "SGG.UnityMCP.Editor.Tests",
+  "references": [
+    "SGG.UnityMCP.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "autoReferenced": false
+}

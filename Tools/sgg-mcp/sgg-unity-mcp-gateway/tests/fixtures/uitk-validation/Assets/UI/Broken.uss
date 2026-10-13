@@ -1,0 +1,12 @@
+.missing-image {
+  background-image: url("Assets/UI/Missing.png");
+}
+
+.fixed-panel {
+  position: absolute;
+  width: 900px;
+}
+
+.secondary-button {
+  color: rgb(255, 255, 255);
+}

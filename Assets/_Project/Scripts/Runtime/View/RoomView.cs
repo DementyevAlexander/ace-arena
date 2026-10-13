@@ -156,7 +156,7 @@ namespace Arena.View
         readonly ArenaSim sim;
         readonly List<(Breakable b, GameObject go)> urns = new();
         readonly List<Material> doorMats = new();
-        readonly Color doorColor;
+        readonly Color doorColor, doorClosed;
 
         public RoomProps(ArenaSim sim, Transform parent)
         {
@@ -166,11 +166,13 @@ namespace Arena.View
             foreach (var b in sim.Breakables)
                 urns.Add((b, Art.Part(parent, MeshKit.Prism(7, 0.7f), urn, Art.W(b.Pos), new Vector3(b.R * 2f, 0.6f, b.R * 2f))));
             doorColor = pal.Accent;
+            doorClosed = Color.Lerp(pal.Wall, Color.black, 0.4f);
             foreach (var e in sim.Room.exits)
             {
                 var p = Art.W(e.pos);
-                var mat = Art.LitMat(Color.Lerp(pal.Wall, Color.black, 0.2f));
-                var lit = new Material(mat);
+                // перекладина двери — неосвещаемая: тёмная, пока закрыто, и ярче 1 (bloom), когда открыто
+                var lit = new Material(Art.LitMat(Color.Lerp(pal.Wall, Color.black, 0.2f), 0.01f));
+                lit.SetColor("_BaseColor", Color.Lerp(pal.Wall, Color.black, 0.4f));
                 doorMats.Add(lit);
                 var d = new GameObject("Door").transform;
                 d.SetParent(parent, false);
@@ -188,13 +190,7 @@ namespace Arena.View
             // открытые двери светятся цветом биома и пульсируют — туда идти дальше
             foreach (var m in doorMats)
             {
-                if (sim.DoorsOpen)
-                {
-                    m.EnableKeyword("_EMISSION");
-                    m.SetColor("_BaseColor", doorColor);
-                    m.SetColor("_EmissionColor", doorColor * (1.2f + 0.6f * Mathf.Sin(time * 4f)));
-                }
-                else m.SetColor("_EmissionColor", Color.black);
+                m.SetColor("_BaseColor", sim.DoorsOpen ? Art.Glow(doorColor, 1.2f + 0.6f * Mathf.Sin(time * 4f)) : doorClosed);
             }
         }
     }

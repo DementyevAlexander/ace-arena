@@ -1,0 +1,17 @@
+{
+  "vectors": [
+    { "name": "windows-backslashes", "input": "C:\\u\\game\\", "canonical": "c:/u/game" },
+    { "name": "windows-forward-slashes", "input": "D:/Work/Game", "canonical": "d:/Work/Game" },
+    { "name": "wsl-default-mount", "input": "/mnt/c/u/game", "canonical": "c:/u/game" },
+    { "name": "wsl-default-mount-mixed-separators", "input": "/mnt/c\\u/game", "canonical": "c:/u/game" },
+    { "name": "wsl-default-mount-drive-root", "input": "/mnt/D", "canonical": "d:/" },
+    { "name": "mixed-repeated-separators", "input": "C:\\u//game\\Assets", "canonical": "c:/u/game/Assets" },
+    { "name": "dot-segments", "input": "C:/u/./other/../game", "canonical": "c:/u/game" },
+    { "name": "unc-cleaned", "input": "\\\\server\\share\\folder\\..\\asset", "canonical": "//server/share/asset" },
+    { "name": "drive-only-case-folded", "input": "C:/Case/FILE.txt", "canonical": "c:/Case/FILE.txt" },
+    { "name": "unicode-nfc-preserved", "input": "C:/Unicode/é.txt", "canonical": "c:/Unicode/é.txt" },
+    { "name": "unicode-nfd-preserved", "input": "C:/Unicode/é.txt", "canonical": "c:/Unicode/é.txt" },
+    { "name": "relative-path", "input": "Assets/Scripts/A.cs", "canonical": "Assets/Scripts/A.cs" },
+    { "name": "custom-mount-not-shared", "input": "/work/c/u/game", "canonical": "/work/c/u/game" }
+  ]
+}

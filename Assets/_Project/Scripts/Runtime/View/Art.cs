@@ -24,25 +24,59 @@ namespace Arena.View
         static readonly Dictionary<(Color, float, bool), Material> Lit = new();
         static readonly Dictionary<(Color, int), Material> Unlit = new();
         static Shader litShader, unlitShader;
+
+        /// <summary>Образцы материалов в Resources/ShaderKeep (создаёт BuildTools.EnsureShaderKeep): Lit и Unlit, непрозрачные
+        /// и прозрачные. Все материалы игры — их копии: на образцы ссылается сборка, поэтому шейдеры и ровно эти варианты
+        /// (ключевые слова, которые URP выставил образцам при импорте) попадают в билд. Без них в билде чёрный экран.</summary>
+        public static readonly string[] KeepNames = { "Lit", "LitTransparent", "Unlit", "UnlitTransparent" };
+
+        static Material[] keep;
+
+        /// <summary>Новый материал: копия образца (lit — освещаемый, transparent — прозрачный). Пока образцов нет
+        /// (до первой сборки) — собирается по тем же правилам из шейдера.</summary>
+        static Material Base(bool lit, bool transparent)
+        {
+            keep ??= System.Array.ConvertAll(KeepNames, n => Resources.Load<Material>("ShaderKeep/" + n));
+            var k = keep[(lit ? 0 : 2) + (transparent ? 1 : 0)];
+            if (k != null) return new Material(k);
+            var m = new Material(lit ? LitShader : UnlitShader);
+            if (transparent) MakeTransparent(m, 3000);
+            return m;
+        }
+
+        public static Shader LitShader => litShader ??= Shader.Find("Universal Render Pipeline/Lit");
+        public static Shader UnlitShader => unlitShader ??= Shader.Find("Universal Render Pipeline/Unlit");
         static Texture2D disc, ring, rect, softDisc;
 
+        /// <summary>Освещаемый материал цвета c. Со свечением (emission > 0) — неосвещаемый, цвет × (0.5 + emission) уходит
+        /// выше 1 и светится через bloom: так не нужен отдельный вариант шейдера с _EMISSION.</summary>
         public static Material LitMat(Color c, float emission = 0f, bool transparent = false)
         {
             var key = (c, emission, transparent);
             if (Lit.TryGetValue(key, out var m) && m != null) return m;
-            litShader ??= Shader.Find("Universal Render Pipeline/Lit");
-            m = new Material(litShader) { name = "Lit" };
-            m.SetColor("_BaseColor", c);
-            m.SetFloat("_Smoothness", 0.12f);
-            m.SetFloat("_Metallic", 0f);
             if (emission > 0f)
             {
-                m.EnableKeyword("_EMISSION");
-                m.SetColor("_EmissionColor", c * emission);
-                m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                m = Base(false, transparent);
+                m.name = "Glow";
+                m.SetColor("_BaseColor", Glow(c, emission));
             }
-            if (transparent) MakeTransparent(m, 3000);
+            else
+            {
+                m = Base(true, transparent);
+                m.name = "Lit";
+                m.SetColor("_BaseColor", c);
+                m.SetFloat("_Smoothness", 0.12f);
+                m.SetFloat("_Metallic", 0f);
+            }
+            if (transparent) m.renderQueue = 3000;
             return Lit[key] = m;
+        }
+
+        /// <summary>Цвет свечения для неосвещаемого материала: выше 1, светится через bloom.</summary>
+        public static Color Glow(Color c, float emission)
+        {
+            float k = 0.5f + emission;
+            return new Color(c.r * k, c.g * k, c.b * k, c.a);
         }
 
         /// <summary>Неосвещённый прозрачный материал для декалей на полу. tex: 0 — круг, 1 — кольцо, 2 — рамка, 3 — мягкий круг, -1 — без текстуры.</summary>
@@ -50,19 +84,19 @@ namespace Arena.View
         {
             var key = (c, tex * 100 + queueOffset);
             if (Unlit.TryGetValue(key, out var m) && m != null) return m;
-            unlitShader ??= Shader.Find("Universal Render Pipeline/Unlit");
-            m = new Material(unlitShader) { name = "Decal" };
+            m = Base(false, true);
+            m.name = "Decal";
             m.SetColor("_BaseColor", c);
             var t = tex switch { 0 => Disc(), 1 => Ring(), 2 => Rect(), 3 => SoftDisc(), _ => null };
-            if (t != null) m.SetTexture("_BaseMap", t);
-            MakeTransparent(m, 3000 + queueOffset);
+            m.SetTexture("_BaseMap", t);
+            m.renderQueue = 3000 + queueOffset;
             return Unlit[key] = m;
         }
 
         /// <summary>Свой экземпляр декали — для изменения цвета/прозрачности по кадрам.</summary>
         public static Material DecalInstance(Color c, int tex, int queueOffset = 0) => new(DecalMat(c, tex, queueOffset));
 
-        static void MakeTransparent(Material m, int queue)
+        public static void MakeTransparent(Material m, int queue)
         {
             m.SetFloat("_Surface", 1f);
             m.SetFloat("_Blend", 0f);

@@ -1,0 +1,59 @@
+name: checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safe-pr:
+    name: safe pull request checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:version
+      - run: npm run check:docs
+      - run: npm run check:command-docs
+      - run: npm run check:forbidden-identifiers
+      - run: npm run check:command-descriptors
+      - run: npm run check:manifest-security
+      - run: npm run check:gateway-runtime
+      - run: npm run check:notices
+      - run: npm run check:changelog
+      - run: npm run check:workflow
+
+  windows-storage:
+    name: native Windows storage checks
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:windows-storage
+
+  release-readiness:
+    name: local release readiness gate
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run check:static

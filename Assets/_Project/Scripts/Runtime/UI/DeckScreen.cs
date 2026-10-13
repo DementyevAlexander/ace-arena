@@ -15,7 +15,7 @@ namespace Arena.UI
         readonly ArenaSim sim;
         readonly CardFace[] faces = new CardFace[19];
         readonly Text info;
-        int selected = -1, hover = -1;
+        int selected = -1, hover = -1, focus;
 
         public bool Visible => canvas.enabled;
 
@@ -75,9 +75,43 @@ namespace Arena.UI
         public void Show(bool v)
         {
             canvas.enabled = v;
-            selected = -1; hover = -1;
+            selected = -1; hover = -1; focus = 0;
             if (v) Refresh();
         }
+
+        /// <summary>Геймпад и стрелки: стик или крестовина — по картам, A — взять карту и поставить на место, B — отменить выбор
+        /// или закрыть колоду. Возвращает true, если колоду надо закрыть.</summary>
+        public bool Nav(InputReader input)
+        {
+            if (!Visible) return false;
+            if (input.NavX != 0 || input.NavY != 0)
+            {
+                var (row, col) = Cell(focus);
+                row = Mathf.Clamp(row - input.NavY, 0, 3);
+                col += input.NavX;
+                focus = Index(row, col);
+                hover = focus;
+                Refresh();
+            }
+            if (input.NavConfirm) { hover = focus; Click(focus); }
+            if (input.NavBack)
+            {
+                if (selected >= 0) { selected = -1; Refresh(); }
+                else return true;
+            }
+            return false;
+        }
+
+        // сетка мест: ряд 0 — главные 0–3, ряд 1 — улучшения 4–7, ряды 2–3 — запас по 6
+        static (int row, int col) Cell(int i) => i < 4 ? (0, i) : i < 8 ? (1, i - 4) : i < 14 ? (2, i - 8) : (3, i - 14);
+
+        static int Index(int row, int col) => row switch
+        {
+            0 => Mathf.Clamp(col, 0, 3),
+            1 => 4 + Mathf.Clamp(col, 0, 3),
+            2 => 8 + Mathf.Clamp(col, 0, 5),
+            _ => 14 + Mathf.Clamp(col, 0, 4),
+        };
 
         void Refresh()
         {
@@ -128,8 +162,9 @@ namespace Arena.UI
             "• Black Hole — Pull или Cull the Meek;\n" +
             "• Jump Scare — Fear или Taste of Fear.\n\n" +
             "Длительность Stun и Fear берётся из «цикла» главной карты: чем длиннее её перезарядка, тем дольше контроль.\n\n" +
-            "Розовые — атака, жёлтые — области и защита, синие — рывки и телепорты (ими уходят из обозначенных зон).\n\n" +
-            "Наведите на карту, чтобы увидеть описание.";
+            "Розовые — атака: короткое нажатие. Жёлтые — области и защита: держите кнопку, ведите прицел, отпустите. " +
+            "Синие — рывки и телепорты, срабатывают сразу и прерывают восстановление после других карт.\n\n" +
+            "Наведите на карту (геймпад: стик, A — выбрать, B — назад), чтобы увидеть описание.";
 
         static string ColorName(CardColor c) => c switch { CardColor.Pink => "Розовая", CardColor.Yellow => "Жёлтая", _ => "Синяя" };
     }

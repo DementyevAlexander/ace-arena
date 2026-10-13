@@ -1,0 +1,14 @@
+%YAML 1.1
+--- !u!1001 &100100000
+PrefabInstance:
+  m_Modification:
+    m_Modifications:
+    - target: {fileID: 1, guid: test, type: 3}
+      propertyPath: 'managedReferences[6830438183194853444]'
+      value: 'Game.Runtime Game.Dialogue.Nodes.SayTextNode'
+      objectReference: {fileID: 0}
+    - target: {fileID: 2, guid: test, type: 3}
+      propertyPath: 'managedReferences[1988581617954979845]'
+      value: 'Game.Runtime Game.Dialogue.Nodes.GenericNode`1[[System.Int32,
+        mscorlib]]'
+      objectReference: {fileID: 0}

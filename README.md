@@ -19,6 +19,23 @@ Unity `6000.6.2f1`, URP, Input System. Сцена — `Assets/_Project/Scenes/Ga
 - Синие срабатывают мгновенно.
 - Режим прицела переключается по последнему устройству, как в Hades.
 - В режиме игры меню **Arena → Spawn** ставит рядом с Ace любого врага, в том числе прежних Ghost и Топотуна.
+- Геймпад во всех меню:
+  - колода: стик или крестовина — по картам, A — взять и поставить, B — отмена или закрыть;
+  - пауза: Menu или B — продолжить, Y — заново;
+  - после смерти: Menu — заново.
+- С клавиатуры по колоде ходят стрелки и Enter.
+
+## Билд
+
+- **Arena → Build → Windows** собирает игру в `Builds/Windows/AceArena.exe`. Из командной строки: `-executeMethod Arena.EditorTools.BuildTools.Windows`.
+- Ключ запуска `-arenaShot <файл.png>` через 6 с сохраняет кадр и закрывает игру — так проверяется собранный билд.
+- Все материалы — копии образцов из `Resources/ShaderKeep`. Без них сборка вырезает шейдеры URP, и в билде чёрный экран. Образцы создаёт **Arena → Build → Ensure Shader Assets**.
+- Свечение делается через яркий неосвещаемый цвет и bloom, без варианта шейдера с `_EMISSION`.
+- GPU Resident Drawer выключен, а шейдеры постобработки не вырезаются: иначе в билде не рисуется сцена.
+
+## Шлюз Unity MCP
+
+`Tools/sgg-mcp` — копия `sgg-unity-mcp-gateway` со скиллами для подключения Unity к Claude Code. Как поставить его на другом компьютере — в заметке внутри папки.
 
 ## Масштаб
 
@@ -153,9 +170,11 @@ Assets/_Project/
                          (движение, касты, наведение, враги, ловушки, волны, геометрия комнат)
   Scripts/Runtime/View   GameController, камера, ввод, стоп-кадр, комната из многоугольников, ловушки, персонажи, эффекты
   Scripts/Runtime/UI     HUD и колода (uGUI из кода)
-  Scripts/Editor         Arena → Setup, Arena → Spawn
+  Scripts/Editor         Arena → Setup, Arena → Spawn, Arena → Build
+  Resources/ShaderKeep   образцы материалов для билда
   Tests/EditMode         движение, автоприцел, касты, оглушение, Thug, ведьма, первый бой, двери, урны,
                          проходимость всех 30 комнат, каждый вид ловушек
   Tests/PlayMode         дымовой тест сцены и галерея всех комнат (кадры — в ARENA_CAPTURE_DIR)
 Tools/HadesRooms         разбор карт Hades (thing_bin) и конвертер в формат арены
+Tools/sgg-mcp            шлюз Unity MCP для Claude Code
 ```

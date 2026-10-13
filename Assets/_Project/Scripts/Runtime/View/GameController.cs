@@ -49,6 +49,19 @@ namespace Arena.View
             Rig.Snap(Art.W(Sim.Player.Pos));
         }
 
+        /// <summary>Проверка билда без участия человека: -arenaShot &lt;файл.png&gt; — через 6 с сохранить кадр (с интерфейсом) и выйти.</summary>
+        System.Collections.IEnumerator Start()
+        {
+            var args = System.Environment.GetCommandLineArgs();
+            string shot = null;
+            for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "-arenaShot") shot = args[i + 1];
+            if (shot == null) yield break;
+            yield return new WaitForSecondsRealtime(6f);
+            ScreenCapture.CaptureScreenshot(shot);
+            yield return new WaitForSecondsRealtime(1f);
+            Application.Quit();
+        }
+
         /// <summary>Комната и ловушки из данных Hades; камера — по масштабу картинки Hades для этой комнаты.</summary>
         void BuildRoom()
         {
@@ -125,13 +138,18 @@ namespace Arena.View
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             input.Poll();
 
+            bool wasPaused = Paused;
             if (input.DeckPressed && !Sim.GameOver) { deck.Show(!deck.Visible); Paused = deck.Visible; }
             else if (input.PausePressed)
             {
                 if (deck.Visible) { deck.Show(false); Paused = false; }
                 else Paused = !Paused;
             }
-            if (input.RestartPressed || (Sim.GameOver && wasGameOver && input.PausePressed)) Restart();
+            else if (deck.Visible) { if (deck.Nav(input)) { deck.Show(false); Paused = false; } } // B — закрыть колоду
+            else if (Paused && input.NavBack) Paused = false;                                        // B — продолжить
+            // заново: R; с геймпада — Y в паузе, Menu после смерти
+            if (input.RestartPressed || (Paused && !deck.Visible && input.NavAlt) || (Sim.GameOver && wasGameOver && input.PausePressed)) Restart();
+            if (wasPaused && !Paused) input.Flush(); // нажатие в меню не должно стать кастом
 
             if (!Paused)
             {
@@ -149,13 +167,13 @@ namespace Arena.View
                     first = false;
                     HandleEvents();
                 }
-                if (Sim.GameOver && !wasGameOver) hud.ShowBanner("Ace повержен — R, чтобы начать заново", 999f);
+                if (Sim.GameOver && !wasGameOver) hud.ShowBanner(input.UseMouse ? "Ace повержен — R, чтобы начать заново" : "Ace повержен — Menu, чтобы начать заново", 999f);
                 wasGameOver = Sim.GameOver;
             }
 
             SyncViews(Paused ? 0f : dt);
             hud.Sync(Sim, Rig.Cam, input.UseMouse, dt, Paused);
-            if (Paused && !deck.Visible) hud.ShowBanner("Пауза", 0.1f);
+            if (Paused && !deck.Visible) hud.ShowBanner(input.UseMouse ? "Пауза · Esc — продолжить · R — заново" : "Пауза · Menu или B — продолжить · Y — заново", 0.1f);
         }
 
         /// <summary>Загрузить комнату и начать в ней заново (галерея комнат в тестах, отладка).</summary>

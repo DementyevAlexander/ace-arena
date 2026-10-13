@@ -1,0 +1,14 @@
+*.log
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
+!.env.example
+config/*.local.*
+config/gateway.json
+config/policy.json
+coverage/
+dist/
+node_modules/
+tmp/
+%LOCALAPPDATA%/

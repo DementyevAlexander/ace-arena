@@ -1,0 +1,83 @@
+{
+  "name": "sgg-unity-mcp-gateway",
+  "version": "2026.10.12-2",
+  "private": true,
+  "description": "Local MCP gateway and Unity Editor bridge package for AI-assisted Unity workflows.",
+  "type": "module",
+  "license": "LicenseRef-Stinger-Royalty-Free-EULA-1.0",
+  "author": "ROMAN ILYIN",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/romanilyin/sgg-unity-mcp-gateway.git"
+  },
+  "homepage": "https://github.com/romanilyin/sgg-unity-mcp-gateway#readme",
+  "bugs": {
+    "url": "https://github.com/romanilyin/sgg-unity-mcp-gateway/issues"
+  },
+  "keywords": [
+    "mcp",
+    "unity",
+    "unity-editor",
+    "ai-tools",
+    "opencode"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "packageManager": "npm@10.8.2",
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "unity:editors": "node scripts/unity-editor-discovery.mjs --json",
+    "build:gateway-runtime": "node scripts/build-gateway-runtime.mjs",
+    "build:opencode-presentation": "node scripts/build-opencode-presentation.mjs",
+    "generate:command-docs": "node scripts/generate-command-docs.mjs",
+    "generate:notices": "node scripts/generate-third-party-notices.mjs",
+    "generate:sbom": "node scripts/generate-sbom.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:windows-storage-suite": "node scripts/check-windows-storage-suite.mjs",
+    "test:windows-storage": "npm run check:windows-storage-suite && vitest run --testTimeout=30000 --hookTimeout=30000 tests/safe-storage.test.ts tests/audit.test.ts tests/approval-store.test.ts tests/windows-safe-storage.test.ts tests/windows-project-artifact-reader.test.ts",
+    "eval:agent-harness": "vitest run evals",
+    "check:agent-evals": "npm run eval:agent-harness",
+    "check:fast": "node scripts/check-profile.mjs fast",
+    "check:static": "node scripts/check-profile.mjs static",
+    "check:all": "npm run check:static",
+    "check:version": "node scripts/check-version.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:command-docs": "node scripts/generate-command-docs.mjs --check",
+    "check:forbidden-identifiers": "node scripts/check-forbidden-identifiers.mjs",
+    "check:unity-package": "node scripts/check-unity-package.mjs",
+    "check:asset-index-benchmark": "node scripts/check-asset-index-benchmark.mjs",
+    "check:gateway-runtime": "node scripts/check-gateway-runtime.mjs",
+    "check:changelog": "node scripts/check-changelog.mjs",
+    "check:unity-editor": "node scripts/check-unity-editor.mjs",
+    "check:unity-editor-required": "node scripts/check-unity-editor.mjs --required",
+    "check:unity-editor-matrix": "node scripts/check-unity-editor-matrix.mjs",
+    "check:unity-smoke": "node scripts/check-unity-smoke.mjs",
+    "check:release": "node scripts/check-release.mjs",
+    "generate:release-evidence-template": "node scripts/generate-release-evidence-template.mjs",
+    "check:workflow": "node scripts/check-manual-workflow.mjs",
+    "check:command-descriptors": "node scripts/check-command-descriptors.mjs",
+    "check:policy": "node scripts/check-policy.mjs",
+    "check:skill": "node scripts/check-skill.mjs",
+    "check:manifest-security": "node scripts/check-manifest-security.mjs",
+    "check:notices": "node scripts/check-third-party-compliance.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "@romanilyin/canonicalpath": "2026.10.10-4",
+    "jsonc-parser": "3.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@opencode/plugin": "2.0.25",
+    "@types/node": "^25.7.0",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  }
+}

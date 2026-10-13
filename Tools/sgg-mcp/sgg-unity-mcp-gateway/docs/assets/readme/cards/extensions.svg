@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="188" height="48" viewBox="0 0 188 48" role="img" aria-label="Asset extensions">
+  <rect x="0.5" y="0.5" width="187" height="47" rx="10" fill="#0d1117" stroke="#30363d"/>
+  <rect x="10" y="8" width="32" height="32" rx="8" fill="#161b22" stroke="#484f58"/>
+  <path d="M17 17h8v8h-8zM27 17h8v8h-8zM17 27h8v8h-8z" fill="none" stroke="#a371f7" stroke-width="2"/><path d="M31 27v8M27 31h8" stroke="#58a6ff" stroke-width="2" stroke-linecap="round"/>
+  <text x="51" y="29" fill="#f0f6fc" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">Asset extensions</text>
+</svg>

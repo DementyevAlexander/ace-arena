@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "captured_utc": "2026-08-26",
+  "tasklist": {
+    "valid_csv": {
+      "args_family": "image_csv_verbose_no_header",
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout_utf8": "\"Unity.exe\",\"41001\",\"Console\",\"1\",\"200 K\",\"Running\",\"user\",\"0:01:00\",\"Game - Unity\"\r\n",
+      "stderr_utf8": "",
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "elapsed_ms": 15,
+      "remaining_request_budget_ms": 4985
+    },
+    "english_no_match": {
+      "args_family": "image_csv_verbose_no_header",
+      "locale": "en",
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout_utf8": "INFO: No tasks are running which match the specified criteria.\r\n",
+      "stderr_utf8": "",
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "elapsed_ms": 12,
+      "remaining_request_budget_ms": 4988
+    },
+    "russian_oem866_no_match": {
+      "source": "native_windows_capture",
+      "args_family": "image_csv_verbose_no_header",
+      "image": "SGGNoMatch150.exe",
+      "locale": "ru-RU",
+      "code_page": 866,
+      "code_page_probe_stdout_base64": "0uXq8/ng/yDq7uTu4uD/IPHy8ODt6PbgOiA4NjYNCg==",
+      "exit_code": 0,
+      "signal": null,
+      "timed_out": false,
+      "stdout_base64": "iK3kruCsoOao7zogh6CkoOeoLCCu4qKl56Du6ailIKegpKCtreusIKrgqOKl4KjvrCwgruLh4+Lh4qLj7uIuDQo=",
+      "stderr_base64": "",
+      "stdout_bytes": 65,
+      "stderr_bytes": 0,
+      "stdout_sha256": "046bcd0a03406d18f8e0b046fc4eab2d73c584954ac0638434f2aea2474952d8",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "elapsed_ms": 198,
+      "remaining_request_budget_ms": 4802
+    },
+    "malformed_csv": {
+      "args_family": "image_csv_verbose_no_header",
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout_utf8": "\"Unity.exe\",\"41001\",\"partial",
+      "stderr_utf8": "",
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "elapsed_ms": 10,
+      "remaining_request_budget_ms": 4990
+    },
+    "partial_stdout": {
+      "args_family": "image_csv_verbose_no_header",
+      "exit_code": null,
+      "timed_out": true,
+      "stdout_utf8": "\"Unity.exe\",\"41001\"",
+      "stderr_utf8": "",
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "elapsed_ms": 4750,
+      "remaining_request_budget_ms": 250
+    },
+    "nonzero_exit": {
+      "args_family": "image_csv_verbose_no_header",
+      "exit_code": 1,
+      "timed_out": false,
+      "stdout_utf8": "",
+      "stderr_utf8": "bounded tasklist failure",
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "elapsed_ms": 9,
+      "remaining_request_budget_ms": 4991
+    }
+  },
+  "native_powershell": {
+    "success": {
+      "args_family": "native_modal_read_only",
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout_utf8": "__SGG_SCAN_STAGE__:add_type:completed\n__SGG_SCAN_STAGE__:user32_top_level:completed\n__SGG_SCAN_STAGE__:uia_enumeration:skipped\n__SGG_SCAN_STAGE__:serialization:completed\n{\"rows\":[],\"user32_scan_succeeded\":true,\"uia_scan_succeeded\":false,\"uia_scan_status\":\"not_required\"}\n",
+      "stderr_utf8": "",
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "elapsed_ms": 600,
+      "remaining_request_budget_ms": 4200
+    },
+    "partial": {
+      "args_family": "native_modal_read_only",
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout_utf8": "__SGG_SCAN_STAGE__:serialization:completed\n{\"rows\":[],\"user32_scan_succeeded\":false,\"uia_scan_succeeded\":true,\"uia_scan_status\":\"succeeded\"}\n",
+      "stderr_utf8": "",
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "elapsed_ms": 700,
+      "remaining_request_budget_ms": 4100
+    },
+    "timeout_partial": {
+      "args_family": "native_modal_read_only",
+      "exit_code": null,
+      "timed_out": true,
+      "stdout_utf8": "__SGG_SCAN_STAGE__:add_type:completed\n__SGG_SCAN_STAGE__:user32_top_level:entered\n__SGG_SCAN_STAGE__:user32_children:entered\n",
+      "stderr_utf8": "",
+      "stdout_truncated": false,
+      "stderr_truncated": false,
+      "elapsed_ms": 4500,
+      "remaining_request_budget_ms": 250
+    }
+  }
+}

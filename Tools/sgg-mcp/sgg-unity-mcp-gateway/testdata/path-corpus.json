@@ -1,0 +1,91 @@
+{
+  "rejected_lexical_identity": [
+    { "name": "empty", "input": "", "npm_error": "ERR_EMPTY_PATH", "gateway_error": "path_not_allowed" },
+    { "name": "nul", "input": "bad\u0000path", "npm_error": "ERR_NUL_BYTE", "gateway_error": "path_not_allowed" },
+    { "name": "drive-relative", "input": "C:relative", "npm_error": "ERR_DRIVE_RELATIVE_PATH", "gateway_error": "absolute_path_rejected" },
+    { "name": "relative-above-root", "input": "../outside", "npm_error": "ERR_INVALID_PATH", "gateway_error": "path_not_allowed" },
+    { "name": "invalid-unc", "input": "//server", "npm_error": "ERR_INVALID_PATH", "gateway_error": "path_not_allowed" }
+  ],
+  "project_roots": [
+    {
+      "name": "windows-backslash",
+      "input": "C:\\u\\game\\",
+      "canonical_project_root": "c:/u/game",
+      "aliases": [
+        { "environment": "unity", "host_path": "C:/u/game", "canonical_path": "c:/u/game" },
+        { "environment": "windows", "host_path": "C:\\u\\game", "canonical_path": "c:/u/game" },
+        { "environment": "wsl", "host_path": "/mnt/c/u/game", "canonical_path": "c:/u/game" }
+      ]
+    },
+    {
+      "name": "windows-unity-style",
+      "input": "C:/u/game",
+      "canonical_project_root": "c:/u/game",
+      "aliases": [
+        { "environment": "unity", "host_path": "C:/u/game", "canonical_path": "c:/u/game" },
+        { "environment": "windows", "host_path": "C:\\u\\game", "canonical_path": "c:/u/game" },
+        { "environment": "wsl", "host_path": "/mnt/c/u/game", "canonical_path": "c:/u/game" }
+      ]
+    },
+    {
+      "name": "wsl",
+      "input": "/mnt/c/u/game",
+      "canonical_project_root": "c:/u/game",
+      "aliases": [
+        { "environment": "wsl", "host_path": "/mnt/c/u/game", "canonical_path": "c:/u/game" },
+        { "environment": "unity", "host_path": "C:/u/game", "canonical_path": "c:/u/game" },
+        { "environment": "windows", "host_path": "C:\\u\\game", "canonical_path": "c:/u/game" }
+      ]
+    },
+    {
+      "name": "dot-segment-root",
+      "input": "C:/u/other/../game",
+      "canonical_project_root": "c:/u/game",
+      "aliases": [
+        { "environment": "unity", "host_path": "C:/u/other/../game", "canonical_path": "c:/u/game" },
+        { "environment": "unity", "host_path": "C:/u/game", "canonical_path": "c:/u/game" },
+        { "environment": "windows", "host_path": "C:\\u\\game", "canonical_path": "c:/u/game" },
+        { "environment": "wsl", "host_path": "/mnt/c/u/game", "canonical_path": "c:/u/game" }
+      ]
+    }
+  ],
+  "unity_asset_paths": [
+    { "name": "mixed-slashes-assets", "input": "Assets\\Scripts/A.cs", "normalized": "Assets/Scripts/A.cs" },
+    { "name": "packages-relative", "input": "Packages/com.example/package.json", "normalized": "Packages/com.example/package.json" },
+    { "name": "unicode-nfc-preserved", "input": "Assets/Unicode/é.txt", "normalized": "Assets/Unicode/é.txt" },
+    { "name": "unicode-nfd-preserved", "input": "Assets/Unicode/é.txt", "normalized": "Assets/Unicode/é.txt" }
+  ],
+  "rejected_unity_asset_paths": [
+    { "name": "traversal", "input": "Assets/../ProjectSettings/ProjectSettings.asset", "error": "path_traversal_rejected" },
+    { "name": "absolute-windows", "input": "C:/Windows/System32/kernel32.dll", "error": "absolute_path_rejected" },
+    { "name": "drive-relative", "input": "C:Windows/System32/kernel32.dll", "error": "absolute_path_rejected" },
+    { "name": "absolute-posix", "input": "/tmp/file.txt", "error": "absolute_path_rejected" },
+    { "name": "absolute-wsl", "input": "/mnt/c/u/game/Assets/A.cs", "error": "absolute_path_rejected" },
+    { "name": "unc", "input": "\\\\server\\share\\file.txt", "error": "absolute_path_rejected" },
+    { "name": "nul", "input": "Assets/Bad\u0000Name.asset", "error": "path_not_allowed" },
+    { "name": "encoded-separator", "input": "Assets/%2e%2e%2fProjectSettings.asset", "error": "path_not_allowed" },
+    { "name": "reserved-name", "input": "Assets/CON.txt", "error": "path_not_allowed" },
+    { "name": "reserved-name-extension", "input": "Assets/NUL.asset", "error": "path_not_allowed" },
+    { "name": "long-filename", "input": "Assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.txt", "error": "path_not_allowed" }
+  ],
+  "inside_project": [
+    { "name": "wsl-alias-inside", "project_root": "C:/u/game", "candidate": "/mnt/c/u/game/Assets/A.cs", "inside": true },
+    { "name": "sibling-prefix-outside", "project_root": "C:/u/game", "candidate": "c:/u/game-evil/Assets/A.cs", "inside": false, "error": "path_not_allowed" },
+    { "name": "traversal-outside", "project_root": "C:/u/game", "candidate": "c:/u/game/Assets/../ProjectSettings/ProjectSettings.asset", "inside": false, "error": "path_traversal_rejected" },
+    { "name": "unc-outside", "project_root": "C:/u/game", "candidate": "\\\\server\\share\\game\\Assets\\A.cs", "inside": false, "error": "absolute_path_rejected" }
+  ],
+  "filesystem_bound_paths": [
+    { "name": "artifact-root", "layer": "artifact", "input": "Library/SGGUnityMcp/job-artifacts/build-runs/a.json", "inside": true },
+    { "name": "artifact-shorthand", "layer": "artifact", "input": "build-runs/a.json", "inside": true },
+    { "name": "artifact-traversal", "layer": "artifact", "input": "Library/SGGUnityMcp/job-artifacts/../asset-index.tsv", "inside": false, "error": "path_not_allowed" },
+    { "name": "artifact-absolute-posix", "layer": "artifact", "input": "/tmp/a.json", "inside": false, "error": "absolute_path_rejected" },
+    { "name": "artifact-absolute-windows", "layer": "artifact", "input": "C:/temp/a.json", "inside": false, "error": "absolute_path_rejected" },
+    { "name": "artifact-unc", "layer": "artifact", "input": "\\\\server\\share\\a.json", "inside": false, "error": "absolute_path_rejected" },
+    { "name": "artifact-nul", "layer": "artifact", "input": "build-runs/a\u0000.json", "inside": false, "error": "path_not_allowed" },
+    { "name": "event-capture-root", "layer": "event_capture_artifact", "input": "Library/SGGUnityMcp/job-artifacts/runtime-event-captures/a.json", "inside": true },
+    { "name": "event-capture-sibling", "layer": "event_capture_artifact", "input": "Library/SGGUnityMcp/job-artifacts/other/a.json", "inside": false, "error": "path_not_allowed" },
+    { "name": "package-relative", "layer": "package_install", "input": "com.example.local", "inside": true },
+    { "name": "package-traversal", "layer": "package_install", "input": "../OutsidePackage", "inside": false, "error": "path_traversal_rejected" },
+    { "name": "package-absolute-windows", "layer": "package_install", "input": "C:/packages/com.example", "inside": false, "error": "absolute_path_rejected" }
+  ]
+}

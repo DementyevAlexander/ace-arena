@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "captured_utc": "2026-08-29",
+  "evidence": {
+    "problem_report_ids": [
+      "problem_20260828T153929_b2d4ae92ed49",
+      "problem_20260828T194443_c38577dfb747"
+    ],
+    "unity_version": "6000.5.9f1",
+    "title_and_buttons_source": "problem_reports",
+    "body_source": "Unity.dll string table",
+    "control_topology_source": "Win32 MessageBox fixture"
+  },
+  "row": {
+    "hwnd": "0x590500",
+    "pid": 31856,
+    "process_name": "Unity",
+    "process_start_utc": "2026-08-28T15:36:34.3395231Z",
+    "window_thread_id": 1900,
+    "window_visible": true,
+    "window_enabled": true,
+    "class_name": "#32770",
+    "window_title": "Recovering Scene Backups",
+    "child_texts": [
+      "Scene backups from a previous Editor session have been detected. Your scene might have been backed up when an Editor instance did not close correctly. \nDo you want to copy and preserve these backups in Assets/_Recovery/?",
+      "Yes",
+      "No"
+    ],
+    "child_controls": [
+      {
+        "hwnd": "0x590509",
+        "parent_hwnd": "0x590500",
+        "pid": 31856,
+        "window_thread_id": 1900,
+        "visible": true,
+        "enabled": true,
+        "class_name": "Static",
+        "text": "Scene backups from a previous Editor session have been detected. Your scene might have been backed up when an Editor instance did not close correctly. \nDo you want to copy and preserve these backups in Assets/_Recovery/?"
+      },
+      {
+        "hwnd": "0x590510",
+        "parent_hwnd": "0x590500",
+        "pid": 31856,
+        "window_thread_id": 1900,
+        "visible": true,
+        "enabled": true,
+        "class_name": "Button",
+        "text": "Yes"
+      },
+      {
+        "hwnd": "0x590511",
+        "parent_hwnd": "0x590500",
+        "pid": 31856,
+        "window_thread_id": 1900,
+        "visible": true,
+        "enabled": true,
+        "class_name": "Button",
+        "text": "No"
+      }
+    ]
+  }
+}

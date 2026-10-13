@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible local Gateway or Unity bridge issue.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, remove tokens, private paths, local usernames, customer/project names, and proprietary asset names. Do not use this form for security vulnerabilities; follow SECURITY.md instead.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Gateway version, OS, Node.js version, Unity version, and WSL-to-Windows routing if used.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include local steps, explicit project id, command catalog entry, and args_json shape when relevant.
+      placeholder: |
+        1. Run sgg_unity_projects
+        2. Run sgg_unity_describe(project, selector="commands")
+        3. Run sgg_unity_call with project="demo", command="compile.status", args_json="{}"
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks Run
+      description: List exact local check commands and summarize results.
+      placeholder: |
+        npm run check:docs -> passed
+        npm run check:forbidden-identifiers -> passed
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety Checklist
+      options:
+        - label: I removed secrets, tokens, private paths, and proprietary identifiers.
+          required: true
+        - label: I did not expose Gateway or bridge ports to untrusted networks as part of this report.
+          required: true
+        - label: Every Unity command in the reproduction uses an explicit project, except project discovery.
+          required: true

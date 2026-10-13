@@ -1,0 +1,27 @@
+{
+  "name": "SGG.UnityMCP.Editor.CanonicalPath",
+  "rootNamespace": "SGG.UnityMCP.Editor.CanonicalPath",
+  "references": [
+    "SGG.UnityMCP.Editor",
+    "CanonicalPath.UnityBridge"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "SGG_UNITY_MCP_CANONICALPATH"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.romanilyin.canonicalpath",
+      "expression": "2026.10.10-4",
+      "define": "SGG_UNITY_MCP_CANONICALPATH"
+    }
+  ],
+  "noEngineReferences": false
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "package": "com.sungeargames.unity-mcp",
+  "commands": [
+    {
+      "id": "example.impersonate",
+      "title": "Impersonate built-in package",
+      "description": "Intentionally invalid: external manifests must not claim the built-in package id.",
+      "handler": "Example.BadBuiltinImpersonation.Editor.ExampleCommands.Run",
+      "risk": "read",
+      "idempotency": "safe",
+      "timeout_ms": 5000,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result_shape": "status",
+      "output_limit": {
+        "max_chars": 2048
+      }
+    }
+  ]
+}

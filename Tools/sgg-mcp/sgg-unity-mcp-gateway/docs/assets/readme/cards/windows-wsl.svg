@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="188" height="48" viewBox="0 0 188 48" role="img" aria-label="Windows + WSL">
+  <rect x="0.5" y="0.5" width="187" height="47" rx="10" fill="#0d1117" stroke="#30363d"/>
+  <rect x="10" y="8" width="32" height="32" rx="8" fill="#161b22" stroke="#484f58"/>
+  <path d="M15 15l10-2v10H15V15zm12-2l10-2v12H27V13zM15 25h10v10l-10-2V25zm12 0h10v12l-10-2V25z" fill="#58a6ff"/><path d="M20 37c4 3 9 3 14 0" fill="none" stroke="#3fb950" stroke-width="1.7"/>
+  <text x="51" y="29" fill="#f0f6fc" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">Windows + WSL</text>
+</svg>

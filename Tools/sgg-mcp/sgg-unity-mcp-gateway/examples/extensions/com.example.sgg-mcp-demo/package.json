@@ -1,0 +1,11 @@
+{
+  "name": "com.example.sgg-mcp-demo",
+  "version": "2026.5.24-1",
+  "license": "LicenseRef-Stinger-Royalty-Free-EULA-1.0",
+  "displayName": "Example SGG MCP Demo Commands",
+  "description": "Generic sample Unity package that contributes SGG Unity MCP command catalog entries.",
+  "unity": "2022.3",
+  "author": {
+    "name": "Example"
+  }
+}

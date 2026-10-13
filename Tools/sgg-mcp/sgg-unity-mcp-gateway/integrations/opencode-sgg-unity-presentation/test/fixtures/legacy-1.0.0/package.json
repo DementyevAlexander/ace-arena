@@ -1,0 +1,12 @@
+{
+  "name": "@sungeargames/opencode-sgg-unity-presentation",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./server": "./server.js"
+  },
+  "engines": {
+    "opencode": ">=1.18.21 <2"
+  }
+}

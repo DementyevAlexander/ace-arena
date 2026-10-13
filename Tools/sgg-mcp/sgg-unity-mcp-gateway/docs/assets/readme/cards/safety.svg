@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="188" height="48" viewBox="0 0 188 48" role="img" aria-label="Policy + approval">
+  <rect x="0.5" y="0.5" width="187" height="47" rx="10" fill="#0d1117" stroke="#30363d"/>
+  <rect x="10" y="8" width="32" height="32" rx="8" fill="#161b22" stroke="#484f58"/>
+  <path d="M26 13l10 4v7c0 7-4 11-10 13-6-2-10-6-10-13v-7l10-4z" fill="none" stroke="#d29922" stroke-width="2"/><path d="M21 25l3 3 7-8" fill="none" stroke="#3fb950" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="51" y="29" fill="#f0f6fc" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">Policy + approval</text>
+</svg>

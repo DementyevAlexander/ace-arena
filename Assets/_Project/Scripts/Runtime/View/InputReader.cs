@@ -11,6 +11,12 @@ namespace Arena.View
         public bool UseMouse = true;
         int pressedAcc, releasedAcc;
         Vector2 lastMouse;
+        int stickX, stickY;
+
+        /// <summary>Меню (кадр): шаг по горизонтали и вертикали (−1, 0, 1) — крестовина, стик (по одному шагу за наклон), стрелки;
+        /// A / Enter — выбрать, B / Backspace — назад, Y — второе действие.</summary>
+        public int NavX, NavY;
+        public bool NavConfirm, NavBack, NavAlt;
 
         /// <summary>Вызывается каждый кадр: копит нажатия до следующего шага симуляции.</summary>
         public void Poll()
@@ -25,7 +31,8 @@ namespace Arena.View
                 lastMouse = mp;
             }
             if (kb != null && kb.anyKey.wasPressedThisFrame) UseMouse = true;
-            if (pad != null && (pad.leftStick.ReadValue().sqrMagnitude > 0.1f || AnyPadButton(pad))) UseMouse = false;
+            if (pad != null && (pad.leftStick.ReadValue().sqrMagnitude > 0.1f || AnyPadButton(pad) || pad.dpad.ReadValue().sqrMagnitude > 0.1f)) UseMouse = false;
+            PollNav(kb, pad);
 
             for (int i = 0; i < 4; i++)
             {
@@ -33,6 +40,39 @@ namespace Arena.View
                 if (Released(i, kb, mouse, pad)) releasedAcc |= 1 << i;
             }
         }
+
+        void PollNav(Keyboard kb, Gamepad pad)
+        {
+            NavX = NavY = 0;
+            NavConfirm = NavBack = NavAlt = false;
+            if (pad != null)
+            {
+                var st = pad.leftStick.ReadValue();
+                int zx = st.x > 0.6f ? 1 : st.x < -0.6f ? -1 : 0, zy = st.y > 0.6f ? 1 : st.y < -0.6f ? -1 : 0;
+                if (zx != 0 && zx != stickX) NavX = zx;
+                if (zy != 0 && zy != stickY) NavY = zy;
+                stickX = zx; stickY = zy;
+                if (pad.dpad.left.wasPressedThisFrame) NavX = -1;
+                if (pad.dpad.right.wasPressedThisFrame) NavX = 1;
+                if (pad.dpad.up.wasPressedThisFrame) NavY = 1;
+                if (pad.dpad.down.wasPressedThisFrame) NavY = -1;
+                NavConfirm = pad.buttonSouth.wasPressedThisFrame;
+                NavBack = pad.buttonEast.wasPressedThisFrame;
+                NavAlt = pad.buttonNorth.wasPressedThisFrame;
+            }
+            if (kb != null)
+            {
+                if (kb.leftArrowKey.wasPressedThisFrame) NavX = -1;
+                if (kb.rightArrowKey.wasPressedThisFrame) NavX = 1;
+                if (kb.upArrowKey.wasPressedThisFrame) NavY = 1;
+                if (kb.downArrowKey.wasPressedThisFrame) NavY = -1;
+                NavConfirm |= kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame;
+                NavBack |= kb.backspaceKey.wasPressedThisFrame;
+            }
+        }
+
+        /// <summary>Сбрасывает накопленные нажатия (после паузы и меню): нажатие в меню не должно стать кастом.</summary>
+        public void Flush() => pressedAcc = releasedAcc = 0;
 
         static bool AnyPadButton(Gamepad p) =>
             p.buttonWest.wasPressedThisFrame || p.buttonNorth.wasPressedThisFrame || p.buttonEast.wasPressedThisFrame || p.buttonSouth.wasPressedThisFrame;

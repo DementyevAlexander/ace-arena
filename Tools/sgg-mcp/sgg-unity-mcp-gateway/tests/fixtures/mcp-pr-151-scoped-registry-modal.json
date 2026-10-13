@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "captured_utc": "2026-08-24",
+  "evidence": {
+    "problem_report_id": "problem_20260824T134028_7c90ed14fa1d",
+    "unity_version": "6000.5.9f1",
+    "window_identity_source": "problem_report",
+    "body_and_buttons_source": "UnityEditor.PackageManager.UI.Internal.ScopedRegistryAddedPopup"
+  },
+  "row": {
+    "hwnd": "0x510500",
+    "pid": 80872,
+    "process_name": "Unity",
+    "process_start_utc": "2026-08-24T05:10:19.007Z",
+    "window_thread_id": 1700,
+    "window_visible": true,
+    "window_enabled": true,
+    "class_name": "#32770",
+    "window_title": "Importing a scoped registry",
+    "child_texts": [
+      "A new scoped registry is now available in the Package Manager.",
+      "Learn More",
+      "Close"
+    ],
+    "child_controls": [
+      {
+        "hwnd": "0x510509",
+        "parent_hwnd": "0x510500",
+        "pid": 80872,
+        "window_thread_id": 1700,
+        "visible": true,
+        "enabled": true,
+        "class_name": "Static",
+        "text": "A new scoped registry is now available in the Package Manager."
+      },
+      {
+        "hwnd": "0x510510",
+        "parent_hwnd": "0x510500",
+        "pid": 80872,
+        "window_thread_id": 1700,
+        "visible": true,
+        "enabled": true,
+        "class_name": "Button",
+        "text": "Learn More"
+      },
+      {
+        "hwnd": "0x510511",
+        "parent_hwnd": "0x510500",
+        "pid": 80872,
+        "window_thread_id": 1700,
+        "visible": true,
+        "enabled": true,
+        "class_name": "Button",
+        "text": "Close"
+      }
+    ]
+  }
+}

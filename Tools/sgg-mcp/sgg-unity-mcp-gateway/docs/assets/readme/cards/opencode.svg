@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="188" height="48" viewBox="0 0 188 48" role="img" aria-label="OpenCode 2+">
+  <rect x="0.5" y="0.5" width="187" height="47" rx="10" fill="#0d1117" stroke="#30363d"/>
+  <rect x="10" y="8" width="32" height="32" rx="8" fill="#161b22" stroke="#484f58"/>
+  <path d="M22 17l-6 7 6 7M30 17l6 7-6 7M28 14l-4 20" fill="none" stroke="#3fb950" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="51" y="29" fill="#f0f6fc" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">OpenCode 2+</text>
+</svg>

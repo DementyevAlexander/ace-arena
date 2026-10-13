@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "package": "com.example.bad-unbounded-output",
+  "commands": [
+    {
+      "id": "example.dump_everything",
+      "title": "Dump everything",
+      "description": "Intentionally invalid: text_artifact output is not bounded.",
+      "handler": "Example.BadUnboundedOutput.Editor.ExampleCommands.DumpEverything",
+      "risk": "read",
+      "idempotency": "safe",
+      "timeout_ms": 30000,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result_shape": "text_artifact"
+    }
+  ]
+}

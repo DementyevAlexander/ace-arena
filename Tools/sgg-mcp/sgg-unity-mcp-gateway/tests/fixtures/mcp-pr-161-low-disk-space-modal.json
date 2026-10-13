@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "captured_utc": "2026-08-29",
+  "evidence": {
+    "problem_report_ids": [
+      "problem_20260829T074935_98678d4142e5",
+      "problem_20260829T075038_ee53865272c1"
+    ],
+    "unity_version": "6000.5.9f1",
+    "owner_and_title_source": "problem_reports",
+    "process_identity_source": "problem_reports",
+    "body_and_control_topology_source": "Unity binary dialog resource",
+    "window_handles_and_thread_source": "synthetic regression values"
+  },
+  "row": {
+    "hwnd": "0x5A0500",
+    "pid": 6388,
+    "process_name": "Unity",
+    "process_start_utc": "2026-08-28T20:15:25.1396244Z",
+    "window_thread_id": 1920,
+    "window_visible": true,
+    "window_enabled": true,
+    "class_name": "#32770",
+    "window_title": "Low disk space",
+    "child_texts": [
+      "The project is on a drive with diskspace below 1.00 GB bytes.\nPlease free up some space for Unity to work correctly.",
+      "OK"
+    ],
+    "child_controls": [
+      {
+        "hwnd": "0x5A0509",
+        "parent_hwnd": "0x5A0500",
+        "pid": 6388,
+        "window_thread_id": 1920,
+        "visible": true,
+        "enabled": true,
+        "control_id": 1040,
+        "class_name": "Static",
+        "text": "",
+        "read_only": false,
+        "multiline": false
+      },
+      {
+        "hwnd": "0x5A0510",
+        "parent_hwnd": "0x5A0500",
+        "pid": 6388,
+        "window_thread_id": 1920,
+        "visible": true,
+        "enabled": true,
+        "control_id": 1019,
+        "class_name": "Edit",
+        "text": "The project is on a drive with diskspace below 1.00 GB bytes.\nPlease free up some space for Unity to work correctly.",
+        "read_only": true,
+        "multiline": true
+      },
+      {
+        "hwnd": "0x5A0511",
+        "parent_hwnd": "0x5A0500",
+        "pid": 6388,
+        "window_thread_id": 1920,
+        "visible": true,
+        "enabled": true,
+        "control_id": 1,
+        "class_name": "Button",
+        "text": "OK",
+        "read_only": false,
+        "multiline": false
+      }
+    ]
+  }
+}
