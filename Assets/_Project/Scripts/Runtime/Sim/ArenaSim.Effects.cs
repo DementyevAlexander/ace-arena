@@ -37,6 +37,7 @@ namespace Arena.Sim
                     case EffectKind.DashHit:
                         f.Life -= dt;
                         f.Pos = Player.Pos;
+                        HitRoomObjects(f.Pos, f.R * 0.5f);
                         foreach (var e in Enemies)
                             if (e.Alive && !f.Hit.Contains(e) && (e.Pos - f.Pos).magnitude < f.R + e.R) { f.Hit.Add(e); HitEnemy(e, f.Src); }
                         if (f.Life <= 0f) f.Done = true;
@@ -66,8 +67,8 @@ namespace Arena.Sim
         {
             f.Life -= dt;
             f.Pos += f.Dir * (f.Speed * dt);
-            if (f.Life <= 0f || !InsideRoom(f.Pos, 0f) || HitsObstacle(f.Pos, f.R * 0.5f)) { ArmBlastCubes(f.Pos, f.R); f.Done = true; return; }
-            ArmBlastCubes(f.Pos, f.R);
+            if (f.Life <= 0f || !InsideRoom(f.Pos, 0f) || HitsObstacle(f.Pos, f.R * 0.5f)) { HitRoomObjects(f.Pos, f.R); f.Done = true; return; }
+            HitRoomObjects(f.Pos, f.R);
             foreach (var e in Enemies)
             {
                 if (!e.Alive || e == f.Exclude || f.Hit.Contains(e)) continue;
@@ -85,6 +86,7 @@ namespace Arena.Sim
             bool boom = f.Life <= 0f || !InsideRoom(f.Pos, 0.2f) || HitsObstacle(f.Pos, f.R);
             foreach (var e in Enemies) if (e.Alive && (e.Pos - f.Pos).magnitude < f.R + e.R) boom = true;
             if (!boom) return;
+            HitRoomObjects(f.Pos, 0.9f);
             // Чем дольше держали, тем больше взрыв (оценка радиуса: 0.9…1.5)
             Blast(f.Pos, 0.9f * (1f + 0.7f * f.Hold), f.Src, 3);
             f.Done = true;
@@ -116,6 +118,7 @@ namespace Arena.Sim
                 }
                 f.Pos += d.normalized * step;
             }
+            HitRoomObjects(f.Pos, f.R * 0.5f);
             foreach (var e in Enemies)
                 if (e.Alive && !f.Hit.Contains(e) && (e.Pos - f.Pos).magnitude < f.R + e.R) { f.Hit.Add(e); HitEnemy(e, f.Src); }
         }

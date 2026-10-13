@@ -56,7 +56,7 @@ namespace Arena.View
             var cliffMat = Art.LitMat(Color.Lerp(pal.Wall, pal.Void, 0.35f));
             foreach (var f in room.floor)
             {
-                if (f.p == null || f.p.Length < 3) continue;
+                if (f.p == null || f.p.Length < 3 || f.type == "Lava") continue; // магму рисует опасный пол
                 Mesh(root, MeshKit.Extrude(f.p, 0f, -0.6f), cliffMat, false);
                 Mesh(root, MeshKit.Polygon(f.p, 0.001f), floorMat, true);
             }
@@ -68,7 +68,7 @@ namespace Arena.View
             for (int i = 0; i < tiles; i++)
             {
                 var p = new Vector2(R(room.min.x, room.max.x), R(room.min.y, room.max.y));
-                if (!sim.InsideRoom(p, 0.5f)) continue;
+                if (!sim.InsideRoom(p, 0.5f) || OnHazard(sim, p)) continue;
                 float s = R(0.5f, 1.1f);
                 Art.Part(root, MeshKit.Box(), tile, new Vector3(p.x, 0.01f, p.y), new Vector3(s, 0.03f, s * R(0.7f, 1.2f)), new Vector3(0f, R(0f, 90f), 0f), false);
             }
@@ -102,21 +102,8 @@ namespace Arena.View
             foreach (var h in sim.Hazards)
             {
                 var col = h.Type == "Water" ? Color.Lerp(pal.Hazard, new Color(0.2f, 0.5f, 0.6f), 0.5f) : pal.Hazard;
-                Mesh(root, MeshKit.Polygon(h.Poly, 0.015f), Art.LitMat(col, 1.2f), false);
-            }
-
-            // урны и прочее разрушаемое — для вида
-            var urn = Art.LitMat(Color.Lerp(pal.Accent, pal.Wall, 0.5f));
-            foreach (var b in room.breakables)
-                Art.Part(root, MeshKit.Prism(7, 0.7f), urn, Art.W(b.pos), new Vector3(Mathf.Max(0.3f, b.r * 2f), 0.6f, Mathf.Max(0.3f, b.r * 2f)));
-
-            // выходы — арки
-            var arch = Art.LitMat(pal.Accent, 0.6f);
-            foreach (var e in room.exits)
-            {
-                var p = Art.W(e.pos);
-                Art.Part(root, MeshKit.Box(), arch, p + new Vector3(0f, 1.2f, 0f), new Vector3(1.6f, 0.25f, 0.35f), new Vector3(0f, -e.angle, 0f));
-                Art.Part(root, MeshKit.Box(), Art.LitMat(pal.Wall), p + new Vector3(0f, 0.6f, 0f), new Vector3(0.3f, 1.2f, 0.3f), new Vector3(0f, -e.angle, 0f));
+                Mesh(root, MeshKit.Polygon(h.Poly, -0.02f), Art.LitMat(col, 1.2f), false);
+                Mesh(root, MeshKit.Extrude(h.Poly, -0.02f, -0.6f), Art.LitMat(Color.Lerp(col, Color.black, 0.6f)), false);
             }
 
             // декор без столкновений
@@ -132,6 +119,12 @@ namespace Arena.View
         }
 
         const float MaxWall = 1.8f, FrontWall = 0.4f;
+
+        static bool OnHazard(ArenaSim sim, Vector2 p)
+        {
+            foreach (var h in sim.Hazards) if (Geo.InPoly(h.Poly, p)) return true;
+            return false;
+        }
 
         /// <summary>Стена ближнего края: за ней (дальше от камеры) пол комнаты, а перед ней (к камере) пола нет.
         /// Колонны посреди комнаты под это не попадают — перед ними тоже пол.</summary>
@@ -154,6 +147,55 @@ namespace Arena.View
             var r = go.AddComponent<MeshRenderer>();
             r.sharedMaterial = mat;
             r.shadowCastingMode = shadows ? UnityEngine.Rendering.ShadowCastingMode.On : UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+    }
+
+    /// <summary>Урны (разбиваются ударом) и двери (загораются, когда комната пройдена).</summary>
+    public sealed class RoomProps
+    {
+        readonly ArenaSim sim;
+        readonly List<(Breakable b, GameObject go)> urns = new();
+        readonly List<Material> doorMats = new();
+        readonly Color doorColor;
+
+        public RoomProps(ArenaSim sim, Transform parent)
+        {
+            this.sim = sim;
+            var pal = RoomView.For(sim.Room.biome);
+            var urn = Art.LitMat(Color.Lerp(pal.Accent, pal.Wall, 0.5f));
+            foreach (var b in sim.Breakables)
+                urns.Add((b, Art.Part(parent, MeshKit.Prism(7, 0.7f), urn, Art.W(b.Pos), new Vector3(b.R * 2f, 0.6f, b.R * 2f))));
+            doorColor = pal.Accent;
+            foreach (var e in sim.Room.exits)
+            {
+                var p = Art.W(e.pos);
+                var mat = Art.LitMat(Color.Lerp(pal.Wall, Color.black, 0.2f));
+                var lit = new Material(mat);
+                doorMats.Add(lit);
+                var d = new GameObject("Door").transform;
+                d.SetParent(parent, false);
+                d.position = p;
+                d.rotation = Quaternion.Euler(0f, -e.angle, 0f);
+                Art.Part(d, MeshKit.Box(), lit, new Vector3(0f, 1.25f, 0f), new Vector3(1.7f, 0.25f, 0.35f)).GetComponent<Renderer>().sharedMaterial = lit;
+                Art.Part(d, MeshKit.Box(), Art.LitMat(pal.Wall), new Vector3(-0.75f, 0.6f, 0f), new Vector3(0.3f, 1.2f, 0.3f));
+                Art.Part(d, MeshKit.Box(), Art.LitMat(pal.Wall), new Vector3(0.75f, 0.6f, 0f), new Vector3(0.3f, 1.2f, 0.3f));
+            }
+        }
+
+        public void Sync(float time)
+        {
+            foreach (var (b, go) in urns) if (go.activeSelf == b.Broken) go.SetActive(!b.Broken);
+            // открытые двери светятся цветом биома и пульсируют — туда идти дальше
+            foreach (var m in doorMats)
+            {
+                if (sim.DoorsOpen)
+                {
+                    m.EnableKeyword("_EMISSION");
+                    m.SetColor("_BaseColor", doorColor);
+                    m.SetColor("_EmissionColor", doorColor * (1.2f + 0.6f * Mathf.Sin(time * 4f)));
+                }
+                else m.SetColor("_EmissionColor", Color.black);
+            }
         }
     }
 

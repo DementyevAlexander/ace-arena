@@ -46,14 +46,31 @@ namespace Arena.Sim
                 spawnTimer -= dt;
                 if (spawnTimer > 0f || ActiveWeight() >= activeCap) return;
                 var s = pending.Dequeue();
-                SpawnEnemy(s.Kind, PickSpawnPoint(s.PreSpawned), 0f, s.PreSpawned);
+                SpawnEnemy(s.Kind, PickSpawnPoint(s.PreSpawned, s.Kind), 0f, s.PreSpawned);
                 spawnTimer = Rand(intervalMin, intervalMax);
                 return;
             }
             foreach (var e in Enemies) if (!e.Dead) return;
+            // набор волн пройден — комната зачищена, открываются двери (дальше — шаг в дверь)
+            if (Wave > 0 && plan.Count > 0 && planIndex >= plan.Count)
+            {
+                if (!DoorsOpen) { DoorsOpen = true; Events.Add(new SimEvent { Kind = EventKind.DoorsOpen }); }
+                return;
+            }
             waveTimer -= dt;
             if (waveTimer > 0f) return;
             StartNextWave();
+        }
+
+        /// <summary>Новая комната за дверью: волны по бюджету GeneratedTartarus на заданной глубине.</summary>
+        void StartGeneratedEncounter(int depth)
+        {
+            pending.Clear();
+            plan.Clear();
+            planIndex = 0;
+            Depth = depth;
+            waveTimer = 1.2f;
+            spawnTimer = 0f;
         }
 
         float ActiveWeight()
@@ -66,6 +83,7 @@ namespace Arena.Sim
         void StartNextWave()
         {
             if (planIndex >= plan.Count) GeneratePlan();
+            if (plan.Count == 0) return;
             var w = plan[planIndex++];
             Wave++;
             intervalMin = w.intervalMin; intervalMax = w.intervalMax;
@@ -74,7 +92,7 @@ namespace Arena.Sim
             spawnTimer = 0f;
             // заранее расставленные враги стоят в комнате сразу
             if (w.preSpawned)
-                while (pending.Count > 0) { var s = pending.Dequeue(); SpawnEnemy(s.Kind, PickSpawnPoint(true), 0f, true); }
+                while (pending.Count > 0) { var s = pending.Dequeue(); SpawnEnemy(s.Kind, PickSpawnPoint(true, s.Kind), 0f, true); }
             bool last = planIndex >= plan.Count;
             waveTimer = ArenaCfg.waveDelay;
             if (last) waveTimer = ArenaCfg.waveDelay + 1.2f; // после последней волны набора — пауза «комната пройдена»
@@ -92,7 +110,6 @@ namespace Arena.Sim
         /// <summary>Генерация набора волн как GeneratedTartarus (EncounterData.lua): бюджет по глубине, деление на волны.</summary>
         void GeneratePlan()
         {
-            if (planIndex > 0) Depth++;
             plan.Clear();
             planIndex = 0;
             float budget = Mathf.Max(10f, 30f + 11f * Depth);
@@ -133,16 +150,21 @@ namespace Arena.Sim
             return false;
         }
 
-        /// <summary>Точка появления из карты комнаты: не ближе 3 юнитов к Ace (предрасставленные — не ближе 750 ед. Hades), не занятая.</summary>
-        Vector2 PickSpawnPoint(bool preSpawned)
+        /// <summary>Точка появления из карты комнаты: сначала с ролью врага (Thug — melee, ведьма — ranged),
+        /// не ближе 3 юнитов к Ace (предрасставленные — не ближе 750 ед. Hades), не занятая.</summary>
+        Vector2 PickSpawnPoint(bool preSpawned, EnemyKind kind = EnemyKind.Thug)
         {
             float minDist = preSpawned ? ArenaCfg.preSpawnDistance : 3f;
+            string role = kind == EnemyKind.Witch ? "ranged" : "melee";
             var spawns = Room.spawns;
-            for (int t = 0; t < 40 && spawns.Length > 0; t++)
+            for (int t = 0; t < 60 && spawns.Length > 0; t++)
             {
-                var p = spawns[rng.Next(spawns.Length)].pos;
-                if ((p - Player.Pos).magnitude < minDist && t < 30) continue;
-                if (Crowded(p) && t < 35) continue;
+                var sp = spawns[rng.Next(spawns.Length)];
+                if (t < 30 && !string.IsNullOrEmpty(sp.role) && sp.role != role) continue;
+                var p = sp.pos;
+                if ((p - Player.Pos).magnitude < minDist && t < 50) continue;
+                if (Crowded(p) && t < 55) continue;
+                if (!InsideRoom(p, 0.3f) && t < 58) continue;
                 return p;
             }
             return RandomFloorPoint(minDist);

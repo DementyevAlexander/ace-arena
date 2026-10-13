@@ -51,6 +51,7 @@ namespace Arena.Sim
         {
             var toPlayer = Player.Pos - e.Pos;
             if (e.KnockT > 0f) { e.KnockT -= dt; e.Pos += e.KnockVel * (dt * Mathf.Clamp01(e.KnockT / 0.25f + 0.3f)); return true; }
+            if (e.HitStun > 0f) { e.HitStun -= dt; if (e.State is not (AiState.Strike or AiState.Lunge)) return true; }
             if (e.Stun > 0f) { e.Stun -= dt; return true; }
             if (e.PullAce > 0f)
             {

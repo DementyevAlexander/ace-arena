@@ -61,6 +61,10 @@ namespace Arena.Core
         public float lockRange = Hades.U(650f);
         public float lockArc = 100f;
         public int lockCandidates = 4; // GetNearestEnemyArgs: 4 ближайших в радиусе
+        // OnHitStun удара по врагу (PlayerProjectiles.sjson): меч 0.5 с, Cast 0.7 с — замах врага срывается
+        public float hitStunQuick = 0.5f;
+        public float hitStunLong = 0.7f;
+        public float hitStunInstant = 0.5f;
     }
 
     /// <summary>Враг 1 — Enraged Ghost из DandyAce: двойной удар по области перед собой.</summary>

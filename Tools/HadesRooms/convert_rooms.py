@@ -97,6 +97,35 @@ def trap_params(tt):
     return p
 
 
+def point_in_poly(pt, poly):
+    x, y = pt
+    inside = False
+    j = len(poly) - 1
+    for i in range(len(poly)):
+        xi, yi = poly[i]; xj, yj = poly[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def lava_fraction(hole, lava):
+    """Доля дыры в контуре пола, занятая лавой: такие дыры — не стены, по магме в Hades можно ходить."""
+    if not lava:
+        return 0.0
+    xs = [p[0] for p in hole]; ys = [p[1] for p in hole]
+    n = inside = hit = 0
+    for i in range(12):
+        for k in range(12):
+            pt = (min(xs) + (max(xs) - min(xs)) * (i + 0.5) / 12, min(ys) + (max(ys) - min(ys)) * (k + 0.5) / 12)
+            if not point_in_poly(pt, hole):
+                continue
+            inside += 1
+            if any(point_in_poly(pt, l) for l in lava):
+                hit += 1
+    return hit / inside if inside else 0.0
+
+
 def convert(src, name, enabled_intro):
     xf = Xf(src['bounds'])
     hs = src['heroStart']
@@ -106,19 +135,34 @@ def convert(src, name, enabled_intro):
         'heroStart': xf.pt(hs['x'], hs['y']), 'heroAngle': xf.angle(hs.get('angle', 0)),
         'floor': [], 'walls': [], 'hazards': [], 'spawns': [], 'exits': [], 'traps': [], 'breakables': [], 'decor': [],
     }
+    # магма вокруг комнат тянется до края карты; берём только ту, что внутри рамки пола комнаты (+300 ед.)
+    wx = [p[0] for w in src['walkable'] for p in w['outer']]
+    wy = [p[1] for w in src['walkable'] for p in w['outer']]
+    box = (min(wx) - 300, min(wy) - 150, max(wx) + 300, max(wy) + 150)
+
+    def in_box(poly):
+        cx = sum(p[0] for p in poly) / len(poly); cy = sum(p[1] for p in poly) / len(poly)
+        return box[0] <= cx <= box[2] and box[1] <= cy <= box[3]
+
+    lava = [h['polygon'] for h in src['hazards'] if h.get('polygon') and h['type'] == 'lava' and in_box(h['polygon'])]
     for w in src['walkable']:
         out['floor'].append({'p': xf.poly(w['outer']), 'type': 'Floor', 'h': 0})
         for h in w.get('holes') or []:
+            if lava_fraction(h, lava) >= 0.5:
+                continue
             out['walls'].append({'p': xf.poly(h), 'type': 'Hole', 'h': 0})
+    # магма проходима (урон каждые 0.19 с): её треугольники — тоже пол, острова Асфоделя связаны через неё
+    for l in lava:
+        out['floor'].append({'p': xf.poly(l), 'type': 'Lava', 'h': 0})
     for o in src['obstacles']:
         if not (o.get('solid') and o.get('blocksUnits') and o.get('active', True)) or not o.get('polygon'):
             continue
         out['walls'].append({'p': xf.poly(o['polygon']), 'type': o['type'], 'h': wall_height(o)})
     for h in src['hazards']:
-        if h.get('polygon'):
+        if h.get('polygon') and in_box(h['polygon']):
             out['hazards'].append({'type': 'Lava' if h['type'] == 'lava' else h['type'], 'p': xf.poly(h['polygon']), 'damage': round(LAVA_PER_TICK, 3)})
     for sp in src['spawnPoints']:
-        out['spawns'].append({'pos': xf.pt(sp['x'], sp['y']), 'angle': 0})
+        out['spawns'].append({'pos': xf.pt(sp['x'], sp['y']), 'angle': 0, 'role': sp.get('role') or ''})
     for e in src['exits']:
         out['exits'].append({'pos': xf.pt(e['x'], e['y']), 'angle': xf.angle(e.get('angle', 0))})
     ids = {t['id']: i for i, t in enumerate(src['traps'])}

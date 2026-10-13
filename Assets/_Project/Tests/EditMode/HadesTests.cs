@@ -166,3 +166,260 @@ namespace Arena.Tests
         }
     }
 }
+
+namespace Arena.Tests
+{
+    static class R
+    {
+        /// <summary>Комната без отражения и без волн.</summary>
+        public static ArenaSim Room(string name)
+        {
+            var room = RoomLibrary.Get(name);
+            var s = new ArenaSim(1, room) { WavesEnabled = false, MirrorRooms = false };
+            s.LoadRoom(room);
+            s.Enemies.Clear();
+            return s;
+        }
+
+        public static Trap First(ArenaSim s, TrapKind kind) => s.Traps.Find(t => t.Kind == kind);
+
+        /// <summary>Сетка проходимости от точки старта: какие точки достижимы для круга радиуса героя.</summary>
+        public static System.Func<Vector2, bool> Reach(ArenaSim s)
+        {
+            const float step = 0.3f;
+            var min = s.Room.min;
+            int w = Mathf.CeilToInt((s.Room.max.x - min.x) / step) + 1, h = Mathf.CeilToInt((s.Room.max.y - min.y) / step) + 1;
+            var seen = new bool[w, h];
+            var q = new System.Collections.Generic.Queue<(int, int)>();
+            int sx = Mathf.RoundToInt((s.Room.heroStart.x - min.x) / step), sy = Mathf.RoundToInt((s.Room.heroStart.y - min.y) / step);
+            seen[sx, sy] = true; q.Enqueue((sx, sy));
+            float r = s.PlayerCfg.radius * 0.8f;
+            while (q.Count > 0)
+            {
+                var (x, y) = q.Dequeue();
+                foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                {
+                    int nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h || seen[nx, ny]) continue;
+                    if (!s.InsideRoom(min + new Vector2(nx, ny) * step, r)) continue;
+                    seen[nx, ny] = true; q.Enqueue((nx, ny));
+                }
+            }
+            return p =>
+            {
+                int cx = Mathf.RoundToInt((p.x - min.x) / step), cy = Mathf.RoundToInt((p.y - min.y) / step);
+                for (int dx = -2; dx <= 2; dx++)
+                for (int dy = -2; dy <= 2; dy++)
+                {
+                    int x = cx + dx, y = cy + dy;
+                    if (x >= 0 && y >= 0 && x < w && y < h && seen[x, y]) return true;
+                }
+                return false;
+            };
+        }
+    }
+
+    public class RoomPlayTests
+    {
+        [Test]
+        public void EveryRoomIsConnectedFromStart()
+        {
+            foreach (var name in RoomLibrary.All)
+            {
+                var s = R.Room(name);
+                var reach = R.Reach(s);
+                int ok = 0;
+                foreach (var sp in s.Room.spawns) if (reach(sp.pos)) ok++;
+                Assert.GreaterOrEqual(ok, s.Room.spawns.Length * 0.8f, $"{name}: {ok} из {s.Room.spawns.Length} точек появления достижимы");
+                bool door = false;
+                foreach (var e in s.Room.exits)
+                {
+                    float reachR = s.DoorReach(e.pos);
+                    for (float a = 0f; a < 360f && !door; a += 15f)
+                    for (float d = 0f; d <= reachR && !door; d += 0.25f)
+                    {
+                        var p = e.pos + new Vector2(Mathf.Cos(a * Mathf.Deg2Rad), Mathf.Sin(a * Mathf.Deg2Rad)) * d;
+                        if (reach(p)) door = true;
+                    }
+                }
+                Assert.IsTrue(door || s.Room.exits.Length == 0, $"{name}: до двери можно дойти");
+            }
+        }
+
+        [Test]
+        public void LavaIsWalkableAndBurns()
+        {
+            var s = R.Room("B_Combat09");
+            var lava = s.Hazards.Find(h => h.Type == "Lava");
+            Assert.IsNotNull(lava);
+            var c = Geo.Centroid(lava.Poly);
+            Assert.IsTrue(s.InsideRoom(c, 0f), "по магме можно ходить, как в Hades");
+            s.Player.Pos = c;
+            T.Run(s, 1.1f);
+            Assert.Less(s.Player.Hp, 500f, "магма жжёт");
+        }
+
+        [Test]
+        public void MirroredRoomKeepsGeometryConsistent()
+        {
+            var room = RoomLibrary.Get("A_Combat01");
+            var m = room.Mirrored(ArenaSim.ScreenRight);
+            Assert.AreEqual(room.spawns.Length, m.spawns.Length);
+            var d = room.spawns[0].pos - m.spawns[0].pos;
+            Assert.AreEqual(0f, Vector2.Dot(d, new Vector2(-ArenaSim.ScreenRight.y, ArenaSim.ScreenRight.x)), 1e-3f, "отражение только по горизонтали экрана");
+            var s = new ArenaSim(1, m) { WavesEnabled = false, MirrorRooms = false };
+            Assert.IsTrue(s.InsideRoom(s.Player.Pos, 0f));
+        }
+
+        [Test]
+        public void ClearingTheRoomOpensDoorsToTheNextRoom()
+        {
+            var s = new ArenaSim(1, RoomLibrary.Get("A_Combat01")) { MirrorRooms = false };
+            for (int i = 0; i < 4000 && !s.DoorsOpen; i++)
+            {
+                foreach (var e in s.Enemies) if (e.Alive) s.Damage(e, 99999f, false);
+                s.Player.BuffInvuln = 1f;
+                s.Step(T.Dt, default);
+            }
+            Assert.IsTrue(s.DoorsOpen, "четыре волны первого боя пройдены — двери открыты");
+            Assert.AreEqual(4, s.Wave);
+            s.Player.Pos = s.Room.exits[0].pos;
+            s.Step(T.Dt, default);
+            Assert.AreEqual(1, s.RoomsCleared);
+            Assert.AreEqual(2, s.Depth, "следующая комната глубже");
+            Assert.IsFalse(s.DoorsOpen);
+            Assert.AreEqual(500f, s.Player.Hp, 0.01f, "здоровье переносится");
+            T.Run(s, 2f);
+            Assert.Greater(s.Enemies.Count, 0, "в новой комнате — сгенерированные волны");
+        }
+
+        [Test]
+        public void UrnsBreakAndStopBlocking()
+        {
+            var s = R.Room("A_Combat01");
+            var b = s.Breakables[0];
+            Assert.IsTrue(s.Obstacles.Contains(b.Body));
+            s.HitRoomObjects(b.Pos, 0.3f);
+            Assert.IsTrue(b.Broken);
+            Assert.IsFalse(s.Obstacles.Contains(b.Body));
+        }
+
+        [Test]
+        public void SpawnPointsMatchEnemyRole()
+        {
+            var s = new ArenaSim(1, RoomLibrary.Get("A_Combat01")) { MirrorRooms = false };
+            T.Run(s, 0.1f);
+            var thug = s.Enemies[0];
+            var sp = System.Array.Find(s.Room.spawns, p => (p.pos - thug.Pos).sqrMagnitude < 0.01f);
+            Assert.IsNotNull(sp);
+            Assert.AreEqual("melee", sp.role);
+        }
+    }
+
+    public class HitStunTests
+    {
+        [Test]
+        public void CardHitInterruptsThugWindupButIsNotCc()
+        {
+            var s = T.NewSim();
+            var e = T.Spawn(s, EnemyKind.Thug, new Vector2(0f, 1.4f));
+            e.Aggro = true;
+            s.Step(T.Dt, default);
+            Assert.AreEqual(AiState.Windup, e.State);
+            var slot = s.Slots[0];
+            s.HitEnemy(e, new HitSource { Slot = slot, Card = slot.Card, Up = slot.Upgrade, Base = 10f });
+            Assert.AreEqual(AiState.Chase, e.State, "OnHitStun 0.5 с срывает замах");
+            Assert.AreEqual(0.5f, e.HitStun, 1e-4f);
+            Assert.IsFalse(e.UnderCc, "это не контроль: бонусы против оглушённых не срабатывают");
+            T.Run(s, 0.4f);
+            Assert.AreEqual(500f, s.Player.Hp, 0.01f);
+        }
+
+        [Test]
+        public void StrikeInProgressIsNotInterrupted()
+        {
+            var s = T.NewSim();
+            var e = T.Spawn(s, EnemyKind.Thug, new Vector2(0f, 1.4f));
+            e.Aggro = true;
+            s.Step(T.Dt, default);
+            T.Run(s, 0.55f);
+            Assert.AreEqual(AiState.Strike, e.State);
+            var slot = s.Slots[0];
+            s.HitEnemy(e, new HitSource { Slot = slot, Card = slot.Card, Up = slot.Upgrade, Base = 10f });
+            T.Run(s, 0.2f);
+            Assert.Less(s.Player.Hp, 500f, "начавшийся удар долетает");
+        }
+    }
+
+    public class TrapTests
+    {
+        static bool RunUntil(ArenaSim s, float seconds, System.Func<bool> done, System.Action each = null)
+        {
+            int n = Mathf.RoundToInt(seconds / T.Dt);
+            for (int i = 0; i < n; i++)
+            {
+                each?.Invoke();
+                s.Step(T.Dt, default);
+                if (done()) return true;
+            }
+            return false;
+        }
+
+        [Test]
+        public void DartPlateFiresLinkedEmitter()
+        {
+            var s = R.Room("A_Combat04");
+            var plate = R.First(s, TrapKind.DartPlate);
+            Assert.IsNotNull(plate.Link, "пластина связана с излучателем");
+            Assert.IsTrue(RunUntil(s, 1f, () => s.Bolts.Exists(b => b.FromTrap), () => s.Player.Pos = plate.Pos));
+        }
+
+        [Test]
+        public void AxeTriggerSwingsChainedAxes()
+        {
+            var s = R.Room("D_Combat02");
+            var trig = R.First(s, TrapKind.AxeTrigger);
+            Assert.Greater(trig.Chain.Count, 0);
+            Assert.IsTrue(RunUntil(s, 1f, () => trig.Chain.Exists(a => a.Phase != TrapPhase.Idle), () => s.Player.Pos = trig.Pos));
+        }
+
+        [Test]
+        public void PhalanxStatueThrustsAtWhoeverStandsInFront()
+        {
+            var s = R.Room("C_Combat01");
+            var t = R.First(s, TrapKind.Phalanx);
+            var spot = t.Pos + t.Dir * Hades.U(150f);
+            Assert.IsTrue(RunUntil(s, 3f, () => s.Player.Hp < 500f, () => s.Player.Pos = spot), "укол копьём через 0.5 с замаха");
+        }
+
+        [Test]
+        public void SawsAndArchersShootOnTheirOwn()
+        {
+            var saw = R.Room("D_Combat03");
+            Assert.IsTrue(RunUntil(saw, 6f, () => saw.Bolts.Exists(b => b.Pierce)), "пила");
+            var arch = R.Room("C_Combat05");
+            Assert.IsTrue(RunUntil(arch, 8f, () => arch.Bolts.Exists(b => b.FromTrap)), "лучник");
+        }
+
+        [Test]
+        public void GasAndPoisonWakeUpAndRelease()
+        {
+            var gas = R.Room("B_Combat02");
+            Assert.IsTrue(RunUntil(gas, 25f, () => gas.Traps.Exists(t => t.Kind == TrapKind.Gas && t.Cloud > 0f)), "газ просыпается через 5–15 с, замах 3 с");
+            var poison = R.Room("D_Mini05");
+            Assert.IsTrue(RunUntil(poison, 25f, () => poison.Traps.Exists(t => t.Kind == TrapKind.Poison && t.Cloud > 0f)), "яд Стикса");
+        }
+
+        [Test]
+        public void BlastCubeFusesAndExplodes()
+        {
+            var s = R.Room("A_Combat09");
+            var cube = R.First(s, TrapKind.BlastCube);
+            s.HitRoomObjects(cube.Pos, 0.3f);
+            Assert.AreEqual(TrapPhase.Pre, cube.Phase, "удар поджигает фитиль");
+            s.Player.Pos = cube.Pos + Vector2.right * 1.5f;
+            Assert.IsTrue(RunUntil(s, 2f, () => cube.Phase == TrapPhase.Gone));
+            Assert.Less(s.Player.Hp, 500f, "рядом с кубом — урон от взрыва");
+        }
+    }
+}

@@ -24,6 +24,7 @@ namespace Arena.View
         PlayerView player;
         EffectViews effects;
         TrapViews traps;
+        RoomProps props;
         Hud hud;
         DeckScreen deck;
         Transform world, lockMarker, roomRoot, trapRoot;
@@ -58,6 +59,7 @@ namespace Arena.View
             trapRoot = new GameObject("Traps").transform;
             trapRoot.SetParent(world, false);
             traps = new TrapViews(Sim, trapRoot);
+            props = new RoomProps(Sim, trapRoot);
             Rig.SetZoom(Sim.Room.zoom);
             Rig.Cam.backgroundColor = RoomView.For(Sim.Room.biome).Void;
         }
@@ -156,6 +158,28 @@ namespace Arena.View
             if (Paused && !deck.Visible) hud.ShowBanner("Пауза", 0.1f);
         }
 
+        /// <summary>Загрузить комнату и начать в ней заново (галерея комнат в тестах, отладка).</summary>
+        public void LoadRoom(Arena.Core.RoomDef room)
+        {
+            Sim.LoadRoom(room);
+            foreach (var v in enemyViews.Values) v.Destroy();
+            enemyViews.Clear();
+            effects.Clear();
+            BuildRoom();
+            hitStop.Reset();
+            Rig.Snap(Art.W(Sim.Player.Pos));
+        }
+
+        /// <summary>Новая комната за дверью: перестроить комнату и снять виды врагов и эффектов прошлой.</summary>
+        void EnterRoomViews()
+        {
+            foreach (var v in enemyViews.Values) v.Destroy();
+            enemyViews.Clear();
+            effects.Clear();
+            BuildRoom();
+            Rig.Snap(Art.W(Sim.Player.Pos));
+        }
+
         void Restart()
         {
             Sim.Restart();
@@ -182,6 +206,7 @@ namespace Arena.View
             foreach (var id in stale) { enemyViews[id].Destroy(); enemyViews.Remove(id); }
             effects.Sync(Sim, dt, time);
             traps.Sync(time);
+            props.Sync(time);
 
             var l = Sim.Player.Lock;
             lockMarker.gameObject.SetActive(l != null && l.Alive);
@@ -240,6 +265,16 @@ namespace Arena.View
                     case EventKind.RoomClear:
                         hitStop.Play(HitStop.LastKill);
                         hud.ShowBanner("Комната пройдена", 1.4f);
+                        break;
+                    case EventKind.DoorsOpen:
+                        hud.ShowBanner("Двери открыты", 1.6f);
+                        break;
+                    case EventKind.RoomEnter:
+                        EnterRoomViews();
+                        hud.ShowBanner($"Комната {Mathf.RoundToInt(ev.Value) + 1}", 1.4f);
+                        break;
+                    case EventKind.PropBroken:
+                        effects.Puff(ev.Pos, 0.8f, new Color(0.8f, 0.6f, 0.45f), 0.25f, 0.3f);
                         break;
                     case EventKind.Teleport:
                         effects.Puff(ev.Pos, 1f, ExplosionColor(ev.Color), 0.3f);

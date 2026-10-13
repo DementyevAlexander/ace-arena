@@ -24,7 +24,7 @@ namespace Arena.Sim
     {
         EnemyHit, EnemyDied, EnemySpawned, EnemyAlert, PlayerHit, PlayerBlocked,
         Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak,
-        RoomClear, TrapFire, BoltHit,
+        RoomClear, TrapFire, BoltHit, PropBroken, DoorsOpen, RoomEnter,
     }
 
     /// <summary>Стоп-кадр Hades (HitSimSlowParameters): замедление всей игры после удара.</summary>
@@ -215,6 +215,9 @@ namespace Arena.Sim
         public float Shake;
         public Vector2 ExtVel;
         public float Grip;
+        /// <summary>OnHitStun Hades: удар карты на миг сбивает врага (замах начинается заново). Это не контроль —
+        /// бонусы улучшений «против оглушённых» на него не реагируют.</summary>
+        public float HitStun;
         public bool HadesKind => Kind is EnemyKind.Thug or EnemyKind.Witch;
 
         public bool Alive => !Dead && State != AiState.Spawn;
@@ -310,6 +313,15 @@ namespace Arena.Sim
         public bool Regenerating;
         /// <summary>0..1 — доля замаха (для вспышки и роста предупреждения).</summary>
         public float Warn => Phase == TrapPhase.Pre && Total > 0f ? Mathf.Clamp01(1f - T / Total) : 0f;
+    }
+
+    /// <summary>Урна или горшок комнаты: стоит преградой, разбивается любым ударом карты (Breakable в картах Hades).</summary>
+    public sealed class Breakable
+    {
+        public Vector2 Pos;
+        public float R;
+        public bool Broken;
+        public Obstacle Body;
     }
 
     /// <summary>Опасная зона пола (лава, вода): урон раз в интервал, пока стоишь внутри.</summary>

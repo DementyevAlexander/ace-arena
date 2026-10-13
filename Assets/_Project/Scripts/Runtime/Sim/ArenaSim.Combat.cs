@@ -24,6 +24,12 @@ namespace Arena.Sim
             if (src.Base + extra > 0f) Damage(e, src.Base + extra, extra > 0f, stop: StopFor(src));
             if (e.Dead) { if (src.UpgradeApplies) ApplyOnKillUpgrades(e, src); return; }
 
+            if (src.Card != null) HitStunEnemy(e, Style(src.Card) switch
+            {
+                CastStyle.Quick => CastCfg.hitStunQuick,
+                CastStyle.Long => CastCfg.hitStunLong,
+                _ => CastCfg.hitStunInstant,
+            });
             if (src.OwnDotDamage > 0f) AddDot(e, src.OwnDot, src.OwnDotDamage);
             if (src.Card != null && src.OwnCcApplies)
             {
@@ -96,6 +102,22 @@ namespace Arena.Sim
             if (kind == CcKind.Stun) e.Stun = Mathf.Max(e.Stun, duration);
             else if (kind == CcKind.Fear) e.Fear = Mathf.Max(e.Fear, duration);
             InterruptAttack(e);
+        }
+
+        /// <summary>OnHitStun Hades: враг на миг замирает, замах срывается и начнётся заново. Начавшийся удар не прерывается
+        /// (FireDuration в AttackOnce не проверяет CanAttack), поэтому во время удара оглушение не действует.</summary>
+        void HitStunEnemy(Enemy e, float duration)
+        {
+            if (e.Dead || e.State is AiState.Strike or AiState.Lunge) return;
+            e.HitStun = Mathf.Max(e.HitStun, duration);
+            if (e.State is AiState.Windup or AiState.PreFire)
+            {
+                e.Tele = null;
+                e.WarnT = 0f;
+                e.State = AiState.Chase;
+                e.T = 0f;
+                if (!e.HadesKind) e.Cd = Mathf.Max(e.Cd, 0.6f);
+            }
         }
 
         /// <summary>Контроль срывает замах: обозначение исчезает, удар не наступает.
@@ -192,7 +214,7 @@ namespace Arena.Sim
                 if (e.Alive && (e.Pos - center).magnitude <= radius + e.R) HitEnemy(e, src);
             }
             Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = center, Radius = radius, Color = color });
-            ArmBlastCubes(center, radius);
+            HitRoomObjects(center, radius);
         }
 
         /// <summary>Удар по Ace. Возвращает true, если урон прошёл.

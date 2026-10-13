@@ -16,7 +16,16 @@ namespace Arena.Sim
         public readonly WitchTuning WitchCfg;
         public readonly ArenaTuning ArenaCfg;
 
+        /// <summary>Комната как есть в данных и её вариант в игре (может быть отражена, как в Hades).</summary>
         public RoomDef Room { get; private set; }
+        RoomDef baseRoom;
+        public bool MirrorRooms = true;
+        /// <summary>Направление «вправо по экрану» на полу (камера повёрнута на 45°): вдоль него Hades отражает комнаты.</summary>
+        public static readonly Vector2 ScreenRight = new(0.70710678f, -0.70710678f);
+        public readonly List<Breakable> Breakables = new();
+        /// <summary>Комната пройдена — двери открыты, шаг в дверь ведёт в следующую комнату.</summary>
+        public bool DoorsOpen { get; private set; }
+        public int RoomsCleared { get; private set; }
         public readonly Player Player = new();
         public readonly Slot[] Slots = { new(), new(), new(), new() };
         public readonly CardId?[] Reserve = new CardId?[11];
@@ -46,7 +55,8 @@ namespace Arena.Sim
             ThugCfg = new ThugTuning();
             WitchCfg = new WitchTuning();
             ArenaCfg = arena ?? new ArenaTuning();
-            Room = room ?? RoomLibrary.Default();
+            baseRoom = room ?? RoomLibrary.Default();
+            Room = baseRoom;
             SetDefaultDeck();
             Restart();
         }
@@ -66,12 +76,17 @@ namespace Arena.Sim
         /// <summary>Сменить комнату и начать заново.</summary>
         public void LoadRoom(RoomDef room)
         {
-            Room = room ?? RoomDef.Box(10f, 7f);
+            baseRoom = room ?? RoomDef.Box(10f, 7f);
             Restart();
         }
 
+        /// <summary>Hades отражает комнату по горизонтали при каждом входе — половину раз.</summary>
+        void PickVariant() => Room = MirrorRooms && rng.Next(2) == 1 ? baseRoom.Mirrored(ScreenRight) : baseRoom;
+
         public void Restart()
         {
+            PickVariant();
+            RoomsCleared = 0;
             var p = Player;
             p.Pos = Room.heroStart; p.Face = new Vector2(0f, 1f); p.Aim = p.Face;
             p.Vel = p.ExtVel = Vector2.zero; p.GripMul = 1f; p.GripT = 0f; p.Stun = 0f; p.RecentDamage.Clear();
@@ -81,12 +96,31 @@ namespace Arena.Sim
             Enemies.Clear(); Effects.Clear(); Events.Clear(); Bolts.Clear();
             BuildRoom();
             Wave = 0; Kills = 0; GameOver = false; Time = 0f;
+            DoorsOpen = false;
             ResetEncounter();
+        }
+
+        /// <summary>Шаг в открытую дверь: следующая комната из подключённых (сейчас та же, в новом варианте),
+        /// глубина растёт, здоровье и колода сохраняются, как между комнатами Hades.</summary>
+        public void EnterNextRoom()
+        {
+            baseRoom = RoomLibrary.Next(rng, baseRoom.name) ?? baseRoom;
+            PickVariant();
+            RoomsCleared++;
+            var p = Player;
+            p.Pos = Room.heroStart; p.Vel = p.ExtVel = Vector2.zero; p.Stun = 0f;
+            p.Cast = null; p.Buffer = -1; p.Lock = null; p.Dashing = false; p.Hidden = 0f; p.ShoeTrail = null;
+            Enemies.Clear(); Effects.Clear(); Bolts.Clear();
+            foreach (var s in Slots) s.Bat = null;
+            BuildRoom();
+            DoorsOpen = false;
+            StartGeneratedEncounter(Depth + 1);
+            Events.Add(new SimEvent { Kind = EventKind.RoomEnter, Value = RoomsCleared });
         }
 
         void BuildRoom()
         {
-            Obstacles.Clear(); Traps.Clear(); Hazards.Clear();
+            Obstacles.Clear(); Traps.Clear(); Hazards.Clear(); Breakables.Clear();
             foreach (var w in Room.walls)
             {
                 if (w.p == null || w.p.Length < 3) continue;
@@ -96,6 +130,12 @@ namespace Arena.Sim
                 Obstacles.Add(new Obstacle { Pos = c, R = r, Poly = w.p, Height = w.h, Type = w.type });
             }
             BuildTraps();
+            foreach (var b in Room.breakables)
+            {
+                var body = new Obstacle { Pos = b.pos, R = Mathf.Clamp(b.r, 0.15f, 0.6f), Height = 0f, Type = "Breakable" };
+                Obstacles.Add(body);
+                Breakables.Add(new Breakable { Pos = b.pos, R = body.R, Body = body });
+            }
             foreach (var h in Room.hazards)
                 if (h.p != null && h.p.Length >= 3) Hazards.Add(new HazardZone { Type = h.type, Poly = h.p, Damage = h.damage });
         }
@@ -113,6 +153,7 @@ namespace Arena.Sim
             UpdateBolts(dt);
             UpdateTraps(dt);
             UpdateHazards(dt);
+            UpdateDoors();
             Enemies.RemoveAll(e => e.Dead && e.DeathT <= 0f);
             Effects.RemoveAll(f => f.Done);
             Bolts.RemoveAll(b => b.Done);
@@ -462,6 +503,41 @@ namespace Arena.Sim
                 CollideCircle(ref a.Pos, a.R);
             }
             CollideCircle(ref Player.Pos, PlayerCfg.radius);
+        }
+
+        // ---------- Урны и двери ----------
+
+        /// <summary>Удар картой по месту: разбивает урны и поджигает фитили взрывных кубов.</summary>
+        public void HitRoomObjects(Vector2 at, float radius)
+        {
+            ArmBlastCubes(at, radius);
+            foreach (var b in Breakables)
+            {
+                if (b.Broken || (b.Pos - at).magnitude > radius + b.R + 0.1f) continue;
+                b.Broken = true;
+                Obstacles.Remove(b.Body);
+                Events.Add(new SimEvent { Kind = EventKind.PropBroken, Pos = b.Pos, Radius = b.R });
+            }
+        }
+
+        /// <summary>Расстояние, с которого дверь засчитывается: двери Hades стоят в стене, до них не дойти вплотную.</summary>
+        public float DoorReach(Vector2 door)
+        {
+            float best = float.MaxValue;
+            foreach (var f in Room.floor)
+            {
+                Geo.ClosestOnEdge(f.p, door, out float d);
+                if (Geo.InPoly(f.p, door)) d = 0f;
+                best = Mathf.Min(best, d);
+            }
+            return best + PlayerCfg.radius + 0.6f;
+        }
+
+        void UpdateDoors()
+        {
+            if (!DoorsOpen || Player.Hidden > 0f) return;
+            foreach (var x in Room.exits)
+                if ((Player.Pos - x.pos).magnitude <= DoorReach(x.pos)) { EnterNextRoom(); return; }
         }
 
         public Enemy SpawnEnemy(EnemyKind kind, Vector2 pos, float delay = 0f, bool preSpawned = false)
