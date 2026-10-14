@@ -30,6 +30,7 @@ namespace Arena.Tests
         public IEnumerator HeavyFight()
         {
             LogAssert.ignoreFailingMessages = true;
+            GameController.SkipTitle = true;
             SceneManager.LoadScene("Game");
             yield return null;
             var gc = Object.FindAnyObjectByType<GameController>();

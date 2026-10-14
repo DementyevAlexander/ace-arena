@@ -21,6 +21,7 @@ namespace Arena.Tests
             LogAssert.ignoreFailingMessages = true;
             if (System.Environment.GetEnvironmentVariable("ARENA_NO_SRP_BATCHER") == "1")
                 UnityEngine.Rendering.GraphicsSettings.useScriptableRenderPipelineBatching = false;
+            GameController.SkipTitle = true;
             SceneManager.LoadScene("Game");
             yield return null;
             var gc = Object.FindAnyObjectByType<GameController>();
@@ -79,6 +80,7 @@ namespace Arena.Tests
         public IEnumerator DoorLightsUpAfterArenaCleared()
         {
             LogAssert.ignoreFailingMessages = true;
+            GameController.SkipTitle = true;
             SceneManager.LoadScene("Game");
             yield return null;
             var gc = Object.FindAnyObjectByType<GameController>();
@@ -107,6 +109,87 @@ namespace Arena.Tests
                 for (int i = 0; i < 10; i++) yield return null;
                 yield return Capture($"08_{name}_door_open");
             }
+        }
+
+        /// <summary>Стартовый экран держит бой на паузе; «Новый забег» запускает его; пауза открывается и закрывается.
+        /// Кадры с интерфейсом: стартовый экран, HUD, пауза.</summary>
+        [UnityTest]
+        public IEnumerator TitleHudAndPauseScreens()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            GameController.SkipTitle = false;
+            SceneManager.LoadScene("Game");
+            yield return null;
+            var gc = Object.FindAnyObjectByType<GameController>();
+            GameController.SkipTitle = true;
+            for (int i = 0; i < 10; i++) yield return null;
+            Assert.IsTrue(gc.TitleVisible, "при запуске — стартовый экран");
+            Assert.IsTrue(gc.Paused, "на стартовом экране бой стоит");
+            float t0 = gc.Sim.Time;
+            yield return CaptureUi("09_title");
+            Assert.AreEqual(t0, gc.Sim.Time, "симуляция не шла");
+
+            gc.StartRun();
+            yield return null;
+            Assert.IsFalse(gc.TitleVisible);
+            var sim = gc.Sim;
+            sim.TakeOffer(0, sim.Offers[0].Form == FormKind.Dash ? ArenaSim.DashSlot : 1);
+            sim.Player.BuffInvuln = 999f;
+            for (int i = 0; i < 2000 && sim.Enemies.Count == 0; i++) yield return null;
+            for (int i = 0; i < 60; i++) yield return null;
+            Assert.IsFalse(gc.Paused);
+            yield return CaptureUi("10_hud");
+
+            gc.SetPauseMenu(true);
+            yield return null;
+            Assert.IsTrue(gc.Paused, "пауза открыта");
+            t0 = sim.Time;
+            for (int i = 0; i < 5; i++) yield return null;
+            Assert.AreEqual(t0, sim.Time, "в паузе бой стоит");
+            yield return CaptureUi("11_pause");
+            gc.SetPauseMenu(false);
+            yield return null;
+            Assert.IsFalse(gc.Paused, "пауза закрыта");
+        }
+
+        /// <summary>Кадр вместе с интерфейсом: экранные холсты на время снимка переводятся на камеру.</summary>
+        static IEnumerator CaptureUi(string name)
+        {
+            var dir = System.Environment.GetEnvironmentVariable("ARENA_CAPTURE_DIR");
+            if (string.IsNullOrEmpty(dir)) yield break;
+            yield return null;
+            var cam = Camera.main;
+            var rt = new RenderTexture(1920, 1080, 24);
+            var prev = cam.targetTexture;
+            cam.targetTexture = rt;
+            var volume = Object.FindAnyObjectByType<UnityEngine.Rendering.Volume>(); // постобработка не должна трогать интерфейс
+            if (volume != null) volume.enabled = false;
+            var camData = UnityEngine.Rendering.Universal.CameraExtensions.GetUniversalAdditionalCameraData(cam);
+            var aa = camData.antialiasing;
+            camData.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.None; // SMAA размазывает текст на холстах камеры
+            var canvases = Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+            foreach (var c in canvases)
+            {
+                c.renderMode = RenderMode.ScreenSpaceCamera;
+                c.worldCamera = cam;
+                c.planeDistance = cam.nearClipPlane + 0.05f + 0.01f * (100 - c.sortingOrder);
+            }
+            Canvas.ForceUpdateCanvases();
+            cam.Render();
+            foreach (var c in canvases) { c.renderMode = RenderMode.ScreenSpaceOverlay; c.worldCamera = null; }
+            if (volume != null) volume.enabled = true;
+            camData.antialiasing = aa;
+            cam.targetTexture = prev;
+            var old = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = old;
+            Directory.CreateDirectory(dir);
+            File.WriteAllBytes(Path.Combine(dir, name + ".png"), tex.EncodeToPNG());
+            Object.Destroy(tex);
+            rt.Release();
         }
 
         static IEnumerator Capture(string name)

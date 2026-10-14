@@ -18,6 +18,8 @@ namespace Arena.View
         public ArenaSim Sim { get; private set; }
         public CameraRig Rig { get; private set; }
         public bool Paused { get; private set; }
+        /// <summary>Тесты и проверка билда: начать сразу с боя, без стартового экрана.</summary>
+        public static bool SkipTitle;
         /// <summary>Тесты: подменяет ввод игрока (null — клавиатура, мышь, геймпад).</summary>
         public System.Func<SimInput> TestInput;
         /// <summary>Время частей прошлого кадра, мс — для нагрузочного теста (то же видно в Profiler по маркерам Arena.*).</summary>
@@ -33,7 +35,10 @@ namespace Arena.View
         EffectViews effects;
         Hud hud;
         RewardScreen reward; // выбор карточки и просмотр скиллов; прежняя колода (DeckScreen) из интерфейса убрана
+        StartScreen title;
+        PauseScreen pause;
         bool viewSkills, pauseMenu;
+        float runTime; // время забега без пауз — для сводки в паузе
         readonly HitStopPlayer hitStop = new(); // стоп-кадры Hades по виду удара (HitStop события)
         TrapViews traps;
         RoomProps props;
@@ -61,8 +66,38 @@ namespace Arena.View
             lockMarker = Art.Decal(world, MeshKit.FloorQuad(), lm, 0.06f).transform;
             hud = new Hud();
             reward = new RewardScreen(Sim);
+            pause = new PauseScreen(
+                resume: () => pauseMenu = false,
+                skills: () => { pauseMenu = false; viewSkills = true; },
+                restart: Restart,
+                toTitle: () => { Restart(); title.Show(); });
+            title = new StartScreen(StartRun, Quit);
             Rig.Snap(Art.W(Sim.Player.Pos));
+            if (SkipTitle || System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-arenaShot") >= 0) ShowRoomTitle();
+            else title.Show();
+        }
+
+        /// <summary>Стартовый экран открыт: бой стоит.</summary>
+        public bool TitleVisible => title.Visible;
+
+        /// <summary>Открыть или закрыть паузу (тесты; в игре — Esc или Menu).</summary>
+        public void SetPauseMenu(bool on) => pauseMenu = on && !Sim.RewardPending;
+
+        /// <summary>«Новый забег» стартового экрана.</summary>
+        public void StartRun()
+        {
+            title.Hide();
+            runTime = 0f;
             ShowRoomTitle();
+        }
+
+        static void Quit()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
         }
 
         void ShowRoomTitle()
@@ -219,19 +254,27 @@ namespace Arena.View
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             input.Poll();
 
-            if (input.DeckPressed && !Sim.GameOver && !Sim.RewardPending) viewSkills = !viewSkills;
-            else if (input.PausePressed)
+            if (title.Visible) title.Sync(input); // стартовый экран: бой стоит, остальной ввод не принимается
+            else
             {
-                if (viewSkills) viewSkills = false;
-                else if (!Sim.RewardPending) pauseMenu = !pauseMenu;
+                bool backUsed = pauseMenu && pause.Navigate(input); // меню паузы: пункты, B закрывает «Управление»
+                if (input.DeckPressed && !Sim.GameOver && !Sim.RewardPending && !pauseMenu) viewSkills = !viewSkills;
+                else if (input.PausePressed)
+                {
+                    if (viewSkills) viewSkills = false;
+                    else if (!Sim.RewardPending) pauseMenu = !pauseMenu;
+                }
+                else if (viewSkills && input.NavBack) viewSkills = false;          // B — закрыть просмотр
+                else if (pauseMenu && input.NavBack && !backUsed) pauseMenu = false; // B — продолжить
+                // заново: R; с геймпада — Y в паузе, Menu после смерти
+                if (input.RestartPressed || (pauseMenu && input.NavAlt) || (Sim.GameOver && wasGameOver && input.PausePressed)) Restart();
             }
-            else if (viewSkills && input.NavBack) viewSkills = false; // B — закрыть просмотр
-            else if (pauseMenu && input.NavBack) pauseMenu = false;   // B — продолжить
-            // заново: R; с геймпада — Y в паузе, Menu после смерти
-            if (input.RestartPressed || (pauseMenu && input.NavAlt) || (Sim.GameOver && wasGameOver && input.PausePressed)) Restart();
             bool wasPaused = Paused;
-            reward.Sync(viewSkills, input);
-            Paused = pauseMenu || reward.Visible;
+            if (!title.Visible) reward.Sync(viewSkills, input);
+            if (pauseMenu) pause.Show(); else pause.Hide();
+            pause.Sync(Sim, runTime, input);
+            hud.SetVisible(!title.Visible && !pauseMenu); // как в Hades: в паузе HUD скрыт
+            Paused = title.Visible || pauseMenu || reward.Visible;
             if (wasPaused && !Paused) input.Flush(); // клик по карточке не должен стать выстрелом
 
             if (!Paused)
@@ -241,6 +284,7 @@ namespace Arena.View
                 float simDt = dt * hitStop.Scale;
                 if (slowT >= 0f) { slowT += dt; simDt *= SimSlowAt(slowSteps, slowT); if (slowT >= slowTotal) slowT = -1f; }
                 time += simDt;
+                if (!Sim.GameOver) runTime += dt;
                 acc += simDt;
                 bool first = true;
                 int guard = 0;
@@ -265,7 +309,6 @@ namespace Arena.View
             watch.Restart();
             using (HudMarker.Auto()) hud.Sync(Sim, Rig.Cam, input.UseMouse, dt, Paused);
             HudMs = (float)watch.Elapsed.TotalMilliseconds;
-            if (pauseMenu) hud.ShowBanner(input.UseMouse ? "Пауза · Esc — продолжить · R — заново" : "Пауза · Menu или B — продолжить · Y — заново", 0.1f);
         }
 
         void Restart()
@@ -280,6 +323,7 @@ namespace Arena.View
             hud.ShowBanner("", 0f);
             Paused = false; wasGameOver = false;
             viewSkills = false; pauseMenu = false;
+            runTime = 0f;
         }
 
         void SyncViews(float dt)

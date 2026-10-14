@@ -58,8 +58,9 @@ namespace Arena.UI
             if (controls.gameObject.activeSelf && back) controls.gameObject.SetActive(false);
             else menu.Navigate(input);
             menu.Sync();
-            if (input.UseMouse) hints.Set("ЛКМ", "или Enter — выбрать", "!Esc", "— назад");
-            else hints.Set("A", "выбрать", "!B", "назад");
+            bool sub = controls.gameObject.activeSelf;
+            if (input.UseMouse) hints.Set("ЛКМ", "или Enter — выбрать", sub ? "!Esc" : "", sub ? "— назад" : "");
+            else hints.Set("A", "выбрать", sub ? "!B" : "", sub ? "назад" : "");
         }
     }
 }

@@ -103,13 +103,19 @@ namespace Arena.UI
 
         public void Hide() => canvas.enabled = false;
 
-        /// <summary>Управление открыто — B закрывает его (а не паузу). Возвращает true, если нажатие B уже обработано.</summary>
-        public bool Sync(ArenaSim sim, float runTime, InputReader input)
+        /// <summary>Меню паузы: вверх/вниз, A / Enter. Открыто «Управление» — B закрывает его, а не паузу;
+        /// возвращает true, если нажатие B уже обработано.</summary>
+        public bool Navigate(InputReader input)
         {
             if (!canvas.enabled) return false;
-            bool consumed = false;
-            if (controls.gameObject.activeSelf && input.NavBack) { ShowControls(false); consumed = true; }
-            else menu.Navigate(input);
+            if (controls.gameObject.activeSelf && input.NavBack) { ShowControls(false); return true; }
+            menu.Navigate(input);
+            return false;
+        }
+
+        public void Sync(ArenaSim sim, float runTime, InputReader input)
+        {
+            if (!canvas.enabled) return;
             menu.Sync();
 
             room.text = sim.Layout != null && !string.IsNullOrEmpty(sim.Layout.title) ? sim.Layout.title : sim.Room.name;
@@ -125,7 +131,6 @@ namespace Arena.UI
             }
             if (input.UseMouse) hints.Set("ЛКМ", "или Enter — выбрать", "!Esc", "— продолжить", "!R", "— заново");
             else hints.Set("A", "выбрать", "!Menu / B", "продолжить", "!Y", "заново");
-            return consumed;
         }
 
         static string SlotLine(ArenaSim sim, int i)
