@@ -356,12 +356,12 @@ namespace Arena.View
                         effects.Puff(ev.Pos, 0.6f, new Color(0.8f, 0.45f, 1f), 0.2f);
                         break;
                     case EventKind.RoomClear:
-                        hitStop.Play(HitStop.LastKill);
-                        hud.ShowBanner("Комната пройдена", 1.4f);
+                        hitStop.Play(HitStop.LastKill); // замедление на последнем убийстве, как в Hades
                         break;
-                    case EventKind.DoorsOpen:
-                        hud.ShowBanner("Двери открыты", 1.6f);
+                    case EventKind.ArenaCleared:
+                        hud.ShowBanner("Арена пройдена", ev.Value);
                         break;
+
                     case EventKind.RoomEnter:
                         EnterRoomViews();
                         break;

@@ -31,6 +31,7 @@ namespace Arena.Sim
         public readonly List<Breakable> Breakables = new();
         /// <summary>Комната пройдена — двери открыты, шаг в дверь ведёт в следующую комнату.</summary>
         public bool DoorsOpen { get; private set; }
+        float doorTimer;
         public int RoomsCleared { get; private set; }
         public readonly Player Player = new();
         public readonly Slot[] Slots = { new(), new(), new(), new() };
@@ -122,7 +123,7 @@ namespace Arena.Sim
             Enemies.Clear(); Effects.Clear(); Events.Clear(); Bolts.Clear();
             BuildRoom();
             Wave = 0; Kills = 0; GameOver = false; Time = 0f;
-            DoorsOpen = false;
+            DoorsOpen = false; doorTimer = 0f;
             if (FormsMode) ResetForms();
             ResetEncounter();
         }
@@ -149,7 +150,7 @@ namespace Arena.Sim
 
         void BuildRoom()
         {
-            Obstacles.Clear(); Traps.Clear(); Hazards.Clear(); Breakables.Clear(); doorReach.Clear();
+            Obstacles.Clear(); Traps.Clear(); Hazards.Clear(); Breakables.Clear(); doorStand.Clear(); doorTimer = 0f;
             foreach (var w in Room.walls)
             {
                 if (w.p == null || w.p.Length < 3) continue;
@@ -167,6 +168,7 @@ namespace Arena.Sim
             }
             foreach (var h in Room.hazards)
                 if (h.p != null && h.p.Length >= 3) Hazards.Add(new HazardZone { Type = h.type, Poly = h.p, Damage = h.damage });
+            ClearDoorways();
         }
 
         public void Step(float dt, SimInput input)
@@ -622,21 +624,111 @@ namespace Arena.Sim
             }
         }
 
-        readonly Dictionary<Vector2, float> doorReach = new();
+        readonly Dictionary<Vector2, (Vector2 stand, float dist)> doorStand = new();
 
-        /// <summary>Расстояние, с которого дверь засчитывается: двери Hades стоят в стене, у арен Hades II — даже за ней,
-        /// поэтому берётся расстояние до ближайшей точки, где герой может стоять, плюс его радиус и полшага.</summary>
-        public float DoorReach(Vector2 door)
+        /// <summary>Ближайшая к двери точка, где может стоять герой. Двери Hades стоят в стене, у арен Hades II — даже за ней.</summary>
+        (Vector2 stand, float dist) DoorStand(Vector2 door)
         {
-            if (doorReach.TryGetValue(door, out float cached)) return cached;
-            float r = PlayerCfg.radius, best = 12f;
-            for (float d = 0f; d <= 12f && best >= 12f; d += 0.25f)
+            if (doorStand.TryGetValue(door, out var cached)) return cached;
+            float r = PlayerCfg.radius;
+            var res = (door, 12f);
+            for (float d = 0f; d <= 12f && res.Item2 >= 12f; d += 0.25f)
                 for (int k = 0; k < 24; k++)
                 {
                     float a = k * Mathf.PI / 12f;
-                    if (InsideRoom(door + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * d, r)) { best = d; break; }
+                    var p = door + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * d;
+                    if (InsideRoom(p, r)) { res = (p, d); break; }
                 }
-            return doorReach[door] = best + r + 0.6f;
+            return doorStand[door] = res;
+        }
+
+        /// <summary>Место у двери, где стоит герой, чтобы в неё войти.</summary>
+        public Vector2 DoorStandPoint(Vector2 door) => DoorStand(door).stand;
+
+        /// <summary>Расстояние, с которого дверь засчитывается: до ближайшей точки, где может стоять герой, плюс его радиус и полшага.</summary>
+        public float DoorReach(Vector2 door) => DoorStand(door).dist + PlayerCfg.radius + 0.6f;
+
+        /// <summary>Где поставить дверь: параллельно стене, к которой примыкает выход, вплотную и чуть перед ней, лицом в комнату.
+        /// Стена — ближайшая к месту у выхода грань препятствия или край пола. inward — нормаль стены в комнату.</summary>
+        public Vector2 DoorPlacement(Vector2 door, out Vector2 inward)
+        {
+            var (stand, dist) = DoorStand(door);
+            // стена выхода — грань, которую пересекает путь от места у выхода к самому выходу;
+            // если выход на полу — ближайшая к нему грань
+            var toDoor = door - stand;
+            var rayEnd = dist > 0.01f ? door + toDoor.normalized * 0.5f : stand;
+            float best = float.MaxValue;
+            Vector2 wallPoint = default, wallDir = default;
+            bool found = false;
+            void Edges(Vector2[] poly)
+            {
+                for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+                {
+                    var e = poly[i] - poly[j];
+                    if (e.sqrMagnitude < 0.04f) continue;
+                    Vector2 q;
+                    float d;
+                    if (dist > 0.01f)
+                    {
+                        if (!Geo.SegmentHit(new[] { poly[j], poly[i] }, stand, rayEnd, out float t)) continue;
+                        q = Vector2.Lerp(stand, rayEnd, t);
+                        d = (q - stand).magnitude;
+                    }
+                    else
+                    {
+                        q = Geo.ClosestOnSegment(poly[j], poly[i], door);
+                        d = (q - door).magnitude;
+                        if (d > 2.5f) continue;
+                    }
+                    // граница пола и магмы — не стена: за настоящей стеной стоять нельзя
+                    var beyond = q + (dist > 0.01f ? toDoor.normalized : (q - door).sqrMagnitude > 0.0001f ? (q - door).normalized : Vector2.up) * 0.3f;
+                    if (InsideRoom(beyond, PlayerCfg.radius * 0.5f)) continue;
+                    if (d < best) { best = d; wallPoint = q; wallDir = e.normalized; found = true; }
+                }
+            }
+            foreach (var o in Obstacles) if (!o.Round && o.Type != "Breakable") Edges(o.Poly);
+            foreach (var f in Room.floor) Edges(f.p);
+            if (found)
+            {
+                var n = new Vector2(-wallDir.y, wallDir.x);
+                if (Vector2.Dot(stand - wallPoint, n) < 0f) n = -n; // нормаль — в сторону комнаты
+                inward = n;
+                return wallPoint + n * DoorHalfDepth;
+            }
+            // стены рядом нет — по направлению к месту у выхода
+            var dir = dist > 0.01f ? stand - door : (Room.min + Room.max) * 0.5f - door;
+            inward = dir.sqrMagnitude > 0.0001f ? dir.normalized : Vector2.up;
+            return stand;
+        }
+
+        /// <summary>Половина глубины двери и зазор до стены: дверь стоит вплотную к стене, но перед ней.</summary>
+        const float DoorHalfDepth = 0.25f + 0.05f;
+
+        /// <summary>Двери комнаты: где стоят и куда смотрят.</summary>
+        public List<(Vector2 pos, Vector2 inward)> Doors()
+        {
+            var list = new List<(Vector2, Vector2)>();
+            foreach (var x in Room.exits) { var p = DoorPlacement(x.pos, out var inward); list.Add((p, inward)); }
+            return list;
+        }
+
+        /// <summary>Проход к двери свободен: урны и мелкие препятствия в 3 юнитах перед дверью (шириной 2.6) убираются.
+        /// Стены контура комнаты не трогаются.</summary>
+        void ClearDoorways()
+        {
+            foreach (var (door, inward) in Doors())
+            {
+                var side = new Vector2(-inward.y, inward.x);
+                bool InCorridor(Vector2 p, float r)
+                {
+                    var d = p - door;
+                    float f = Vector2.Dot(d, inward), s = Mathf.Abs(Vector2.Dot(d, side));
+                    return f > -0.5f - r && f < 3f + r && s < 1.3f + r;
+                }
+                for (int i = Breakables.Count - 1; i >= 0; i--)
+                    if (InCorridor(Breakables[i].Pos, Breakables[i].R)) { Obstacles.Remove(Breakables[i].Body); Breakables.RemoveAt(i); }
+                Obstacles.RemoveAll(o => o.Height > 0f && o.R <= 1.2f && o.Type != "Hole" && InCorridor(o.Pos, o.R));
+            }
         }
 
         void UpdateDoors()

@@ -45,6 +45,7 @@ namespace Arena.View
 
         public static Transform Build(ArenaSim sim)
         {
+            doors = sim.Doors();
             // арена Hades II — ночной город по своей раскладке
             if (sim.Layout != null) return BuildLayout(sim.Layout);
             var room = sim.Room;
@@ -90,6 +91,12 @@ namespace Arena.View
                 }
                 float h = Mathf.Min(o.Height, MaxWall);
                 if (OccludesFloor(sim, o, camFwd)) h = Mathf.Min(h, FrontWall);
+                // дверь не заслонять: мелкое — убрать, стену контура — опустить
+                if (HidesDoor(o.Pos, o.R, h))
+                {
+                    if (o.R <= 1.2f) continue;
+                    h = Mathf.Min(h, 0.3f);
+                }
                 if (o.Round)
                 {
                     Art.Part(root, MeshKit.Prism(8), wallMat, Art.W(o.Pos), new Vector3(o.R * 2f, h, o.R * 2f));
@@ -111,7 +118,7 @@ namespace Arena.View
             // декор без столкновений
             var decorMat = Art.LitMat(Color.Lerp(pal.Wall, pal.WallTop, 0.5f));
             foreach (var d in room.decor)
-                Art.Part(root, MeshKit.Ico(1, 0.1f, rnd.Next(99)), decorMat, Art.W(d.pos) + Vector3.up * (d.h * 0.4f), new Vector3(d.r * 2f, Mathf.Max(0.3f, d.h), d.r * 2f), default, false);
+                if (!HidesDoor(d.pos, d.r, d.h)) Art.Part(root, MeshKit.Ico(1, 0.1f, rnd.Next(99)), decorMat, Art.W(d.pos) + Vector3.up * (d.h * 0.4f), new Vector3(d.r * 2f, Mathf.Max(0.3f, d.h), d.r * 2f), default, false);
 
             // бездна под комнатой
             var abyss = Art.Part(root, MeshKit.Box(), Art.LitMat(pal.Void), new Vector3((room.min.x + room.max.x) * 0.5f, -3f, (room.min.y + room.max.y) * 0.5f),
@@ -164,6 +171,12 @@ namespace Arena.View
                 bool front = InFrontOfFloor(a, c2);
                 // как в Hades: за краем площадки — тишина; предметы дальше 3 юнитов от пола не рисуются
                 if (w.kind is not ("wall" or "gap") && FloorDistance(a, c2, 4f, out _) > 3f) continue;
+                // дверь не заслонять: высокие дома и кладка перед ней — низкие, мелочь — не рисуется
+                if (w.kind is not ("wall" or "gap") && HidesDoor(c2, rad, Mathf.Max(0.5f, w.height)))
+                {
+                    if (w.kind is "building" or "masonry") front = true;
+                    else continue;
+                }
                 switch (w.kind)
                 {
                     case "wall": // невидимая стена Hades — цоколь квартала
@@ -261,6 +274,7 @@ namespace Arena.View
                 var face = alongX ? new Vector2(0f, Mathf.Sign(dir.y)) : new Vector2(Mathf.Sign(dir.x), 0f);
                 var ctr = p - face * (half.x * Mathf.Abs(face.x) + half.y * Mathf.Abs(face.y) - 0.45f);
                 if (!FootprintFree(a, taken, ctr, half)) continue;
+                if (HidesDoor(ctr, Mathf.Max(half.x, half.y), front ? 0.45f : 2.6f)) continue; // дверь не заслонять
                 Take(taken, ctr, half);
                 var c3 = new Vector3(ctr.x, 0f, ctr.y);
                 if (front)
@@ -432,6 +446,28 @@ namespace Arena.View
 
         const float MaxWall = 1.8f, FrontWall = 0.4f;
 
+        /// <summary>Двери текущей комнаты (для правила «ничто не заслоняет дверь»).</summary>
+        static List<(Vector2 pos, Vector2 inward)> doors = new();
+
+        static readonly Vector2 CamRight = new(0.70710678f, -0.70710678f), CamFwd = new(0.70710678f, 0.70710678f);
+
+        /// <summary>Предмет (центр, радиус, высота) заслоняет какую-нибудь дверь на экране: стоит ближе к камере,
+        /// перекрывает её по горизонтали экрана и поднимается выше её нижнего края.</summary>
+        static bool HidesDoor(Vector2 c, float r, float h)
+        {
+            float sin = 0.5f, cos = 0.866f; // наклон камеры 30°
+            foreach (var (d, _) in doors)
+            {
+                float dx = Vector2.Dot(d, CamRight), dDepth = Vector2.Dot(d, CamFwd);
+                float ox = Vector2.Dot(c, CamRight), oDepth = Vector2.Dot(c, CamFwd);
+                if (Mathf.Abs(ox - dx) > r + 1.3f) continue;                 // не перекрывает по горизонтали
+                if (oDepth - r > dDepth - 0.2f) continue;                    // стоит за дверью или вровень с ней
+                float objTop = (oDepth + r) * sin + h * cos, doorBottom = dDepth * sin + 0.15f;
+                if (objTop > doorBottom) return true;
+            }
+            return false;
+        }
+
         static bool OnHazard(ArenaSim sim, Vector2 p)
         {
             foreach (var h in sim.Hazards) if (Geo.InPoly(h.Poly, p)) return true;
@@ -462,13 +498,17 @@ namespace Arena.View
         }
     }
 
-    /// <summary>Урны (разбиваются ударом) и двери (загораются, когда комната пройдена).</summary>
+    /// <summary>Урны (разбиваются ударом) и двери выходов. Дверь — префаб Resources/Prefabs/Door (каркас "Frame" + полотно "Leaf"),
+    /// встроена в стену у края пола и смотрит в комнату. Когда арена пройдена, полотно загорается цветом биома и пульсирует;
+    /// каркас не светится.</summary>
     public sealed class RoomProps
     {
         readonly ArenaSim sim;
         readonly List<(Breakable b, GameObject go)> urns = new();
-        readonly List<Material> doorMats = new();
-        readonly Color doorColor, doorClosed;
+        readonly List<Renderer> leaves = new();
+        readonly List<Material> leafClosed = new();
+        readonly Material leafGlow;
+        readonly Color glowColor;
 
         public RoomProps(ArenaSim sim, Transform parent)
         {
@@ -477,32 +517,48 @@ namespace Arena.View
             var urn = Art.LitMat(Color.Lerp(pal.Accent, pal.Wall, 0.5f));
             foreach (var b in sim.Breakables)
                 urns.Add((b, Art.Part(parent, MeshKit.Prism(7, 0.7f), urn, Art.W(b.Pos), new Vector3(b.R * 2f, 0.6f, b.R * 2f))));
-            doorColor = pal.Accent;
-            doorClosed = Color.Lerp(pal.Wall, Color.black, 0.4f);
+
+            // свет двери — яркий неосвещаемый материал (bloom): у ночных арен — тёплый огонь, у комнат — акцент биома
+            glowColor = sim.Room.IsHades2 ? new Color(1f, 0.62f, 0.25f) : pal.Accent;
+            leafGlow = new Material(Art.LitMat(glowColor, 1.2f));
+            var prefab = Resources.Load<GameObject>(DoorKit.PrefabPath);
             foreach (var e in sim.Room.exits)
             {
-                var p = Art.W(e.pos);
-                // перекладина двери — неосвещаемая: тёмная, пока закрыто, и ярче 1 (bloom), когда открыто
-                var lit = new Material(Art.LitMat(Color.Lerp(pal.Wall, Color.black, 0.2f), 0.01f));
-                lit.SetColor("_BaseColor", Color.Lerp(pal.Wall, Color.black, 0.4f));
-                doorMats.Add(lit);
-                var d = new GameObject("Door").transform;
-                d.SetParent(parent, false);
-                d.position = p;
-                d.rotation = Quaternion.Euler(0f, -e.angle, 0f);
-                Art.Part(d, MeshKit.Box(), lit, new Vector3(0f, 1.25f, 0f), new Vector3(1.7f, 0.25f, 0.35f)).GetComponent<Renderer>().sharedMaterial = lit;
-                Art.Part(d, MeshKit.Box(), Art.LitMat(pal.Wall), new Vector3(-0.75f, 0.6f, 0f), new Vector3(0.3f, 1.2f, 0.3f));
-                Art.Part(d, MeshKit.Box(), Art.LitMat(pal.Wall), new Vector3(0.75f, 0.6f, 0f), new Vector3(0.3f, 1.2f, 0.3f));
+                var pos = sim.DoorPlacement(e.pos, out var inward);
+                var go = prefab != null
+                    ? Object.Instantiate(prefab, parent, false)
+                    : DoorKit.Build(Art.LitMat(pal.Wall), Art.LitMat(new Color(0.33f, 0.22f, 0.17f)), Art.LitMat(new Color(0.62f, 0.5f, 0.3f)));
+                go.name = "Door";
+                go.transform.SetParent(parent, false);
+                go.transform.position = Art.W(pos);
+                go.transform.rotation = Quaternion.LookRotation(new Vector3(inward.x, 0f, inward.y));
+                // стандартный каркас — в цвет стен биома (свой арт в префабе не трогаем)
+                var frame = go.transform.Find(DoorKit.FrameName);
+                if (frame != null)
+                    foreach (var r in frame.GetComponentsInChildren<Renderer>())
+                        if (r.sharedMaterial == null || r.sharedMaterial.name.StartsWith("DoorFrame"))
+                            r.sharedMaterial = Art.LitMat(Color.Lerp(pal.Wall, pal.WallTop, 0.35f));
+                var leaf = go.transform.Find(DoorKit.LeafName);
+                if (leaf == null) continue;
+                foreach (var r in leaf.GetComponentsInChildren<Renderer>())
+                {
+                    leaves.Add(r);
+                    leafClosed.Add(r.sharedMaterial);
+                }
             }
         }
 
         public void Sync(float time)
         {
             foreach (var (b, go) in urns) if (go.activeSelf == b.Broken) go.SetActive(!b.Broken);
-            // открытые двери светятся цветом биома и пульсируют — туда идти дальше
-            foreach (var m in doorMats)
+            // открытая дверь: всё полотно светится и пульсирует — туда идти дальше; каркас остаётся как был
+            bool open = sim.DoorsOpen;
+            // яркость чуть выше 1 — цвет биома сохраняется, bloom даёт ореол; пульс раз в 1.6 с
+            if (open) leafGlow.SetColor("_BaseColor", Art.Glow(glowColor, 0.5f + 0.45f * (0.5f + 0.5f * Mathf.Sin(time * 4f))));
+            for (int i = 0; i < leaves.Count; i++)
             {
-                m.SetColor("_BaseColor", sim.DoorsOpen ? Art.Glow(doorColor, 1.2f + 0.6f * Mathf.Sin(time * 4f)) : doorClosed);
+                var want = open ? leafGlow : leafClosed[i];
+                if (leaves[i].sharedMaterial != want) leaves[i].sharedMaterial = want;
             }
         }
     }

@@ -82,7 +82,14 @@ namespace Arena.Sim
             if (reward) { rewardWave = Wave; OpenReward(); return; }
             if (setDone)
             {
-                if (!DoorsOpen) { DoorsOpen = true; Events.Add(new SimEvent { Kind = EventKind.DoorsOpen }); }
+                // «Арена пройдена» держится doorsDelay, потом загорается дверь
+                if (!DoorsOpen)
+                {
+                    // надпись — когда выбор карточки (если был) закрыт, чтобы её было видно
+                    if (doorTimer <= 0f) Events.Add(new SimEvent { Kind = EventKind.ArenaCleared, Value = ArenaCfg.doorsDelay });
+                    doorTimer += dt;
+                    if (doorTimer >= ArenaCfg.doorsDelay) { DoorsOpen = true; Events.Add(new SimEvent { Kind = EventKind.DoorsOpen }); }
+                }
                 return;
             }
             waveTimer -= dt;

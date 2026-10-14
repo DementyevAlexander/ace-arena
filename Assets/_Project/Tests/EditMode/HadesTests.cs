@@ -296,6 +296,46 @@ namespace Arena.Tests
         }
 
         [Test]
+        public void ArenaClearedBannerThenDoorLightsUp()
+        {
+            var s = new ArenaSim(1, RoomLibrary.Get("A_Combat01")) { MirrorRooms = false };
+            bool banner = false;
+            for (int i = 0; i < 4000 && !banner; i++)
+            {
+                foreach (var e in s.Enemies) if (e.Alive) s.Damage(e, 99999f, false);
+                s.Player.BuffInvuln = 1f;
+                s.Step(T.Dt, default);
+                foreach (var ev in s.Events) if (ev.Kind == EventKind.ArenaCleared) banner = true;
+            }
+            Assert.IsTrue(banner, "после последнего врага — надпись «Арена пройдена»");
+            Assert.IsFalse(s.DoorsOpen, "пока надпись на экране, дверь не горит");
+            s.Player.Pos = s.Room.exits[0].pos;
+            T.Run(s, s.ArenaCfg.doorsDelay - 0.2f);
+            Assert.IsFalse(s.DoorsOpen);
+            Assert.AreEqual(0, s.RoomsCleared, "через негорящую дверь не пройти");
+            T.Run(s, 0.4f);
+            Assert.AreEqual(1, s.RoomsCleared, "дверь загорелась — шаг в неё ведёт дальше");
+        }
+
+        [Test]
+        public void EveryDoorStandsAtTheFloorEdgeFacingTheRoom()
+        {
+            foreach (var name in RoomLibrary.All)
+            {
+                var s = R.Room(name);
+                foreach (var x in s.Room.exits)
+                {
+                    var at = s.DoorPlacement(x.pos, out var inward);
+                    Assert.AreEqual(1f, inward.magnitude, 1e-3f, name);
+                    var stand = s.DoorStandPoint(x.pos);
+                    Assert.IsTrue(s.InsideRoom(stand, s.PlayerCfg.radius), $"{name}: у двери есть где стоять");
+                    Assert.Greater(Vector2.Dot(stand - at, inward), -0.3f, $"{name}: место входа — перед стеной двери, со стороны её лица");
+                    Assert.Less((stand - at).magnitude, 2f, $"{name}: дверь у места входа");
+                }
+            }
+        }
+
+        [Test]
         public void UrnsBreakAndStopBlocking()
         {
             var s = R.Room("A_Combat01");

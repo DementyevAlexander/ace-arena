@@ -318,5 +318,7 @@ namespace Arena.Core
         /// <summary>Режим форм: карточка — после каждой третьей волны, когда она добита; бюджет случайных волн растёт с каждым выбором.</summary>
         public int wavesPerReward = 3;
         public int budgetPerReward = 8;
+        /// <summary>Арена зачищена: сначала надпись «Арена пройдена», через столько секунд загорается дверь и пускает дальше.</summary>
+        public float doorsDelay = 2.5f;
     }
 }

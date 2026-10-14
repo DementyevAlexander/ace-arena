@@ -24,7 +24,7 @@ namespace Arena.Sim
     {
         EnemyHit, EnemyDied, EnemySpawned, EnemyAlert, PlayerHit, PlayerBlocked,
         Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak, HitStop, Shake,
-        RoomClear, TrapFire, BoltHit, PropBroken, DoorsOpen, RoomEnter,
+        RoomClear, TrapFire, BoltHit, PropBroken, DoorsOpen, RoomEnter, ArenaCleared,
         Zap, RewardReady, // режим форм: молния от Pos до To; выбор карточки
     }
 

@@ -74,6 +74,41 @@ namespace Arena.Tests
             for (int i = 0; i < 30; i++) { sim.Step(1f / 60f, default); yield return null; }
         }
 
+        /// <summary>Арена пройдена: надпись, потом загорается полотно двери (каркас не светится). Кадры — дверь до и после.</summary>
+        [UnityTest]
+        public IEnumerator DoorLightsUpAfterArenaCleared()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            SceneManager.LoadScene("Game");
+            yield return null;
+            var gc = Object.FindAnyObjectByType<GameController>();
+            foreach (var name in new[] { "A_Combat01", "N_Combat06" })
+            {
+                gc.LoadRoom(RoomLibrary.Get(name));
+                var sim = gc.Sim;
+                if (sim.RewardPending) sim.TakeOffer(0, sim.Offers[0].Form == FormKind.Dash ? ArenaSim.DashSlot : 1);
+                var door = sim.DoorPlacement(sim.Room.exits[0].pos, out var inward);
+                sim.Player.Pos = door + inward * 2.5f;
+                sim.Player.BuffInvuln = 999f;
+                for (int i = 0; i < 20; i++) yield return null;
+                yield return Capture($"07_{name}_door_closed");
+                bool cleared = false;
+                for (int i = 0; i < 6000 && !sim.DoorsOpen; i++)
+                {
+                    foreach (var e in sim.Enemies) if (e.Alive) sim.Damage(e, 99999f, false);
+                    if (sim.RewardPending) sim.FuseOffer(0, 0);
+                    sim.Player.Pos = door + inward * 2.5f;
+                    sim.Player.BuffInvuln = 999f;
+                    foreach (var ev in sim.Events) if (ev.Kind == EventKind.ArenaCleared) cleared = true;
+                    yield return null;
+                }
+                Assert.IsTrue(cleared, name + ": надпись «Арена пройдена»");
+                Assert.IsTrue(sim.DoorsOpen, name + ": дверь загорелась");
+                for (int i = 0; i < 10; i++) yield return null;
+                yield return Capture($"08_{name}_door_open");
+            }
+        }
+
         static IEnumerator Capture(string name)
         {
             var dir = System.Environment.GetEnvironmentVariable("ARENA_CAPTURE_DIR");
