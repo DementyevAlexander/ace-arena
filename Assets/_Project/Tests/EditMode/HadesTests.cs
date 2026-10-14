@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Arena.Core;
 using Arena.Sim;
 using NUnit.Framework;
@@ -94,16 +95,91 @@ namespace Arena.Tests
         }
     }
 
+    /// <summary>Зоны атак врагов Hades: у Thug — трапеция удара вместе с выпадом, у ведьмы — линия выстрела; исчезают с ударом.</summary>
+    public class HadesTelegraphTests
+    {
+        [Test]
+        public void ThugWindupShowsTrapezoidUntilStrike()
+        {
+            var s = T.NewSim();
+            s.Player.BuffInvuln = 999f;
+            var e = T.Spawn(s, EnemyKind.Thug, new Vector2(0f, 1.6f));
+            e.Aggro = true;
+            for (int i = 0; i < 120 && e.State != AiState.Windup; i++) s.Step(T.Dt, default);
+            Assert.AreEqual(AiState.Windup, e.State);
+            Assert.IsNotNull(e.Tele);
+            Assert.AreEqual(TeleShape.Trapezoid, e.Tele.Shape);
+            Assert.IsTrue(e.Tele.Contains(s.Player.Pos, 0f), "герой в зоне удара");
+            for (int i = 0; i < 120 && e.State != AiState.Strike; i++)
+            {
+                Assert.IsNotNull(e.Tele, "зона держится весь замах");
+                s.Step(T.Dt, default);
+            }
+            Assert.AreEqual(AiState.Strike, e.State);
+            Assert.IsNull(e.Tele, "удар — зона исчезла");
+        }
+
+        [Test]
+        public void WitchWindupShowsLaneToHero()
+        {
+            var s = T.NewSim();
+            s.Player.BuffInvuln = 999f;
+            var e = T.Spawn(s, EnemyKind.Witch, new Vector2(0f, 4f), AiState.Peek);
+            e.Aggro = true; e.T = 3f;
+            for (int i = 0; i < 120 && e.State != AiState.Windup; i++) s.Step(T.Dt, default);
+            Assert.AreEqual(AiState.Windup, e.State);
+            Assert.IsNotNull(e.Tele);
+            Assert.AreEqual(TeleShape.Lane, e.Tele.Shape);
+            Assert.IsTrue(e.Tele.Contains(s.Player.Pos, 0.1f), "линия выстрела доходит до героя");
+            for (int i = 0; i < 120 && e.State == AiState.Windup; i++) s.Step(T.Dt, default);
+            Assert.IsNull(e.Tele, "выстрел — зона исчезла");
+        }
+    }
+
     public class RoomTests
     {
         [Test]
-        public void SixtyRoomsTwoEnabledStartInEphyra()
+        public void ThirtyHadesRoomsAllEnabledStartInTartarus()
         {
-            Assert.AreEqual(60, RoomLibrary.All.Count, "30 комнат Hades и 30 арен Hades II");
-            Assert.AreEqual(2, RoomLibrary.Enabled.Count);
-            Assert.AreEqual("N_Combat06", RoomLibrary.Enabled[0], "старт — улица Эфиры, как в прежнем билде");
-            Assert.AreEqual("A_Combat01", RoomLibrary.Enabled[1]);
-            Assert.IsTrue(RoomLibrary.Default().IsHades2);
+            Assert.AreEqual(30, RoomLibrary.All.Count, "30 комнат Hades, арен Hades II больше нет");
+            Assert.AreEqual(30, RoomLibrary.Enabled.Count, "подключены все");
+            Assert.AreEqual("A_Combat01", RoomLibrary.Enabled[0], "старт — первая комната Тартара");
+            Assert.AreEqual("A_Combat01", RoomLibrary.Default().name);
+        }
+
+        /// <summary>У каждой комнаты свой набор врагов: Thug, Witch, Wastrel, Casket в разных комбинациях — все четыре встречаются,
+        /// наборов много разных.</summary>
+        [Test]
+        public void RoomsHaveDifferentEnemyCombinations()
+        {
+            var kinds = new HashSet<string>();
+            var combos = new HashSet<string>();
+            foreach (var name in RoomLibrary.All)
+            {
+                var enc = RoomLibrary.Get(name).encounter;
+                Assert.IsNotNull(enc, name);
+                Assert.Greater(enc.pool.Length, 1, name + ": в наборе хотя бы два вида");
+                Assert.AreEqual(enc.pool.Length, enc.ratings.Length, name);
+                foreach (var k in enc.pool) { Assert.Contains(k, new[] { "Thug", "Witch", "Wastrel", "Casket" }, name); kinds.Add(k); }
+                var sorted = new List<string>(enc.pool);
+                sorted.Sort();
+                combos.Add(string.Join("+", sorted));
+            }
+            Assert.AreEqual(4, kinds.Count, "все четыре врага встречаются");
+            Assert.GreaterOrEqual(combos.Count, 10, "много разных комбинаций");
+        }
+
+        /// <summary>Комната с Wastrel и Casket генерирует только их, и они выходят волной сразу в бой.</summary>
+        [Test]
+        public void RoomPoolDecidesWhoSpawns()
+        {
+            var s = new ArenaSim(4, RoomLibrary.Get("A_Combat04"));
+            s.Player.BuffInvuln = 999f;
+            for (int i = 0; i < 60 * 8 && s.Enemies.Count < 3; i++) s.Step(T.Dt, default);
+            Assert.Greater(s.Enemies.Count, 0);
+            foreach (var e in s.Enemies) Assert.IsTrue(e.Kind is EnemyKind.Wastrel or EnemyKind.Casket, e.Kind.ToString());
+            T.Run(s, 2.5f);
+            Assert.IsTrue(s.Enemies.Exists(e => e.Alive && e.Aggro), "враги Hades II выходят агрессивными");
         }
 
         [Test]

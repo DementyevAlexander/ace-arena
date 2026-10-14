@@ -132,6 +132,17 @@ namespace Arena.View
             return m;
         });
 
+        /// <summary>Квадрат 1×1 в плоскости XY лицом к −Z — для значков с Billboard (смотрят в камеру).</summary>
+        public static Mesh Billboard() => Cached("billboard", () =>
+        {
+            var m = new Mesh { name = "Billboard" };
+            m.vertices = new[] { new Vector3(-0.5f, -0.5f, 0), new Vector3(-0.5f, 0.5f, 0), new Vector3(0.5f, 0.5f, 0), new Vector3(0.5f, -0.5f, 0) };
+            m.uv = new[] { new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1), new Vector2(1, 0) };
+            m.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+            m.RecalculateNormals(); m.RecalculateBounds();
+            return m;
+        });
+
         /// <summary>Полоса на полу: от z = 0 до z = 1, ширина 1.</summary>
         public static Mesh FloorLane() => Cached("floorlane", () =>
         {

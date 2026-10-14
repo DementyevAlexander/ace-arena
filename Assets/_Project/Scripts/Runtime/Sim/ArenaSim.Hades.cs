@@ -4,8 +4,9 @@ using UnityEngine;
 namespace Arena.Sim
 {
     /// <summary>Враги Hades — Wretched Thug и Wretched Witch, их снаряды, ловушки и опасный пол комнат.
-    /// Телеграф как в Hades: зоны на земле нет — враг замирает, поворачивается к Ace, в конце замаха белеет и дрожит
-    /// (PreAttackEnd: последние min(0.5 с, замах)). Направление удара фиксируется в начале замаха (AITrackTargetDuringCharge = false).</summary>
+    /// Замах: враг замирает, поворачивается к Ace и в конце дрожит (PreAttackEnd: последние min(0.5 с, замах)); в отличие от Hades,
+    /// зона атаки показана на земле — у Thug трапеция удара вместе с выпадом, у ведьмы линия выстрела.
+    /// Направление удара фиксируется в начале замаха (AITrackTargetDuringCharge = false).</summary>
     public sealed partial class ArenaSim
     {
         // ---------- Агрессия (AggroAI) ----------
@@ -51,7 +52,7 @@ namespace Arena.Sim
             return n;
         }
 
-        /// <summary>Начать замах: враг останавливается и смотрит на Ace; последние min(0.5, замах) с — белая вспышка и дрожь.</summary>
+        /// <summary>Начать замах: враг останавливается и смотрит на Ace; последние min(0.5, замах) с — дрожь.</summary>
         void BeginWindup(Enemy e, float preAttack)
         {
             var to = Player.Pos - e.Pos;
@@ -89,17 +90,25 @@ namespace Arena.Sim
                     // AttackerAI: подойти на AIAttackDistance, затем AttackOnce
                     e.Face = toPlayer.normalized;
                     if (dist > c.attackDistance + e.R) e.Pos += Steer(e, toPlayer.normalized) * (c.speed * dt);
-                    else if (Player.Hidden <= 0f) BeginWindup(e, c.preAttack);
+                    else if (Player.Hidden <= 0f)
+                    {
+                        BeginWindup(e, c.preAttack);
+                        // зона атаки: трапеция удара, сдвинутая на длину выпада, — вся полоса, которую пройдёт хитбокс
+                        e.Tele = Trapezoid(e.Pos + e.Dir * c.hitBack, e.Dir, c.lungeDistance + c.hitFront - c.hitBack, c.hitBackHalf, c.hitFrontHalf, c.preAttack + c.preFire);
+                    }
                     break;
                 case AiState.Windup:
                     TickWindup(e, dt);
+                    if (e.Tele != null) e.Tele.T = Mathf.Max(0f, e.T) + c.preFire;
                     if (e.T <= 0f) { e.State = AiState.PreFire; e.T = c.preFire; e.WarnT = 1f; }
                     break;
                 case AiState.PreFire:
                     e.T -= dt;
+                    if (e.Tele != null) e.Tele.T = Mathf.Max(0f, e.T);
                     if (e.T <= 0f)
                     {
                         // Выпад SelfVelocity 1000 с торможением 4800 (~104 ед.) и трапеция удара на 0.18 с
+                        e.Tele = null;
                         e.State = AiState.Strike; e.T = c.fire; e.WarnT = 0f;
                         e.ExtVel = e.Dir * c.lungeSpeed; e.Grip = c.gripDuringLunge;
                         Events.Add(new SimEvent { Kind = EventKind.Attack, Pos = e.Pos + e.Dir * ((c.hitFront + c.hitBack) * 0.5f), To = e.Dir, Enemy = e, Radius = c.hitFront });
@@ -165,16 +174,28 @@ namespace Arena.Sim
                     // выйти, пока Ace не окажется в 1200 и на линии огня, не дольше 2–4 с
                     e.T -= dt;
                     bool los = LineOfSight(e.Pos, Player.Pos, c.losBuffer);
-                    if (dist <= c.attackDistance && los && Player.Hidden <= 0f) { BeginWindup(e, c.preAttack); break; }
+                    if (dist <= c.attackDistance && los && Player.Hidden <= 0f)
+                    {
+                        BeginWindup(e, c.preAttack);
+                        // зона атаки: линия выстрела до Ace, как у Casket
+                        e.Tele = new Telegraph
+                        {
+                            Shape = TeleShape.Lane, Center = e.Pos, Dir = e.Dir, Forward = Mathf.Min(dist, c.boltRange),
+                            Side = Mathf.Max(c.boltRadius, 0.18f), Total = c.preAttack, T = c.preAttack,
+                        };
+                        break;
+                    }
                     if (e.T <= 0f) { e.State = AiState.Cover; e.T = 0f; break; }
                     e.Face = toPlayer.normalized;
                     e.Pos += Steer(e, toPlayer.normalized) * (c.speed * dt);
                     break;
                 case AiState.Windup:
                     TickWindup(e, dt);
+                    if (e.Tele != null) e.Tele.T = Mathf.Max(0f, e.T);
                     if (e.T <= 0f)
                     {
                         e.WarnT = 0f;
+                        e.Tele = null;
                         Bolts.Add(new Bolt
                         {
                             Pos = e.Pos + e.Dir * c.barrel, Dir = e.Dir, Speed = c.boltSpeed, Range = c.boltRange, R = c.boltRadius,
@@ -243,6 +264,21 @@ namespace Arena.Sim
         }
 
         // ---------- Опасный пол ----------
+
+        /// <summary>Точка в лаве (опасный пол типа Lava).</summary>
+        public bool OnLava(Vector2 p)
+        {
+            foreach (var h in Hazards) if (h.Type == "Lava" && Geo.InPoly(h.Poly, p)) return true;
+            return false;
+        }
+
+        /// <summary>Путь проходит над лавой (проверка через 0.25 ю).</summary>
+        bool OverLava(Vector2 a, Vector2 b)
+        {
+            float len = (b - a).magnitude;
+            for (float d = 0.25f; d < len; d += 0.25f) if (OnLava(Vector2.Lerp(a, b, d / len))) return true;
+            return false;
+        }
 
         void UpdateHazards(float dt)
         {

@@ -9,8 +9,10 @@ namespace Arena.Sim
     {
         public SkillCard Card;
         public float Cd, CdTotal;
-        public bool Charging, Queued; // снаряд: кнопка зажата / короткое нажатие ждёт выстрела
-        public float Charge, FireT;
+        public bool Holding;          // кнопка зажата — копится заряд, применение — при отпускании
+        public float HoldT;           // сколько держится
+        public int Burst;             // снаряд: сколько выстрелов очереди ещё впереди
+        public float BurstT, BurstMul;
         public float Haste;           // Жатва снаряда: двойная скорострельность
         public float ReapLock;
         public bool FreeDash;         // Рикошет рывка: второй рывок уже бесплатный
@@ -20,13 +22,14 @@ namespace Arena.Sim
 
         public void Reset()
         {
-            Cd = CdTotal = 0f; Charging = Queued = false; Charge = FireT = Haste = ReapLock = 0f; FreeDash = false;
+            Cd = CdTotal = 0f; Holding = false; HoldT = 0f; Burst = 0; BurstT = BurstMul = 0f; Haste = ReapLock = 0f; FreeDash = false;
             Active.Clear();
         }
     }
 
     /// <summary>Режим форм: 4 слота (ЛКМ, ПКМ, Q — снаряд, зона, призыв или барьер; Space — рывок), в каждом карта
-    /// «форма + свойства». После каждой третьей волны — выбор из трёх карточек: поставить в слот или влить душу в карту.
+    /// «форма + свойства». В конце каждой комнаты на землю падает одна карточка (как дар в Hades): подошёл, нажал
+    /// «взаимодействие» — открывается выбор: поставить её в слот или влить её душу в карту слота.
     /// Числа — FormTuning (по Hades II). Свойства на каждой форме — FormText.Cell.</summary>
     public sealed partial class ArenaSim
     {
@@ -37,7 +40,9 @@ namespace Arena.Sim
         public bool RewardPending;
         public int Rewards;
         public const int DashSlot = 3;
-        int rewardWave = -1;
+        /// <summary>Карточка на земле (null — нет) и где она лежит.</summary>
+        public SkillCard Loot;
+        public Vector2 LootPos;
 
         // рывок формы: из A в B равномерно (BlinkEaseIn/Out 0)
         bool fDashing, fDashReturn, fDashWall, fDashTouched, fDashKilled;
@@ -46,19 +51,43 @@ namespace Arena.Sim
         FormSlot fDashSlot;
         readonly HashSet<Enemy> fDashHit = new();
         float fShotSlow;
+        bool fCharging;   // какая-то форма заряжается — бег медленнее (chargeMoveSlow)
+        bool fDashLeap;   // рывок над лавой или заряженный — герой в прыжке
+        float fDashMul = 1f;
         bool doomBursting, sharing;
 
         public bool FormDashing => fDashing;
+        /// <summary>Рывок над лавой или заряженный — для вида: дуга прыжка (0…1 по ходу рывка), иначе −1.</summary>
+        public float FormLeap => fDashing && fDashLeap ? Mathf.Clamp01(fDashT / Mathf.Max(fDashDur, 0.0001f)) : -1f;
+
+        /// <summary>Время полного заряда слота: Жатва снаряда (скорострельность) заряжает вдвое быстрее.</summary>
+        float ChargeTimeOf(FormSlot s) => FormCfg.chargeTime * (s.Haste > 0f ? 0.5f : 1f);
+
+        /// <summary>Заряд 0…1 зажатого слота: до MinChargeToFire — 0 (отпустишь — обычное применение).</summary>
+        public float ChargeOf(FormSlot s)
+        {
+            if (!s.Holding) return 0f;
+            float t = ChargeTimeOf(s);
+            return s.HoldT < FormCfg.chargeMin * t ? 0f : Mathf.Clamp01(s.HoldT / t);
+        }
+
+        /// <summary>Сейчас «идеальное» окно: полный заряд набран не больше PerfectChargeWindowDuration назад.</summary>
+        public bool PerfectOf(FormSlot s)
+        {
+            if (!s.Holding) return false;
+            float t = ChargeTimeOf(s);
+            return s.HoldT >= t && s.HoldT <= t + FormCfg.perfectWindow;
+        }
         bool formShooting;
 
         /// <summary>Новая комната за дверью: снаряды, зоны и духи прошлой комнаты исчезают, рывок обрывается.</summary>
         void ResetFormRoom()
         {
-            foreach (var s in Forms) { s.Active.Clear(); s.Charging = s.Queued = false; }
+            foreach (var s in Forms) { s.Active.Clear(); s.Holding = false; s.Burst = 0; }
             fDashing = false; fShotSlow = 0f; formShooting = false;
         }
 
-        /// <summary>Включает режим форм и начинает забег заново: снаряд в ЛКМ, рывок в Space, сразу — первый выбор.</summary>
+        /// <summary>Включает режим форм и начинает забег заново: снаряд в ЛКМ, рывок в Space.</summary>
         public void EnableForms()
         {
             FormsMode = true;
@@ -70,26 +99,52 @@ namespace Arena.Sim
             foreach (var s in Forms) { s.Card = null; s.Reset(); }
             Forms[0].Card = new SkillCard(FormKind.Shot);
             Forms[DashSlot].Card = new SkillCard(FormKind.Dash);
-            fDashing = false; fShotSlow = 0f; Rewards = 0; rewardWave = -1;
-            OpenReward();
+            fDashing = false; fShotSlow = 0f; Rewards = 0;
+            RewardPending = false; Offers.Clear();
         }
 
         // ---------- карточки ----------
 
-        void OpenReward()
+        /// <summary>Конец комнаты: карточка «форма + свойство» падает в lootOffset от героя к ближайшей точке спавна
+        /// (Hades: SpawnRoomReward → SelectRoomRewardSpawnPoint, смещение 110). Если там стена — у ног героя.</summary>
+        void DropLoot()
         {
+            double r = rng.NextDouble() * 4.6;
+            var form = r < 1.0 ? FormKind.Shot : r < 1.6 ? FormKind.Dash : r < 2.6 ? FormKind.Zone : r < 3.6 ? FormKind.Summon : FormKind.Barrier;
+            Loot = new SkillCard(form, (Trait)rng.Next(15));
+            var p = Player.Pos;
+            Vector2 toward = Room.heroStart;
+            float best = float.MaxValue;
+            foreach (var sp in Room.spawns)
+            {
+                float d = (sp.pos - p).sqrMagnitude;
+                if (d > 0.01f && d < best) { best = d; toward = sp.pos; }
+            }
+            var dir = toward - p;
+            var at = dir.sqrMagnitude > 0.0001f ? p + dir.normalized * ArenaCfg.lootOffset : p;
+            LootPos = InsideRoom(at, 0.2f) ? at : p;
+            Events.Add(new SimEvent { Kind = EventKind.LootDropped, Pos = LootPos });
+        }
+
+        /// <summary>Смерть стоит у карточки (ближе lootReach) и выбор не открыт — можно подобрать.</summary>
+        public bool LootInReach => Loot != null && !RewardPending && !GameOver && (Player.Pos - LootPos).magnitude <= ArenaCfg.lootReach;
+
+        /// <summary>Подобрать карточку («взаимодействие» рядом с ней): открывается выбор, бой стоит.</summary>
+        public bool PickUpLoot()
+        {
+            if (!LootInReach) return false;
             RewardPending = true;
             Offers.Clear();
-            for (int guard = 0; Offers.Count < 3 && guard < 100; guard++)
-            {
-                double r = rng.NextDouble() * 4.6;
-                var form = r < 1.0 ? FormKind.Shot : r < 1.6 ? FormKind.Dash : r < 2.6 ? FormKind.Zone : r < 3.6 ? FormKind.Summon : FormKind.Barrier;
-                var trait = (Trait)rng.Next(15);
-                bool dup = false;
-                foreach (var o in Offers) if (o.Form == form || o.Own == trait) dup = true;
-                if (!dup) Offers.Add(new SkillCard(form, trait));
-            }
+            Offers.Add(Loot);
             Events.Add(new SimEvent { Kind = EventKind.RewardReady });
+            return true;
+        }
+
+        /// <summary>Закрыть выбор, не применяя: карточка остаётся на земле, её можно подобрать снова до выхода из комнаты.</summary>
+        public void LeaveLoot()
+        {
+            RewardPending = false;
+            Offers.Clear();
         }
 
         /// <summary>Поставить карточку в слот: рывок — только в Space, остальные — в ЛКМ, ПКМ, Q. Прежняя карта пропадает.</summary>
@@ -120,6 +175,7 @@ namespace Arena.Sim
         {
             RewardPending = false;
             Offers.Clear();
+            Loot = null;
             Rewards++;
             waveTimer = ArenaCfg.waveDelay;
         }
@@ -134,12 +190,13 @@ namespace Arena.Sim
             fShotSlow -= dt;
             var before = p.Pos;
             bool shooting = false;
+            fCharging = false;
             for (int i = 0; i < 4; i++)
             {
                 var s = Forms[i];
                 s.Haste -= dt; s.ReapLock -= dt;
                 s.Active.RemoveAll(f => f.Done);
-                if (s.Card == null) continue;
+                if (s.Card == null) { s.Holding = false; continue; }
                 // зона и барьер: новая — только когда прежняя исчезла (ActiveProjectileCap 1)
                 if (s.Card.Form is FormKind.Zone or FormKind.Barrier)
                 {
@@ -148,63 +205,88 @@ namespace Arena.Sim
                     if (left > 0f) { float extra = s.Card.Form == FormKind.Zone ? c.zoneCooldown : c.barrierCooldown; s.Cd = Mathf.Max(s.Cd, left + extra); s.CdTotal = Mathf.Max(s.CdTotal, s.Cd); }
                 }
                 s.Cd -= dt;
-                switch (s.Card.Form)
+                if (s.Burst > 0) { UpdateBurst(s, i, dt, input); shooting = true; }
+                // заряд как у лука Hades: нажал — копится, отпустил — применение с набранным зарядом
+                if (input.IsPressed(i) && !s.Holding && s.Ready && s.Burst == 0 && !fDashing) { s.Holding = true; s.HoldT = 0f; }
+                if (!s.Holding) continue;
+                s.HoldT += dt;
+                fCharging = true;
+                if (s.Card.Form == FormKind.Shot)
                 {
-                    case FormKind.Shot:
-                        if (UpdateShotSlot(s, i, dt, input)) shooting = true;
-                        break;
-                    case FormKind.Dash:
-                        if (input.IsPressed(i) && s.Ready && !fDashing) StartFormDash(s, input);
-                        break;
-                    default:
-                        if (input.IsPressed(i) && s.Ready && !fDashing) ActivateForm(s, input);
-                        break;
+                    shooting = true;
+                    p.Face = AimAssist(c.shotLockRange, c.shotLockArc, c.shotLockWithMouse, input);
                 }
+                if (input.IsHeld(i) || fDashing) continue;
+                float k = ChargeOf(s);
+                bool perfect = PerfectOf(s);
+                s.Holding = false;
+                ReleaseForm(s, i, input, k, perfect);
             }
 
             p.Moving = false;
             formShooting = shooting;
             if (fDashing) { UpdateFormDash(dt); p.Vel = Vector2.zero; }
-            else MovePlayer(dt, input); // разгон Загрея, отбрасывание под Grip; стрельба замедляет (shotMoveSlow)
-            if (p.Lock != null && (!p.Lock.Alive || input.Held == 0)) p.Lock = null;
+            else MovePlayer(dt, input); // разгон Загрея, отбрасывание под Grip; заряд и выстрел замедляют
+            if (p.Lock != null && (!p.Lock.Alive || (input.Held == 0 && !shooting))) p.Lock = null;
             p.Aim = shooting ? p.Face : ComputeAimPreview(input);
             CollideCircle(ref p.Pos, PlayerCfg.radius, before);
         }
 
-        /// <summary>Снаряд — атака факелов Hades II: держать — первый выстрел через ChargeTime 0.25 с, дальше каждые 0.38 с;
-        /// короткое нажатие — один выстрел. Пока заряжается и 0.1 с после выстрела — бег × 0.35. true — идёт стрельба.</summary>
-        bool UpdateShotSlot(FormSlot s, int i, float dt, SimInput input)
+        /// <summary>Отпустил кнопку: применение формы с зарядом k (0 — обычное), «идеальный» выпуск — ×1.167 урона.
+        /// Снаряд — выстрел и очередь ещё до 2 (+1) снарядов; рывок — дальше; зона — шире; призыв — дольше и сильнее;
+        /// барьер — больше ударов и дольше.</summary>
+        void ReleaseForm(FormSlot s, int i, SimInput input, float k, bool perfect)
         {
             var c = FormCfg;
-            if (input.IsPressed(i) && !s.Charging) { s.Charging = true; s.Queued = true; s.Charge = 0f; s.FireT = 0f; }
-            if (!s.Charging) return false;
-            if (fDashing) return true;
-            var dir = AimWith(c.shotLockRange, 180f, input);
-            Player.Face = dir;
-            s.Charge += dt;
-            fShotSlow = Mathf.Max(fShotSlow, dt * 1.5f);
-            if (s.Charge < c.shotCharge) return true;
-            s.FireT -= dt;
-            if (s.FireT <= 0f)
+            float pm = perfect ? c.perfectDamage : 1f;
+            if (k > 0f) Events.Add(new SimEvent { Kind = EventKind.ChargeRelease, Pos = Player.Pos, Value = k, Crit = perfect });
+            switch (s.Card.Form)
             {
-                FireShot(s, i, dir);
-                s.FireT += c.shotInterval * (s.Haste > 0f ? 0.5f : 1f);
-                s.Queued = false;
-                fShotSlow = c.shotFireSlowTime;
+                case FormKind.Shot:
+                {
+                    var dir = AimAssist(c.shotLockRange, c.shotLockArc, c.shotLockWithMouse, input);
+                    Player.Face = dir;
+                    float mul = (1f + c.shotChargeDamage * k) * pm;
+                    FireShot(s, i, dir, mul);
+                    s.Burst = Mathf.RoundToInt(c.shotVolley * k) + (perfect ? 1 : 0);
+                    s.BurstT = c.shotVolleyInterval;
+                    s.BurstMul = mul;
+                    fShotSlow = c.shotFireSlowTime;
+                    s.Cd = s.CdTotal = c.shotInterval * (s.Haste > 0f ? 0.5f : 1f) + s.Burst * c.shotVolleyInterval;
+                    break;
+                }
+                case FormKind.Dash:
+                    StartFormDash(s, input, k, (1f + c.dashChargeDamage * k) * pm);
+                    break;
+                default:
+                    ActivateForm(s, input, k, pm, perfect);
+                    break;
             }
-            if (!input.IsHeld(i) && !s.Queued) { s.Charging = false; return false; }
-            return true;
         }
 
-        void FireShot(FormSlot s, int i, Vector2 dir)
+        /// <summary>Очередь заряженного снаряда: выстрелы через shotVolleyInterval, прицел — по ходу (Aim Assist).</summary>
+        void UpdateBurst(FormSlot s, int i, float dt, SimInput input)
+        {
+            var c = FormCfg;
+            s.BurstT -= dt;
+            if (s.BurstT > 0f || fDashing) return;
+            var dir = AimAssist(c.shotLockRange, c.shotLockArc, c.shotLockWithMouse, input);
+            Player.Face = dir;
+            FireShot(s, i, dir, s.BurstMul);
+            fShotSlow = c.shotFireSlowTime;
+            s.Burst--;
+            s.BurstT += c.shotVolleyInterval;
+        }
+
+        void FireShot(FormSlot s, int i, Vector2 dir, float mul = 1f)
         {
             var c = FormCfg;
             var card = s.Card;
             var origin = Player.Pos + dir * 0.4f;
-            SpreadShots(s, card, origin, dir, 1f, false);
+            SpreadShots(s, card, origin, dir, mul, false);
             int echo = card.Level(Trait.Echo);
             if (echo > 0)
-                Add(new Effect { Kind = EffectKind.FormEchoShot, Pos = origin, Dir = dir, T = c.echoDelay, Card = card, FSlot = s, Mul = Mathf.Min(1f, c.echoFraction * echo) });
+                Add(new Effect { Kind = EffectKind.FormEchoShot, Pos = origin, Dir = dir, T = c.echoDelay, Card = card, FSlot = s, Mul = Mathf.Min(1f, c.echoFraction * echo) * mul });
             Events.Add(new SimEvent { Kind = EventKind.CardCast, Pos = Player.Pos, To = dir, Value = i, Color = 2 });
         }
 
@@ -239,7 +321,8 @@ namespace Arena.Sim
 
         // ---------- активация зоны, призыва, барьера ----------
 
-        void ActivateForm(FormSlot s, SimInput input)
+        /// <summary>Зона, призыв, барьер с зарядом k (0 — обычное применение) и множителем «идеального» выпуска pm.</summary>
+        void ActivateForm(FormSlot s, SimInput input, float k = 0f, float pm = 1f, bool perfect = false)
         {
             var c = FormCfg;
             var card = s.Card;
@@ -249,12 +332,13 @@ namespace Arena.Sim
                 case FormKind.Zone:
                 {
                     var at = ZoneTarget(input);
-                    SpawnZone(s, card, at, 1f, false, card.Level(Trait.Ricochet));
+                    float wide = 1f + c.zoneChargeRadius * k;
+                    SpawnZone(s, card, at, pm, false, card.Level(Trait.Ricochet), wide);
                     if (card.Has(Trait.Split))
                     {
                         var mirror = p.Pos - (at - p.Pos);
                         CollideCircle(ref mirror, 0.3f);
-                        SpawnZone(s, card, mirror, 1f, false, card.Level(Trait.Ricochet));
+                        SpawnZone(s, card, mirror, pm, false, card.Level(Trait.Ricochet), wide);
                     }
                     s.Cd = s.CdTotal = c.zoneLife + c.zoneCooldown;
                     break;
@@ -264,24 +348,31 @@ namespace Arena.Sim
                     int alive = 0;
                     foreach (var f in s.Active) if (f.Kind == EffectKind.FormSpirit && f.Phase != 3) alive++;
                     if (alive >= 2 && card.Has(Trait.Reap)) foreach (var f in s.Active) { if (f.Kind == EffectKind.FormSpirit) { f.Life = 0f; break; } }
+                    float dmg = (1f + c.summonChargeDamage * k) * pm, life = 1f + c.summonChargeLife * k;
                     if (card.Has(Trait.Split))
                     {
-                        SpawnSpirit(s, card, -1f, c.summonSplit, false);
-                        SpawnSpirit(s, card, 1f, c.summonSplit, false);
+                        SpawnSpirit(s, card, -1f, c.summonSplit * dmg, false).Life *= life;
+                        SpawnSpirit(s, card, 1f, c.summonSplit * dmg, false).Life *= life;
                     }
-                    else SpawnSpirit(s, card, alive > 0 ? 1f : -1f, 1f, false);
+                    else SpawnSpirit(s, card, alive > 0 ? 1f : -1f, dmg, false).Life *= life;
                     s.Cd = s.CdTotal = c.summonCooldown;
                     break;
                 }
                 case FormKind.Barrier:
-                    SpawnBarrier(s, card, c.barrierLife, false);
-                    s.Cd = s.CdTotal = c.barrierLife + c.barrierCooldown;
+                {
+                    float life = c.barrierLife * (1f + c.barrierChargeLife * k);
+                    var b = SpawnBarrier(s, card, life, false);
+                    b.Charges += Mathf.RoundToInt(c.barrierChargeHits * k) + (perfect ? 1 : 0);
+                    s.Cd = s.CdTotal = life + c.barrierCooldown;
+                    break;
+                }
                     break;
             }
             Events.Add(new SimEvent { Kind = EventKind.CardCast, Pos = p.Pos, To = p.Face, Value = System.Array.IndexOf(Forms, s), Color = 1 });
         }
 
-        /// <summary>Точка зоны: мышь — курсор (не дальше zoneCastRange), геймпад — цель автолока, иначе 3.5 перед героем.</summary>
+        /// <summary>Точка зоны: мышь — курсор (не дальше zoneCastRange), как каст Hades с AutoLockWithMouse = false;
+        /// геймпад — ближайший враг в радиусе и ±75° от стика (Aim Assist), иначе 3.5 перед героем.</summary>
         Vector2 ZoneTarget(SimInput input)
         {
             var p = Player;
@@ -294,7 +385,7 @@ namespace Arena.Sim
             }
             else
             {
-                var dir = AimWith(c.zoneCastRange, 75f, input);
+                var dir = AimAssist(c.zoneLockRange, c.zoneLockArc, false, input);
                 at = p.Lock != null ? p.Lock.Pos : p.Pos + dir * 3.5f;
                 p.Face = dir;
             }
@@ -304,13 +395,13 @@ namespace Arena.Sim
             return at;
         }
 
-        Effect SpawnZone(FormSlot s, SkillCard card, Vector2 at, float mul, bool echoed, int bounces)
+        Effect SpawnZone(FormSlot s, SkillCard card, Vector2 at, float mul, bool echoed, int bounces, float wide = 1f)
         {
             var c = FormCfg;
             var p = Player;
             var z = new Effect
             {
-                Kind = EffectKind.FormZone, Pos = at, R = c.zoneRadius, Life = c.zoneLife * (echoed ? 0.5f : 1f), Tick = 0f,
+                Kind = EffectKind.FormZone, Pos = at, R = c.zoneRadius * wide, Life = c.zoneLife * (echoed ? 0.5f : 1f), Tick = 0f,
                 Card = card, FSlot = s, As = FormKind.Zone, Mul = mul, Echoed = echoed, Bounces = bounces,
             };
             if (card.Has(Trait.Pierce))
@@ -385,12 +476,15 @@ namespace Arena.Sim
 
         // ---------- рывок ----------
 
-        void StartFormDash(FormSlot s, SimInput input)
+        /// <summary>Рывок с зарядом k: дальность ×(1 + k), урон задетым ×mul.</summary>
+        void StartFormDash(FormSlot s, SimInput input, float k = 0f, float mul = 1f)
         {
             var p = Player;
             var dir = input.Move.sqrMagnitude > 0.0001f ? input.Move.normalized : p.Face;
             if (input.UseMouse && input.HasCursor && PlayerCfg.dashAtCursor > 0f && (input.Cursor - p.Pos).sqrMagnitude > 0.01f) dir = (input.Cursor - p.Pos).normalized;
-            BeginDash(s, dir, false);
+            BeginDash(s, dir, false, null, 1f + FormCfg.dashChargeRange * k);
+            fDashMul = mul;
+            fDashLeap |= k > 0f;
             var card = s.Card;
             var c = FormCfg;
             if (card.Has(Trait.Split))
@@ -405,18 +499,31 @@ namespace Arena.Sim
                 Add(new Effect { Kind = EffectKind.FormDashReturn, Pos = fDashFrom, T = c.returnDelay, Card = card, FSlot = s });
         }
 
-        void BeginDash(FormSlot s, Vector2 dir, bool back, Vector2? target = null)
+        void BeginDash(FormSlot s, Vector2 dir, bool back, Vector2? target = null, float reach = 1f)
         {
             var c = FormCfg;
             var p = Player;
             var card = s.Card;
-            fDashRange = c.dashRange * (card.Has(Trait.Pierce) ? c.dashPierceRange : 1f);
+            fDashRange = c.dashRange * (card.Has(Trait.Pierce) ? c.dashPierceRange : 1f) * reach;
             fDashFrom = p.Pos;
             fDashTo = target ?? TravelTarget(p.Pos, dir, fDashRange);
             fDashDir = dir;
             fDashWall = !target.HasValue && (fDashTo - fDashFrom).magnitude < fDashRange - 0.15f;
+            // кончается в лаве — тянется до берега, не дальше ×dashLavaReach; над лавой — прыжок
+            if (!target.HasValue && OnLava(fDashTo) && !fDashWall)
+            {
+                for (float d = fDashRange + 0.1f; d <= fDashRange * c.dashLavaReach; d += 0.1f)
+                {
+                    var to = TravelTarget(fDashFrom, dir, d);
+                    if ((to - fDashFrom).magnitude < d - 0.15f) break; // упёрся в стену
+                    if (!OnLava(to)) { fDashTo = to; break; }
+                }
+            }
+            fDashLeap = OverLava(fDashFrom, fDashTo);
+            fDashMul = 1f;
             fDashT = 0f;
-            fDashDur = c.dashTime * (back ? 0.75f : 1f);
+            // рывок дальше обычного — та же скорость, дольше
+            fDashDur = c.dashTime * (back ? 0.75f : 1f) * Mathf.Max(1f, (fDashTo - fDashFrom).magnitude / c.dashRange);
             fDashSlot = s; fDashReturn = back; fDashTouched = false; fDashKilled = false;
             fDashing = true;
             fDashHit.Clear();
@@ -441,7 +548,7 @@ namespace Arena.Sim
                 if (!e.Alive || fDashHit.Contains(e) || (e.Pos - p.Pos).magnitude > c.dashTouch + e.R) continue;
                 fDashHit.Add(e);
                 fDashTouched = true;
-                if (DashTouch(e, card, s, p.Pos, fDashDir, 1f, null)) fDashKilled = true;
+                if (DashTouch(e, card, s, p.Pos, fDashDir, fDashMul, null)) fDashKilled = true;
                 if (grow > 0 && !fDashReturn)
                 {
                     // Рост: каждый задетый враг удлиняет рывок
@@ -454,7 +561,7 @@ namespace Arena.Sim
             }
             if (k < 1f) return;
             fDashing = false;
-            DashEndHooks(card, s, fDashFrom, fDashTo, 1f);
+            DashEndHooks(card, s, fDashFrom, fDashTo, fDashMul);
             if (fDashReturn) return;
             s.Cd = s.CdTotal = c.dashCooldown;
             // Рикошет: упёрся в стену или задел врага — второй рывок бесплатно (один раз подряд)

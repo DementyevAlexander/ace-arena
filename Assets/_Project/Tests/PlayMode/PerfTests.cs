@@ -35,7 +35,6 @@ namespace Arena.Tests
             yield return null;
             var gc = Object.FindAnyObjectByType<GameController>();
             var sim = gc.Sim;
-            sim.TakeOffer(0, sim.Offers[0].Form == FormKind.Dash ? ArenaSim.DashSlot : 1);
             yield return null;
 
             var cam = Camera.main;

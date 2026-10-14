@@ -118,7 +118,7 @@ namespace Arena.UI
             if (!canvas.enabled) return;
             menu.Sync();
 
-            room.text = sim.Layout != null && !string.IsNullOrEmpty(sim.Layout.title) ? sim.Layout.title : sim.Room.name;
+            room.text = sim.Room.Title;
             wave.text = sim.Wave.ToString();
             kills.text = sim.Kills.ToString();
             int sec = Mathf.FloorToInt(runTime);

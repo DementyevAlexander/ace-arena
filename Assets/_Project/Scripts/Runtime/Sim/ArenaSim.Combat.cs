@@ -132,7 +132,7 @@ namespace Arena.Sim
             if (e.Kind is EnemyKind.Wastrel or EnemyKind.Casket) { InterruptHades2(e); return; }
             if (e.HadesKind)
             {
-                if (e.State is AiState.Windup or AiState.PreFire) { e.WarnT = 0f; e.State = AiState.Chase; e.T = 0f; }
+                if (e.State is AiState.Windup or AiState.PreFire) { e.Tele = null; e.WarnT = 0f; e.State = AiState.Chase; e.T = 0f; }
                 return;
             }
             if (e.State is AiState.Windup or AiState.Strike or AiState.Lunge)

@@ -15,35 +15,14 @@ namespace Arena.View
         public static readonly Color Foliage = new(0.30f, 0.62f, 0.52f);
         public static readonly Color FoliageWarm = new(0.95f, 0.62f, 0.32f);
         public static readonly Color Trunk = new(0.52f, 0.38f, 0.30f);
-        /// <summary>Ночной город в духе Hades: тёмный камень, тусклая штукатурка, бордовые крыши, тёплый огонь жаровен.</summary>
-        public static class Night
-        {
-            public static readonly Color Sky = new(0.035f, 0.025f, 0.045f);
-            public static readonly Color Ground = new(0.075f, 0.065f, 0.075f);
-            public static readonly Color[] Flags = { new(0.30f, 0.27f, 0.28f), new(0.23f, 0.21f, 0.23f), new(0.35f, 0.30f, 0.28f), new(0.31f, 0.22f, 0.22f) };
-            public static readonly Color Plinth = new(0.16f, 0.14f, 0.16f);
-            public static readonly Color Plaster = new(0.42f, 0.36f, 0.34f);
-            public static readonly Color PlasterDark = new(0.30f, 0.26f, 0.27f);
-            public static readonly Color Roof = new(0.38f, 0.14f, 0.13f);
-            public static readonly Color RoofDark = new(0.24f, 0.10f, 0.12f);
-            public static readonly Color Masonry = new(0.36f, 0.33f, 0.34f);
-            public static readonly Color Marble = new(0.62f, 0.58f, 0.57f);
-            public static readonly Color Wood = new(0.30f, 0.20f, 0.15f);
-            public static readonly Color Terracotta = new(0.55f, 0.27f, 0.18f);
-            public static readonly Color DeadWood = new(0.18f, 0.14f, 0.14f);
-            public static readonly Color Abyss = new(0.03f, 0.015f, 0.05f);
-            public static readonly Color AbyssGlow = new(0.35f, 0.12f, 0.55f);
-            public static readonly Color Fire = new(1f, 0.52f, 0.18f);
-            public static readonly Color Window = new(1f, 0.62f, 0.28f);
-            public static readonly Color Iron = new(0.13f, 0.12f, 0.13f);
-            public static readonly Color Soul = new(0.35f, 0.95f, 0.85f);
-        }
+        /// <summary>Бирюза души: глаза Смерти, карты без свойств.</summary>
+        public static readonly Color Soul = new(0.35f, 0.95f, 0.85f);
 
         public static readonly Color Pink = new(0.96f, 0.04f, 0.95f);
         public static readonly Color Yellow = new(0.96f, 0.85f, 0.04f);
         public static readonly Color Blue = new(0.04f, 0.84f, 0.96f);
         public static readonly Color Danger = new(1f, 0.22f, 0.12f);
-        public static readonly Color DangerEdge = new(1f, 0.55f, 0.15f);
+        public static readonly Color DangerEdge = new(1f, 0.22f, 0.14f);
 
         static readonly Dictionary<(Color, float, bool), Material> Lit = new();
         static readonly Dictionary<(Color, int), Material> Unlit = new();
@@ -71,6 +50,7 @@ namespace Arena.View
         public static Shader LitShader => litShader ??= Shader.Find("Universal Render Pipeline/Lit");
         public static Shader UnlitShader => unlitShader ??= Shader.Find("Universal Render Pipeline/Unlit");
         static Texture2D disc, ring, rect, softDisc;
+        static readonly Texture2D[] attackIcons = new Texture2D[4];
 
         /// <summary>Освещаемый материал цвета c. Со свечением (emission > 0) — неосвещаемый, цвет × (0.5 + emission) уходит
         /// выше 1 и светится через bloom: так не нужен отдельный вариант шейдера с _EMISSION.</summary>
@@ -147,6 +127,37 @@ namespace Arena.View
             return Edge(d, 1f, 0.02f) * (1f - Edge(d, 0.84f, 0.02f));
         });
 
+        /// <summary>Значок атаки над врагом — по форме её зоны: удар с выпадом (трапеция) — стрелка вперёд, размах (сектор) — дуга,
+        /// выстрел (полоса) — прицел, удар по площади (круг) — взрыв.</summary>
+        public static Texture2D AttackIcon(Arena.Sim.TeleShape shape) => attackIcons[(int)shape] ??= shape switch
+        {
+            Arena.Sim.TeleShape.Trapezoid => MakeTex((x, y) =>
+            {
+                float shaft = Edge(Mathf.Abs(x), 0.17f, 0.04f) * Edge(y, 0.2f, 0.04f) * Edge(-y, 0.8f, 0.04f);
+                float head = Edge(Mathf.Abs(x) - (0.88f - y) * 0.95f, 0f, 0.05f) * Edge(-y, -0.02f, 0.04f) * Edge(y, 0.88f, 0.04f);
+                return Mathf.Max(shaft, head);
+            }),
+            Arena.Sim.TeleShape.Fan => MakeTex((x, y) =>
+            {
+                float r = Mathf.Sqrt(x * x + y * y), a = Mathf.Abs(Mathf.Atan2(x, y)) * Mathf.Rad2Deg;
+                return Edge(Mathf.Abs(r - 0.68f), 0.16f, 0.04f) * Edge(a, 80f, 6f);
+            }),
+            Arena.Sim.TeleShape.Lane => MakeTex((x, y) =>
+            {
+                float r = Mathf.Sqrt(x * x + y * y);
+                float ring = Edge(Mathf.Abs(r - 0.62f), 0.1f, 0.04f), dot = Edge(r, 0.17f, 0.04f);
+                float ticks = Mathf.Max(Edge(Mathf.Abs(x), 0.07f, 0.03f) * Edge(-Mathf.Abs(y), -0.45f, 0.03f) * Edge(Mathf.Abs(y), 0.95f, 0.03f),
+                                        Edge(Mathf.Abs(y), 0.07f, 0.03f) * Edge(-Mathf.Abs(x), -0.45f, 0.03f) * Edge(Mathf.Abs(x), 0.95f, 0.03f));
+                return Mathf.Max(ring, Mathf.Max(dot, ticks));
+            }),
+            _ => MakeTex((x, y) =>
+            {
+                float r = Mathf.Sqrt(x * x + y * y), a = Mathf.Atan2(y, x);
+                float spike = Mathf.Pow(Mathf.Max(0f, Mathf.Cos(a * 8f)), 3f);
+                return Edge(r, 0.36f + 0.5f * spike, 0.05f);
+            }),
+        };
+
         static float Edge(float v, float limit, float soft) => Mathf.Clamp01((limit - v) / soft);
 
         static Texture2D MakeTex(System.Func<float, float, float> alpha)
@@ -196,7 +207,7 @@ namespace Arena.View
         {
             Arena.Core.CardColor.Pink => Pink,
             Arena.Core.CardColor.Yellow => Yellow,
-            Arena.Core.CardColor.Staff => Night.Soul,
+            Arena.Core.CardColor.Staff => Soul,
             _ => Blue,
         };
 
@@ -223,6 +234,6 @@ namespace Arena.View
         };
 
         /// <summary>Цвет карты: её первого свойства, без свойств — холодная душа.</summary>
-        public static Color CardTint(Arena.Core.SkillCard c) => c == null ? Night.Soul : c.Own.HasValue ? TraitColor(c.Own.Value) : c.Souls.Count > 0 ? TraitColor(c.Souls[0]) : Night.Soul;
+        public static Color CardTint(Arena.Core.SkillCard c) => c == null ? Soul : c.Own.HasValue ? TraitColor(c.Own.Value) : c.Souls.Count > 0 ? TraitColor(c.Souls[0]) : Soul;
     }
 }

@@ -63,8 +63,7 @@ namespace Arena.Core
         const float F = 1f / 60f;
 
         // ---------- Снаряд: атака факелов (WeaponTorch → ProjectileTorchBall) ----------
-        public float shotCharge = 0.25f;          // ChargeTime, OnlyChargeOnce: первый выстрел через 0.25 с, дальше — очередь
-        public float shotInterval = 0.38f;        // Cooldown, FullyAutomatic — пока кнопка зажата
+        public float shotInterval = 0.38f;        // Cooldown между выстрелами (у факелов — шаг очереди)
         public float shotMoveSlow = 0.35f;        // TorchAttackChargeSpeed / TorchAttackFireSpeed: скорость × 0.35
         public float shotFireSlowTime = 0.1f;     // … 0.1 с после каждого выстрела
         public float shotDamage = 30f * D;        // Damage 30
@@ -73,8 +72,31 @@ namespace Arena.Core
         public float shotFuse = 0.74f;            // TotalFuse — ≈ 6.1 юнита полёта
         public float shotRadius = 50f * U;        // Points (25, ±50), (−75, 0)
         public float shotStun = 0.3f;             // OnHitStun 0.3
-        public float shotLockRange = 730f * U;    // AutoLockRange 730 (AutoLockArcDistance 360 — во все стороны)
+        // наведение — как у Адамантовой рельсы Hades (GunWeapon, тоже очередь при удержании): AutoLockRange 710,
+        // AutoLockArcDistance 360 — во все стороны, AutoLockWithMouse не выключен — с мышью тоже наводится
+        public float shotLockRange = 710f * U;
+        public float shotLockArc = 180f;          // ± от направления прицела; 180 — во все стороны
+        public bool shotLockWithMouse = true;
         public float shotBounceFuse = 0.4f;       // оценка: рикошет продлевает полёт (JumpSpeedMultiplier 0.8 в Hades)
+
+        // ---------- Заряд удержанием — по луку Hades (Coronacht, BowWeapon) ----------
+        // Все формы: нажал и отпустил — обычное применение; держишь — копится заряд, применяется при отпускании (FireOnRelease).
+        public float chargeTime = 0.6f;           // ChargeTime — полный заряд
+        public float chargeMin = 0.2f;            // MinChargeToFire — раньше 0.2 заряда отпустил — обычное применение
+        public float perfectWindow = 0.15f;       // PerfectChargeWindowDuration — «идеальный» выпуск сразу после полного заряда
+        public float perfectDamage = 1.167f;      // PerfectChargeDamageMultiplier
+        public float chargeMoveSlow = 0.5f;       // бег во время заряда (оценка; у лука — замедление BowSelfSpeed)
+        // что даёт заряд (0…1) каждой форме — наш выбор, в Hades таких форм нет:
+        public int shotVolley = 2;                // снаряд: при отпускании — очередь из 1 + до 2 снарядов («идеальный» — ещё +1)
+        public float shotVolleyInterval = 0.1f;
+        public float shotChargeDamage = 0.5f;     // … и каждый снаряд очереди бьёт ×(1 + 0.5 × заряд)
+        public float dashChargeRange = 1f;        // рывок: дальность ×(1 + заряд) — до двух рывков, прыжок через лаву
+        public float dashChargeDamage = 0.5f;     // … урон задетым ×(1 + 0.5 × заряд)
+        public float zoneChargeRadius = 0.75f;    // зона: радиус ×(1 + 0.75 × заряд)
+        public float summonChargeLife = 1f;       // призыв: дух живёт ×(1 + заряд)
+        public float summonChargeDamage = 0.5f;   // … и стреляет ×(1 + 0.5 × заряд)
+        public int barrierChargeHits = 3;         // барьер: + до 3 поглощённых ударов («идеальный» — ещё +1)
+        public float barrierChargeLife = 0.5f;    // … и держится ×(1 + 0.5 × заряд)
 
         // ---------- Рывок: WeaponBlink ----------
         public float dashRange = 320f * U;        // WeaponRange 320
@@ -85,6 +107,8 @@ namespace Arena.Core
         public float dashPierceDamage = 30f * D;  // Пронзание: урон удара из рывка (WeaponStaffDash 30)
         public float dashPierceStun = 0.5f;
         public float dashPierceRange = 1.3f;
+        public float dashLavaReach = 400f / 300f; // рывок Загрея (RushWeapon): WeaponRange 300, BlinkMaxRange 400 — если рывок
+                                                  // кончается в лаве, он тянется до берега, но не дальше ×4/3 (оценка смысла BlinkMaxRange)
 
         // ---------- Зона: круг каста (WeaponCast) с уроном ----------
         public float zoneRadius = 2f;             // оценка: круг каста в Hades — 430 (3.26 ю) вокруг себя, наш ставится в точку прицела
@@ -94,6 +118,10 @@ namespace Arena.Core
         public float zoneDamage = 5f * D;         // оценка: каст в Hades не бьёт, здесь — слабый урон каждые 0.5 с
         public float zoneSlow = 0.5f;             // оценка: каст в Hades держит врагов (ImpactSlow × 0.05), здесь — замедление
         public float zoneCastRange = 6f;          // дальность постановки
+        // наведение — как у каста Hades (RangedWeapon): AutoLockRange 1000, AutoLockArcDistance 75, AutoLockWithMouse = false —
+        // с мышью зона ставится ровно в курсор
+        public float zoneLockRange = 1000f * U;
+        public float zoneLockArc = 75f;
         public float zoneRiftWidth = 0.7f;        // Пронзание: полуширина разлома
 
         // ---------- Призыв: дух-слуга (оценка; фамильяры Hades II — PostAttackCooldown 4.5 с) ----------
@@ -176,11 +204,11 @@ namespace Arena.Core
 
         public static string Base(FormKind f) => f switch
         {
-            FormKind.Shot => "Держать — очередь снарядов (как факелы Игния): 171 урона, оглушение 0.3 с. Во время стрельбы бег × 0.35.",
-            FormKind.Dash => "Рывок на 2.4 сквозь врагов, неуязвимость. Задетые враги получают свойства рывка.",
-            FormKind.Zone => "Круг в точке прицела на 3 с: каждые 0.5 с бьёт стоящих (29) и замедляет их вдвое.",
-            FormKind.Summon => "Дух-слуга на 8 с: держится рядом и стреляет в ближайшего врага (57 раз в 0.8 с). Перезарядка 10 с.",
-            _ => "Щит на 2 с: поглощает 3 удара или снаряда. Перезарядка 8 с с конца.",
+            FormKind.Shot => "Снаряд: 171 урона, оглушение 0.3 с. Держать — заряд: очередь до 3 снарядов, каждый до ×1.5 урона.",
+            FormKind.Dash => "Рывок на 2.4 сквозь врагов, неуязвимость, над лавой — прыжок. Держать — заряд: до вдвое дальше.",
+            FormKind.Zone => "Круг в точке прицела на 3 с: каждые 0.5 с бьёт стоящих (29) и замедляет вдвое. Держать — заряд: шире до ×1.75.",
+            FormKind.Summon => "Дух-слуга на 8 с стреляет в ближайшего врага (57 раз в 0.8 с). Перезарядка 10 с. Держать — заряд: живёт до 16 с, бьёт до ×1.5.",
+            _ => "Щит на 2 с: поглощает 3 удара или снаряда. Перезарядка 8 с с конца. Держать — заряд: до 6 ударов и до 3 с.",
         };
 
         /// <summary>Что свойство делает на форме (уровень — сколько раз свойство влито).</summary>
@@ -202,7 +230,7 @@ namespace Arena.Core
                 Trait.Pull => new[] { "вихрь в точке попадания", "тянет врагов вокруг пути к точке финиша", "воронка: тянет к центру", "дух притягивает врагов к себе", "при активации тянет к тебе врагов и снаряды" }[i],
                 Trait.Push => new[] { "отброс: удар о стену или врага наносит урон", "таран: враги разлетаются", "ударная волна при появлении", "выстрелы духа отбрасывают", "при активации отбрасывает всех вокруг" }[i],
                 Trait.Blast => new[] { "взрыв при попадании (229)", "взрыв в точке финиша", "детонация в конце", "дух-камикадзе: летит в толпу и взрывается", "разрушаясь, взрывается: сильнее за каждый удар" }[i],
-                Trait.Reap => new[] { "добивание: 1.5 с двойная скорострельность", "добивание рывком сразу восстанавливает рывок", "добивание продлевает зону на 1 с", "добивание сбрасывает перезарядку призыва", "добивание при барьере: +1 прочность" }[i],
+                Trait.Reap => new[] { "добивание: 1.5 с вдвое быстрее выстрелы и заряд", "добивание рывком сразу восстанавливает рывок", "добивание продлевает зону на 1 с", "добивание сбрасывает перезарядку призыва", "добивание при барьере: +1 прочность" }[i],
                 _ => new[] { "растёт с каждым попаданием: +25% урона и размера", "каждый задетый враг: +20% дальности", "расширяется с каждым новым врагом внутри", "растёт с каждым добиванием", "каждый поглощённый удар: +0.3 с и больше" }[i],
             };
         }

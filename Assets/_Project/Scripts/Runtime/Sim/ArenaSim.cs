@@ -20,8 +20,6 @@ namespace Arena.Sim
 
         /// <summary>Комната как есть в данных и её вариант в игре (может быть отражена, как в Hades).</summary>
         public RoomDef Room { get; private set; }
-        /// <summary>Арена Hades II текущей комнаты (для вида ночного города); null — комната Hades.</summary>
-        public ArenaLayout Layout => Room?.Layout;
         Vector2 RoomMin => Room.min;
         Vector2 RoomMax => Room.max;
         RoomDef baseRoom;
@@ -97,9 +95,8 @@ namespace Arena.Sim
             Restart();
         }
 
-        /// <summary>Hades отражает комнату по горизонтали при каждом входе — половину раз. Арены Hades II не отражаются:
-        /// ночной город рисуется по их исходной раскладке.</summary>
-        void PickVariant() => Room = MirrorRooms && !baseRoom.IsHades2 && rng.Next(2) == 1 ? baseRoom.Mirrored(ScreenRight) : baseRoom;
+        /// <summary>Hades отражает комнату по горизонтали при каждом входе — половину раз.</summary>
+        void PickVariant() => Room = MirrorRooms && rng.Next(2) == 1 ? baseRoom.Mirrored(ScreenRight) : baseRoom;
 
         /// <summary>Взгляд героя при входе в комнату (heroAngle: к центру комнаты).</summary>
         Vector2 StartFace()
@@ -124,6 +121,7 @@ namespace Arena.Sim
             BuildRoom();
             Wave = 0; Kills = 0; GameOver = false; Time = 0f;
             DoorsOpen = false; doorTimer = 0f;
+            Loot = null;
             if (FormsMode) ResetForms();
             ResetEncounter();
         }
@@ -144,6 +142,7 @@ namespace Arena.Sim
             if (FormsMode) ResetFormRoom();
             BuildRoom();
             DoorsOpen = false;
+            Loot = null; // не взятая карточка остаётся в прошлой комнате
             StartGeneratedEncounter(Depth + 1);
             Events.Add(new SimEvent { Kind = EventKind.RoomEnter, Value = RoomsCleared });
         }
@@ -308,7 +307,7 @@ namespace Arena.Sim
         void MovePlayer(float dt, SimInput input)
         {
             var p = Player;
-            float mul = MoveMultiplier() * StaffSpeedMul * (p.Slow > 0f ? CasketCfg.slow : 1f) * (FormsMode && fShotSlow > 0f ? FormCfg.shotMoveSlow : 1f);
+            float mul = MoveMultiplier() * StaffSpeedMul * (p.Slow > 0f ? CasketCfg.slow : 1f) * (FormsMode && fShotSlow > 0f ? FormCfg.shotMoveSlow : 1f) * (FormsMode && fCharging ? FormCfg.chargeMoveSlow : 1f);
             if (p.Stun > 0f || StaffBlocksMove(input) || S.Move is StaffMove.Blink or StaffMove.Sprint) mul = 0f;
             var target = Vector2.zero;
             if (input.Move.sqrMagnitude > 0.0001f && mul > 0f)
@@ -391,7 +390,44 @@ namespace Arena.Sim
             return p.Lock != null ? (p.Lock.Pos - p.Pos).normalized : search;
         }
 
-        /// <summary>Наведение Hades II (режим форм и посох): мышь — враг под курсором, иначе курсор; геймпад — цель по наименьшему углу
+        /// <summary>Помощь в прицеливании Hades (Aim Assist, AutoLock оружия): направление прицела — курсор (мышь) или стик,
+        /// без стика — взгляд; из живых врагов ближе AutoLockRange (до края тела) и в пределах ±AutoLockArcDistance от него
+        /// берётся ближайший — «автоматически атаковать ближайших противников». С мышью — только если у оружия не выключен
+        /// AutoLockWithMouse (у лука и каста выключен: удар ровно в курсор). Вызывается каждый кадр, пока кнопка держится:
+        /// цель пересчитывается, удержанием можно вращать направление.</summary>
+        Vector2 AimAssist(float range, float arcDeg, bool withMouse, SimInput input)
+        {
+            var p = Player;
+            Vector2 dir;
+            if (input.UseMouse && input.HasCursor)
+            {
+                var c = input.Cursor - p.Pos;
+                dir = c.sqrMagnitude > 0.01f ? c.normalized : p.Face;
+            }
+            else dir = input.Move.sqrMagnitude > 0.0001f ? input.Move.normalized : p.Face;
+            bool assist = PlayerCfg.aimAssist && (withMouse || !input.UseMouse);
+            p.Lock = assist ? NearestInArc(dir, range, arcDeg) : null;
+            return p.Lock != null ? (p.Lock.Pos - p.Pos).normalized : dir;
+        }
+
+        /// <summary>Ближайший живой враг (по краю тела) ближе range и в пределах ±arcDeg от dir; появляющиеся не в счёт.</summary>
+        public Enemy NearestInArc(Vector2 dir, float range, float arcDeg)
+        {
+            Enemy best = null;
+            float bestD = float.MaxValue;
+            foreach (var e in Enemies)
+            {
+                if (!e.Alive || e.SpawnInvuln > 0f) continue;
+                var d = e.Pos - Player.Pos;
+                float dist = d.magnitude - e.R;
+                if (dist > range || dist >= bestD) continue;
+                if (arcDeg < 180f && d.sqrMagnitude > 0.0001f && Vector2.Angle(dir, d) > arcDeg) continue;
+                bestD = dist; best = e;
+            }
+            return best;
+        }
+
+        /// <summary>Наведение Hades II (посох): мышь — враг под курсором, иначе курсор; геймпад — цель по наименьшему углу
         /// от стика в пределах дальности и дуги. Пока кнопка держится, вызывается каждый кадр — удержанием можно вращать
         /// направление удара мышью или стиком; при отпущенном стике цель держится.</summary>
         Vector2 AimWith(float range, float arc, SimInput input)
@@ -626,7 +662,7 @@ namespace Arena.Sim
 
         readonly Dictionary<Vector2, (Vector2 stand, float dist)> doorStand = new();
 
-        /// <summary>Ближайшая к двери точка, где может стоять герой. Двери Hades стоят в стене, у арен Hades II — даже за ней.</summary>
+        /// <summary>Ближайшая к двери точка, где может стоять герой. Двери Hades стоят в стене или даже за ней.</summary>
         (Vector2 stand, float dist) DoorStand(Vector2 door)
         {
             if (doorStand.TryGetValue(door, out var cached)) return cached;

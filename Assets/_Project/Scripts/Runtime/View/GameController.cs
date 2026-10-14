@@ -33,6 +33,7 @@ namespace Arena.View
         readonly List<int> stale = new();
         PlayerView player;
         EffectViews effects;
+        LootView loot;
         Hud hud;
         RewardScreen reward; // выбор карточки и просмотр скиллов; прежняя колода (DeckScreen) из интерфейса убрана
         StartScreen title;
@@ -62,6 +63,7 @@ namespace Arena.View
             BuildRoom();
             player = new PlayerView(world);
             effects = new EffectViews(world);
+            loot = new LootView(world);
             var lm = Art.DecalInstance(new Color(1f, 0.95f, 0.6f, 0.85f), 1, 7);
             lockMarker = Art.Decal(world, MeshKit.FloorQuad(), lm, 0.06f).transform;
             hud = new Hud();
@@ -102,16 +104,15 @@ namespace Arena.View
 
         void ShowRoomTitle()
         {
-            if (Sim.Layout != null && !string.IsNullOrEmpty(Sim.Layout.title)) hud.ShowBanner(Sim.Layout.title, 2f);
+            hud.ShowBanner(Sim.Room.Title, 2f);
         }
 
-        /// <summary>Комната, ловушки, свет и постобработка: арена Hades II — ночной город с луной, комната Hades — день биома.
+        /// <summary>Комната, ловушки, свет и постобработка — день биома Hades.
         /// Камера — по масштабу картинки Hades для этой комнаты (ZoomFraction).</summary>
         void BuildRoom()
         {
             if (roomRoot != null) Destroy(roomRoot.gameObject);
             if (trapRoot != null) Destroy(trapRoot.gameObject);
-            bool night = Sim.Layout != null;
             roomRoot = RoomView.Build(Sim);
             roomRoot.SetParent(world, false);
             trapRoot = new GameObject("Traps").transform;
@@ -119,9 +120,9 @@ namespace Arena.View
             traps = new TrapViews(Sim, trapRoot);
             props = new RoomProps(Sim, trapRoot);
             Rig.SetZoom(Sim.Room.zoom);
-            Rig.Cam.backgroundColor = night ? Art.Night.Sky : RoomView.For(Sim.Room.biome).Void;
-            SetupLight(night);
-            SetupVolume(night);
+            Rig.Cam.backgroundColor = RoomView.For(Sim.Room.biome).Void;
+            SetupLight();
+            SetupVolume();
         }
 
         /// <summary>Загрузить комнату и начать в ней заново (галерея комнат в тестах, отладка).</summary>
@@ -148,7 +149,7 @@ namespace Arena.View
             ShowRoomTitle();
         }
 
-        /// <summary>Проверка билда без участия человека: -arenaShot &lt;файл.png&gt; — взять первую карточку, через 6 с сохранить
+        /// <summary>Проверка билда без участия человека: -arenaShot &lt;файл.png&gt; — через 6 с боя сохранить
         /// кадр (с интерфейсом) и выйти.</summary>
         System.Collections.IEnumerator Start()
         {
@@ -157,7 +158,6 @@ namespace Arena.View
             for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "-arenaShot") shot = args[i + 1];
             if (shot == null) yield break;
             yield return new WaitForSecondsRealtime(1.5f);
-            if (Sim.RewardPending) Sim.TakeOffer(0, Sim.Offers[0].Form == FormKind.Dash ? ArenaSim.DashSlot : 1);
             yield return new WaitForSecondsRealtime(6f);
             ScreenCapture.CaptureScreenshot(shot);
             yield return new WaitForSecondsRealtime(1f);
@@ -178,26 +178,11 @@ namespace Arena.View
             data.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
         }
 
-        static void SetupLight(bool night)
+        static void SetupLight()
         {
             var sun = FindAnyObjectByType<Light>();
             if (sun == null) sun = new GameObject("Sun").AddComponent<Light>();
             sun.type = LightType.Directional;
-            if (night)
-            {
-                // Луна: холодный слабый свет, тени мягкие. Основной свет — тёплые жаровни комнаты (RoomView).
-                sun.color = new Color(0.55f, 0.6f, 0.9f);
-                sun.intensity = 0.42f;
-                sun.shadows = LightShadows.Soft;
-                sun.shadowStrength = 0.8f;
-                sun.transform.rotation = Quaternion.Euler(58f, -30f, 0f);
-                RenderSettings.ambientMode = AmbientMode.Trilight;
-                RenderSettings.ambientSkyColor = new Color(0.20f, 0.17f, 0.27f);
-                RenderSettings.ambientEquatorColor = new Color(0.15f, 0.11f, 0.13f);
-                RenderSettings.ambientGroundColor = new Color(0.06f, 0.05f, 0.06f);
-                RenderSettings.fog = false;
-                return;
-            }
             sun.color = new Color(1f, 0.93f, 0.82f);
             sun.intensity = 1.35f;
             sun.shadows = LightShadows.Soft;
@@ -211,7 +196,7 @@ namespace Arena.View
             RenderSettings.fog = false;
         }
 
-        void SetupVolume(bool night)
+        void SetupVolume()
         {
             if (volume == null)
             {
@@ -226,20 +211,10 @@ namespace Arena.View
             var tone = profile.Add<Tonemapping>(true);
             tone.mode.Override(TonemappingMode.Neutral);
             var color = profile.Add<ColorAdjustments>(true);
-            if (night)
-            {
-                bloom.intensity.Override(1.1f); bloom.threshold.Override(0.85f);
-                color.saturation.Override(4f); color.contrast.Override(16f); color.postExposure.Override(0.5f);
-                color.colorFilter.Override(new Color(1f, 0.93f, 0.92f));
-            }
-            else
-            {
-                color.saturation.Override(12f); color.contrast.Override(6f); color.postExposure.Override(0.15f);
-                color.colorFilter.Override(new Color(1f, 0.98f, 0.95f));
-            }
+            color.saturation.Override(12f); color.contrast.Override(6f); color.postExposure.Override(0.15f);
+            color.colorFilter.Override(new Color(1f, 0.98f, 0.95f));
             var vig = profile.Add<Vignette>(true);
-            vig.intensity.Override(night ? 0.4f : 0.22f); vig.smoothness.Override(0.5f);
-            if (night) vig.color.Override(new Color(0.08f, 0.0f, 0.04f));
+            vig.intensity.Override(0.22f); vig.smoothness.Override(0.5f);
             // Лёгкий tilt-shift: дальний план размыт, игровая площадка — в фокусе
             var dof = profile.Add<DepthOfField>(true);
             dof.mode.Override(DepthOfFieldMode.Gaussian);
@@ -268,12 +243,14 @@ namespace Arena.View
                 else if (pauseMenu && input.NavBack && !backUsed) pauseMenu = false; // B — продолжить
                 // заново: R; с геймпада — Y в паузе, Menu после смерти
                 if (input.RestartPressed || (pauseMenu && input.NavAlt) || (Sim.GameOver && wasGameOver && input.PausePressed)) Restart();
+                // подобрать карточку с земли: E / RB рядом с ней — откроется выбор
+                if (!Paused && input.InteractPressed) Sim.PickUpLoot();
             }
             bool wasPaused = Paused;
             if (!title.Visible) reward.Sync(viewSkills, input);
             if (pauseMenu) pause.Show(); else pause.Hide();
             pause.Sync(Sim, runTime, input);
-            hud.SetVisible(!title.Visible && !pauseMenu); // как в Hades: в паузе HUD скрыт
+            hud.SetVisible(!title.Visible && !pauseMenu && !reward.Visible); // как в Hades: в паузе и выборе HUD скрыт
             Paused = title.Visible || pauseMenu || reward.Visible;
             if (wasPaused && !Paused) input.Flush(); // клик по карточке не должен стать выстрелом
 
@@ -338,6 +315,7 @@ namespace Arena.View
             foreach (var kv in enemyViews) if (!Sim.Enemies.Contains(kv.Value.E)) stale.Add(kv.Key);
             foreach (var id in stale) { enemyViews[id].Destroy(); enemyViews.Remove(id); }
             effects.Sync(Sim, dt, time);
+            loot.Sync(Sim, time);
             traps.Sync(time);
             props.Sync(time);
 
@@ -388,7 +366,7 @@ namespace Arena.View
                         break;
                     case EventKind.Attack:
                         if (ev.Enemy != null && ev.Enemy.Kind == EnemyKind.Thug)
-                            effects.Shape(Sim.ThugHitShape(ev.Enemy), new Color(1f, 0.85f, 0.75f, 0.55f), 0.18f);
+                            effects.Shape(Sim.ThugHitShape(ev.Enemy), new Color(1f, 0.2f, 0.12f, 0.6f), 0.18f);
                         else if (ev.Enemy != null && ev.Enemy.Kind == EnemyKind.Witch)
                             effects.Puff(ev.Pos, 0.5f, new Color(0.8f, 0.45f, 1f), 0.15f);
                         else if (ev.Radius > 0f) effects.Ring(ev.Pos, ev.Radius * 0.8f, new Color(1f, 0.35f, 0.2f, 0.9f), 0.25f);
@@ -404,6 +382,15 @@ namespace Arena.View
                         break;
                     case EventKind.ArenaCleared:
                         hud.ShowBanner("Арена пройдена", ev.Value);
+                        break;
+                    case EventKind.ChargeRelease:
+                        // заряженный выпуск: кольцо от героя, «идеальный» — белое и шире
+                        effects.Ring(ev.Pos, ev.Crit ? 1.8f : 1f + 0.6f * ev.Value, ev.Crit ? new Color(1f, 1f, 1f, 0.95f) : new Color(1f, 0.85f, 0.45f, 0.8f));
+                        if (ev.Crit) hitStop.Play(HitStop.Quick);
+                        break;
+                    case EventKind.LootDropped:
+                        effects.Ring(ev.Pos, 1.4f, new Color(1f, 0.85f, 0.45f, 0.9f));
+                        effects.Puff(ev.Pos, 1f, new Color(1f, 0.9f, 0.6f), 0.3f);
                         break;
 
                     case EventKind.RoomEnter:

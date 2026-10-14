@@ -171,5 +171,10 @@ namespace Arena.View
             (Keyboard.current?.escapeKey.wasPressedThisFrame ?? false) || (Gamepad.current?.startButton.wasPressedThisFrame ?? false);
 
         public bool RestartPressed => Keyboard.current?.rKey.wasPressedThisFrame ?? false;
+
+        /// <summary>«Взаимодействие» — подобрать карточку с земли: E, как в Hades; на геймпаде — RB (все четыре кнопки
+        /// справа заняты скиллами).</summary>
+        public bool InteractPressed =>
+            (Keyboard.current?.eKey.wasPressedThisFrame ?? false) || (Gamepad.current?.rightShoulder.wasPressedThisFrame ?? false);
     }
 }

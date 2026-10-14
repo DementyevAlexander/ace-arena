@@ -9,7 +9,8 @@ namespace Arena.View
     public sealed class PlayerView
     {
         public readonly Transform Root;
-        readonly Transform body, model, aim, shield, aimLine, aimLineBack, reticle, reticleLine;
+        readonly Transform body, model, aim, shield, aimLine, aimLineBack, reticle, reticleLine, chargeRing;
+        readonly Material chargeMat;
         readonly Renderer[] renderers;
         readonly Material aimMat, reticleMat, reticleLineMat;
         float bob;
@@ -26,7 +27,7 @@ namespace Arena.View
             var robe = Art.LitMat(new Color(0.11f, 0.09f, 0.14f));
             var robeEdge = Art.LitMat(new Color(0.24f, 0.10f, 0.16f));
             var bone = Art.LitMat(new Color(0.86f, 0.83f, 0.76f));
-            var eyes = Art.LitMat(Art.Night.Soul, 4f);
+            var eyes = Art.LitMat(Art.Soul, 4f);
             var shaft = Art.LitMat(new Color(0.20f, 0.15f, 0.13f));
             var blade = Art.LitMat(new Color(0.72f, 0.78f, 0.82f), 0.35f);
             // балахон: широкий низ, рваный подол, плечи
@@ -67,6 +68,10 @@ namespace Arena.View
             reticleLine = Art.Decal(parent, MeshKit.FloorLane(), reticleLineMat, 0.05f).transform;
             reticle.gameObject.SetActive(false);
             reticleLine.gameObject.SetActive(false);
+            // кольцо заряда под ногами: сжимается к полному заряду, в окне «идеального» выпуска — белое
+            chargeMat = Art.DecalInstance(new Color(1f, 0.85f, 0.45f, 0.8f), 1, 7);
+            chargeRing = Art.Decal(Root, MeshKit.FloorQuad(), chargeMat, 0.06f).transform;
+            chargeRing.gameObject.SetActive(false);
 
             var shieldGo = Art.Part(Root, MeshKit.Ico(1), Art.LitMat(new Color(1f, 0.9f, 0.3f, 0.3f), 1.2f, true), new Vector3(0f, 0.7f, 0f), Vector3.one * 1.8f, default, false);
             shield = shieldGo.transform;
@@ -115,6 +120,22 @@ namespace Arena.View
             }
             // посох: рывок — вытянутый силуэт, спринт — наклон, удар — разворот корпуса с косой
             if ((st.Move == StaffMove.Blink && st.BlinkFireT >= 0f) || sim.FormDashing) body.localScale = new Vector3(0.7f, 0.9f, 1.6f);
+            // прыжок: рывок над лавой или заряженный — дуга вверх
+            float leap = sim.FormLeap;
+            if (leap >= 0f) body.localPosition = new Vector3(0f, Mathf.Sin(leap * Mathf.PI) * 1.1f, 0f);
+            // заряд формы: кольцо сжимается к полному заряду, в окне «идеального» выпуска — белое и пульсирует
+            float charge = 0f;
+            bool perfect = false, holding = false;
+            if (sim.FormsMode)
+                foreach (var fs in sim.Forms)
+                    if (fs.Holding) { holding = true; charge = Mathf.Max(charge, sim.ChargeOf(fs)); perfect |= sim.PerfectOf(fs); }
+            chargeRing.gameObject.SetActive(holding && !hidden);
+            if (holding)
+            {
+                chargeRing.localScale = Vector3.one * Mathf.Lerp(2.6f, 1.3f, charge) * (perfect ? 1f + 0.08f * Mathf.Sin(time * 40f) : 1f);
+                chargeMat.SetColor("_BaseColor", perfect ? new Color(1f, 1f, 1f, 1f) : new Color(1f, 0.85f, 0.45f, 0.25f + 0.6f * charge));
+                if (charge > 0f) body.localScale = new Vector3(1f + 0.05f * charge, 1f - 0.08f * charge, 1f + 0.05f * charge);
+            }
             if (st.Move == StaffMove.Sprint) body.localEulerAngles = new Vector3(22f, 0f, 0f);
             if (st.Move is StaffMove.Swing or StaffMove.DashStrike) body.localEulerAngles = new Vector3(0f, -55f, 0f);
             else if (st.Lock > 0f || st.LockCancel > 0f) body.localEulerAngles = new Vector3(8f, 40f, 0f);
@@ -144,7 +165,9 @@ namespace Arena.View
     {
         public readonly Enemy E;
         public readonly Transform Root;
-        readonly Transform model, body, hpFill, alert, statusRoot, legL, legR;
+        readonly Transform model, body, hpFill, alert, statusRoot, legL, legR, attackIcon;
+        readonly Material attackMat;
+        TeleShape iconShape = (TeleShape)(-1);
         readonly Renderer[] renderers;
         readonly Material[] flashMats;
         readonly Color[] baseColors;
@@ -210,6 +233,12 @@ namespace Arena.View
             Art.Part(alert, MeshKit.Box(), am, new Vector3(0f, 0.18f, 0f), new Vector3(0.1f, 0.3f, 0.1f), default, false);
             Art.Part(alert, MeshKit.Box(), am, new Vector3(0f, -0.06f, 0f), new Vector3(0.1f, 0.1f, 0.1f), default, false);
             alert.gameObject.SetActive(false);
+
+            // значок атаки над головой, пока на земле её зона: форма значка — по виду атаки
+            attackMat = new Material(Art.DecalMat(Color.white, -1, 24));
+            attackIcon = Art.Part(Root, MeshKit.Billboard(), attackMat, new Vector3(0f, Height(e.Kind) + 0.8f, 0f), Vector3.one * 0.55f, default, false).transform;
+            attackIcon.gameObject.AddComponent<Billboard>();
+            attackIcon.gameObject.SetActive(false);
 
             spawnMat = Art.DecalInstance(new Color(0.75f, 0.35f, 1f, 0.6f), 1, 1);
             spawnDecal = Art.Decal(Root, MeshKit.FloorQuad(), spawnMat, 0.03f);
@@ -341,7 +370,7 @@ namespace Arena.View
             float scale = 1f;
             if (windup && e.Tele != null) scale = 1f + 0.3f * e.Tele.Progress; // AttackIncreaseScale 1.3 за время замаха
             if (e.Dead) scale = Mathf.Clamp01(e.DeathT / 0.8f);
-            if (e.HadesKind && windup) scale = 1f; // в Hades враг не растёт — только белеет и дрожит
+            if (e.HadesKind && windup) scale = 1f; // в Hades враг не растёт — только дрожит
             float hover = e.Kind switch
             {
                 EnemyKind.Casket => 0.25f + Mathf.Sin(t * 3f) * 0.08f, // Casket парит
@@ -368,12 +397,17 @@ namespace Arena.View
                 legR.localPosition = new Vector3(legR.localPosition.x, Mathf.Max(0f, -s), 0f);
             }
 
-            // вспышки Hades: красная при уроне (0.03 с); у врагов Hades — белая в конце замаха (0 → 80%),
-            // у остальных — красная пульсация замаха; затем — статусы свойств режима форм
+            // вспышки: красная при уроне (0.03 с); пока на земле зона атаки — враг краснеет к удару (15% → 80%),
+            // в последней четверти мигает; атака без зоны врага не красит; затем — статусы свойств режима форм
+            var threat = e.Dead ? null : e.Tele;
             Color tint = Color.clear;
             if (e.Flash > 0f) tint = new Color(0.86f, 0.08f, 0.08f, 1f);
-            else if (e.HadesKind && e.WarnT > 0f) tint = new Color(1f, 1f, 1f, 0.8f * e.WarnT);
-            else if (windup && !e.HadesKind) tint = Color.Lerp(new Color(1f, 0.3f, 0.2f, 0f), new Color(1f, 0.15f, 0.1f, 0.85f), Mathf.Repeat(time * 8f, 1f) < 0.5f ? 1f : 0.4f);
+            else if (threat != null)
+            {
+                float k = threat.Progress;
+                float blink = k > 0.75f && Mathf.Repeat(time * 14f, 1f) >= 0.5f ? 0.6f : 1f;
+                tint = new Color(1f, 0.12f, 0.08f, (0.15f + 0.65f * k) * blink);
+            }
             else if (e.Frozen > 0f) tint = new Color(0.62f, 0.88f, 1f, 0.75f);                      // заморожен
             else if (e.Burn > 0f) tint = new Color(1f, 0.5f, 0.1f, 0.2f + 0.15f * Mathf.Sin(time * 25f)); // горит
             else if (e.RotT > 0f) tint = new Color(0.45f, 0.8f, 0.2f, 0.3f);                         // гниёт
@@ -384,7 +418,15 @@ namespace Arena.View
             hpFill.localScale = new Vector3(0.86f * Mathf.Clamp01(e.Hp / e.MaxHp), 0.07f, 0.01f);
             hpFill.localPosition = new Vector3(-0.43f * (1f - Mathf.Clamp01(e.Hp / e.MaxHp)), 0f, -0.01f);
             hpFill.parent.gameObject.SetActive(!spawning && !e.Dead);
-            alert.gameObject.SetActive(e.Alert > 0f && !e.Dead);
+            alert.gameObject.SetActive(e.Alert > 0f && !e.Dead && threat == null);
+            attackIcon.gameObject.SetActive(threat != null);
+            if (threat != null)
+            {
+                if (iconShape != threat.Shape) { iconShape = threat.Shape; attackMat.SetTexture("_BaseMap", Art.AttackIcon(iconShape)); }
+                float k = threat.Progress;
+                attackMat.SetColor("_BaseColor", new Color(1f, 0.16f, 0.1f, 0.75f + 0.25f * k));
+                attackIcon.localScale = Vector3.one * (0.45f + 0.2f * k);
+            }
             if (e.Alert > 0f) alert.localScale = Vector3.one * (1f + Mathf.Max(0f, e.Alert - 0.6f) * 2f);
 
             var on = StatusOn; // общий буфер — без выделения памяти каждый кадр
@@ -413,6 +455,7 @@ namespace Arena.View
             // свои экземпляры материалов (вспышки, круг появления) вместе с объектом не удаляются
             foreach (var m in flashMats) Object.Destroy(m);
             Object.Destroy(spawnMat);
+            Object.Destroy(attackMat);
             Object.Destroy(Root.gameObject);
         }
     }
@@ -492,9 +535,10 @@ namespace Arena.View
             }
             // к концу замаха — ярче и мигает, чтобы не пропустить момент удара
             float pulse = k > 0.75f ? (Mathf.Repeat(time * 14f, 1f) < 0.5f ? 1f : 0.65f) : 1f;
-            outlineMat.SetColor("_BaseColor", new Color(1f, 0.6f, 0.15f, (0.8f + 0.2f * k) * pulse));
-            fillMat.SetColor("_BaseColor", new Color(1f, 0.15f, 0.08f, (0.45f + 0.4f * k) * pulse));
-            edgeMat.SetColor("_BaseColor", new Color(1f, 0.35f, 0.15f, 0.3f));
+            // всё красное: контур, растущая заливка и подложка всей зоны
+            outlineMat.SetColor("_BaseColor", new Color(1f, 0.22f, 0.14f, (0.8f + 0.2f * k) * pulse));
+            fillMat.SetColor("_BaseColor", new Color(1f, 0.12f, 0.08f, (0.45f + 0.4f * k) * pulse));
+            edgeMat.SetColor("_BaseColor", new Color(0.9f, 0.1f, 0.08f, 0.28f));
         }
 
         /// <summary>Контур в настоящих размерах фигуры (x — поперёк, z — вперёд); перестраивается, только когда размеры меняются.</summary>

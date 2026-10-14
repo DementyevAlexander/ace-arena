@@ -32,7 +32,35 @@
   "C_MiniBoss01"
  ],
  "enabled": [
-  "N_Combat06",
-  "A_Combat01"
+  "A_Combat01",
+  "A_Combat04",
+  "A_Combat08A",
+  "A_Combat09",
+  "A_Combat14",
+  "A_Combat16",
+  "A_Combat18",
+  "A_Combat19",
+  "B_Combat01",
+  "B_Combat02",
+  "B_Combat04",
+  "B_Combat07",
+  "B_Combat09",
+  "B_Combat10",
+  "B_Combat21",
+  "B_Combat22",
+  "C_Combat01",
+  "C_Combat03",
+  "C_Combat05",
+  "C_Combat06",
+  "C_Combat08",
+  "C_Combat10",
+  "C_Combat11",
+  "C_Combat13",
+  "D_Combat02",
+  "D_Combat03",
+  "D_Mini05",
+  "D_Mini13",
+  "A_MiniBoss01",
+  "C_MiniBoss01"
  ]
 }

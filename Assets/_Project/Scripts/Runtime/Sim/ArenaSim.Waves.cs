@@ -4,14 +4,12 @@ using UnityEngine;
 
 namespace Arena.Sim
 {
-    /// <summary>Волны по энкаунтеру комнаты.
-    /// Комнаты Hades — Тартар: сначала заданные волны (первая комната — EnemyIntroFight01, EncounterData.lua:3058), в следующих
-    /// комнатах — генерация GeneratedTartarus: бюджет max(10, 30 + 11 × глубина), 1–3 волны (100% / 50+50 / 30+15+55), враги
-    /// появляются раз в 0.175–0.225 с, одновременно не больше ⌊2.3 + 0.35 × глубина⌋ (≤ 8), следующая волна — через 1 с после гибели предыдущей.
-    /// Арены Hades II — Эреб: FIntroFight (Wastrel заранее → 3 Casket → Wastrel + Casket), дальше одна волна на бюджет 55
-    /// (Wastrel 18, Casket 12); следующая — через 0.5 с, когда живых ≤ 1, выжившие сразу в бой; «вес» живых ≤ 4 (Casket 0.8).
-    /// Набор волн пройден — открываются двери. Режим форм: после каждой третьей волны (добитой до конца) — выбор карточки,
-    /// пока он идёт, волны стоят; каждая карточка делает сгенерированные волны дороже на 8.</summary>
+    /// <summary>Волны по энкаунтеру комнаты, как в Тартаре Hades: сначала заданные волны (первая комната — EnemyIntroFight01,
+    /// EncounterData.lua:3058), в следующих комнатах — генерация GeneratedTartarus: бюджет max(10, 30 + 11 × глубина), 1–3 волны
+    /// (100% / 50+50 / 30+15+55), враги появляются раз в 0.175–0.225 с, одновременно не больше ⌊2.3 + 0.35 × глубина⌋ (≤ 8),
+    /// следующая волна — через 1 с после гибели предыдущей. Кого генерировать — набор комнаты (Encounter.pool): у каждой комнаты
+    /// своя комбинация Thug, Witch, Wastrel и Casket. Wastrel и Casket (Hades II) выходят волной сразу в бой.
+    /// Набор волн пройден — открываются двери; в режиме форм на землю падает карточка, каждая взятая делает волны дороже на 8.</summary>
     public sealed partial class ArenaSim
     {
         struct PendingSpawn
@@ -30,7 +28,8 @@ namespace Arena.Sim
         public int Depth { get; private set; }
 
         RoomDef.Encounter Enc => Room.encounter;
-        bool ErebusRules => Room.IsHades2;
+
+        static bool IsHades2(EnemyKind k) => k is EnemyKind.Wastrel or EnemyKind.Casket;
 
         void ResetEncounter()
         {
@@ -70,23 +69,22 @@ namespace Arena.Sim
                 if (spawnTimer > 0f || ActiveWeight() + Weight(next.Kind) > activeCap + 0.001f) return;
                 pending.Dequeue();
                 var e = SpawnEnemy(next.Kind, PickSpawnPoint(next.PreSpawned, next.Kind), 0f, next.PreSpawned);
-                if (ErebusRules) e.SpawnAggro = true; // новые враги волны Эреба выходят уже агрессивными
+                if (IsHades2(next.Kind)) e.SpawnAggro = true; // враги Hades II выходят волной уже агрессивными, как в Эребе
                 spawnTimer = Rand(intervalMin, intervalMax);
                 return;
             }
-            bool reward = FormsMode && Wave > 0 && Wave % ArenaCfg.wavesPerReward == 0 && rewardWave != Wave;
             bool setDone = Wave > 0 && plan.Count > 0 && planIndex >= plan.Count;
-            // волна Эреба считается пройденной, когда живых ≤ WaveRequiredRemainingCount; перед карточкой и дверью — до конца
-            int remaining = ErebusRules && !reward && !setDone && Enc != null ? Enc.waveRemaining : 0;
-            if (AliveCount() > remaining) { if (ErebusRules) waveTimer = Enc?.waveDelay ?? 0.5f; return; }
-            if (reward) { rewardWave = Wave; OpenReward(); return; }
+            if (AliveCount() > 0) return;
             if (setDone)
             {
                 // «Арена пройдена» держится doorsDelay, потом загорается дверь
                 if (!DoorsOpen)
                 {
-                    // надпись — когда выбор карточки (если был) закрыт, чтобы её было видно
-                    if (doorTimer <= 0f) Events.Add(new SimEvent { Kind = EventKind.ArenaCleared, Value = ArenaCfg.doorsDelay });
+                    if (doorTimer <= 0f)
+                    {
+                        Events.Add(new SimEvent { Kind = EventKind.ArenaCleared, Value = ArenaCfg.doorsDelay });
+                        if (FormsMode) DropLoot(); // награда комнаты — карточка на земле
+                    }
                     doorTimer += dt;
                     if (doorTimer >= ArenaCfg.doorsDelay) { DoorsOpen = true; Events.Add(new SimEvent { Kind = EventKind.DoorsOpen }); }
                 }
@@ -112,8 +110,6 @@ namespace Arena.Sim
             if (plan.Count == 0) return;
             var w = plan[planIndex++];
             Wave++;
-            // Эреб: выжившие прошлой волны сразу в бой
-            if (ErebusRules) foreach (var o in Enemies) if (o.Alive && !o.Aggro) MakeAggro(o);
             intervalMin = w.intervalMin; intervalMax = w.intervalMax;
             foreach (var name in w.enemies)
                 if (TryKind(name, out var kind)) pending.Enqueue(new PendingSpawn { Kind = kind, PreSpawned = w.preSpawned });
@@ -132,7 +128,7 @@ namespace Arena.Sim
                     }
                 }
             waveTimer = Enc?.waveDelay ?? ArenaCfg.waveDelay;
-            if (planIndex >= plan.Count && !ErebusRules) waveTimer += 1.2f; // после последней волны набора — пауза «комната пройдена»
+            if (planIndex >= plan.Count) waveTimer += 1.2f; // после последней волны набора — пауза «комната пройдена»
             Events.Add(new SimEvent { Kind = EventKind.WaveStart, Value = Wave });
         }
 
@@ -144,7 +140,7 @@ namespace Arena.Sim
             Events.Add(new SimEvent { Kind = EventKind.RoomClear, Pos = dead.Pos, Stop = HitStop.LastKill });
         }
 
-        /// <summary>Генерация набора волн по бюджету комнаты: Тартар — GeneratedTartarus, Эреб — GeneratedF.</summary>
+        /// <summary>Генерация набора волн по бюджету комнаты (GeneratedTartarus) из её набора врагов.</summary>
         void GeneratePlan()
         {
             plan.Clear();
@@ -153,22 +149,6 @@ namespace Arena.Sim
             var pool = PoolOf(enc);
             float budget = enc != null ? enc.budget + enc.budgetPerDepth * Depth : 30f + 11f * Depth;
             budget = Mathf.Max(10f, budget) + (FormsMode ? Rewards * ArenaCfg.budgetPerReward : 0);
-            if (enc != null && enc.singleWave)
-            {
-                // Эреб: одна волна, враги по одному на остаток бюджета
-                var names = new List<string>();
-                float minCost = float.MaxValue;
-                foreach (var (_, r) in pool) minCost = Mathf.Min(minCost, r);
-                for (int guard = 0; budget >= minCost && guard < 64; guard++)
-                {
-                    var (kind, cost) = pool[rng.Next(pool.Count)];
-                    if (cost > budget) continue;
-                    names.Add(kind.ToString());
-                    budget -= cost;
-                }
-                plan.Add(new RoomDef.Wave { enemies = names.ToArray(), intervalMin = 0.2f, intervalMax = 0.4f });
-                return;
-            }
             float[][] splits = { new[] { 1f }, new[] { 0.5f, 0.5f }, new[] { 0.3f, 0.15f, 0.55f } };
             var split = splits[rng.Next(splits.Length)];
             activeCap = Mathf.Min(8, Mathf.FloorToInt(2.3f + 0.35f * Depth));
@@ -217,12 +197,12 @@ namespace Arena.Sim
             return false;
         }
 
-        /// <summary>Точка появления из карты комнаты: сначала с ролью врага (Thug — melee, ведьма — ranged; у арен Hades II ролей нет),
-        /// не ближе 3 юнитов к герою (Hades II — 5; предрасставленные — не ближе 750 ед. Hades), не занятая.</summary>
+        /// <summary>Точка появления из карты комнаты: сначала с ролью врага (Thug и Wastrel — melee, ведьма и Casket — ranged),
+        /// не ближе 3 юнитов к герою (враги Hades II — 5; предрасставленные — не ближе 750 ед. Hades), не занятая.</summary>
         Vector2 PickSpawnPoint(bool preSpawned, EnemyKind kind = EnemyKind.Thug)
         {
-            float minDist = preSpawned ? ArenaCfg.preSpawnDistance : ErebusRules ? 5f : 3f;
-            string role = kind == EnemyKind.Witch ? "ranged" : "melee";
+            float minDist = preSpawned ? ArenaCfg.preSpawnDistance : IsHades2(kind) ? 5f : 3f;
+            string role = kind is EnemyKind.Witch or EnemyKind.Casket ? "ranged" : "melee";
             var spawns = Room.spawns;
             for (int t = 0; t < 60 && spawns.Length > 0; t++)
             {

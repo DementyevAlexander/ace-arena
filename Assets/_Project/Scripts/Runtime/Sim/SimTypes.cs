@@ -26,6 +26,8 @@ namespace Arena.Sim
         Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak, HitStop, Shake,
         RoomClear, TrapFire, BoltHit, PropBroken, DoorsOpen, RoomEnter, ArenaCleared,
         Zap, RewardReady, // режим форм: молния от Pos до To; выбор карточки
+        LootDropped,      // режим форм: в конце комнаты карточка упала на землю (Pos)
+        ChargeRelease,    // режим форм: заряженный скилл отпущен (Value — заряд, Crit — «идеальный» выпуск)
     }
 
     /// <summary>Стоп-кадр Hades (HitSimSlowParameters): замедление всей игры после удара.</summary>

@@ -26,12 +26,10 @@ namespace Arena.Tests
             yield return null;
             var gc = Object.FindAnyObjectByType<GameController>();
             Assert.IsNotNull(gc);
-            // режим форм: игра начинается с выбора карточки на улице Эфиры
+            // режим форм: бой в первой комнате Тартара начинается сразу, карточка — в конце комнаты
             Assert.IsTrue(gc.Sim.FormsMode);
-            Assert.IsTrue(gc.Sim.RewardPending);
-            Assert.IsTrue(gc.Sim.Room.IsHades2);
-            yield return Capture("00_reward");
-            gc.Sim.TakeOffer(0, gc.Sim.Offers[0].Form == FormKind.Dash ? ArenaSim.DashSlot : 1);
+            Assert.IsFalse(gc.Sim.RewardPending);
+            Assert.AreEqual("A_Combat01", gc.Sim.Room.name);
             yield return new WaitForSeconds(2.6f);
             Assert.Greater(gc.Sim.Wave, 0);
             Assert.Greater(gc.Sim.Enemies.Count, 0);
@@ -84,7 +82,7 @@ namespace Arena.Tests
             SceneManager.LoadScene("Game");
             yield return null;
             var gc = Object.FindAnyObjectByType<GameController>();
-            foreach (var name in new[] { "A_Combat01", "N_Combat06" })
+            foreach (var name in new[] { "A_Combat01", "B_Combat01" })
             {
                 gc.LoadRoom(RoomLibrary.Get(name));
                 var sim = gc.Sim;
@@ -133,7 +131,6 @@ namespace Arena.Tests
             yield return null;
             Assert.IsFalse(gc.TitleVisible);
             var sim = gc.Sim;
-            sim.TakeOffer(0, sim.Offers[0].Form == FormKind.Dash ? ArenaSim.DashSlot : 1);
             sim.Player.BuffInvuln = 999f;
             for (int i = 0; i < 2000 && sim.Enemies.Count == 0; i++) yield return null;
             for (int i = 0; i < 60; i++) yield return null;
@@ -150,6 +147,52 @@ namespace Arena.Tests
             gc.SetPauseMenu(false);
             yield return null;
             Assert.IsFalse(gc.Paused, "пауза закрыта");
+        }
+
+        /// <summary>Комната пройдена — карточка на земле; рядом с ней подсказка; подбор открывает выбор, «оставить» закрывает,
+        /// «влить» применяет. Кадры: карточка на земле, выбор на занятом, пустом и рывковом слоте.</summary>
+        [UnityTest]
+        public IEnumerator LootOnGroundOpensChoice()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            GameController.SkipTitle = true;
+            SceneManager.LoadScene("Game");
+            yield return null;
+            var gc = Object.FindAnyObjectByType<GameController>();
+            var sim = gc.Sim;
+            sim.Player.BuffInvuln = 999f;
+            // слоты как в макете: Снаряд с Пламенем и душой Рикошета, Зона, пустой Q, Рывок
+            sim.Forms[0].Card = new SkillCard(FormKind.Shot, Trait.Fire);
+            sim.Forms[0].Card.Souls.Add(Trait.Ricochet);
+            sim.Forms[1].Card = new SkillCard(FormKind.Zone);
+            for (int i = 0; i < 6000 && sim.Loot == null; i++)
+            {
+                foreach (var e in sim.Enemies) if (e.Alive) sim.Damage(e, 99999f, false);
+                yield return null;
+            }
+            Assert.IsNotNull(sim.Loot, "в конце комнаты — карточка на земле");
+            Assert.IsFalse(gc.Paused);
+            sim.Loot = new SkillCard(FormKind.Summon, Trait.Fire);
+            sim.Player.Pos = sim.LootPos + new Vector2(0.5f, -0.4f);
+            for (int i = 0; i < 30; i++) yield return null;
+            Assert.IsTrue(sim.LootInReach);
+            yield return CaptureUi("12_loot_on_ground");
+
+            Assert.IsTrue(sim.PickUpLoot());
+            for (int i = 0; i < 3; i++) yield return null;
+            Assert.IsTrue(gc.Paused, "выбор открыт — бой стоит");
+            yield return CaptureUi("13_choice_occupied");
+            sim.LeaveLoot();
+            yield return null;
+            Assert.IsFalse(gc.Paused);
+            Assert.IsNotNull(sim.Loot, "оставленная карточка на земле");
+            Assert.IsTrue(sim.PickUpLoot());
+            yield return null;
+            sim.FuseOffer(0, 0);
+            for (int i = 0; i < 3; i++) yield return null;
+            Assert.IsFalse(gc.Paused);
+            Assert.IsNull(sim.Loot);
+            Assert.AreEqual(2, sim.Forms[0].Card.Level(Trait.Fire), "Пламя ×2");
         }
 
         /// <summary>Кадр вместе с интерфейсом: экранные холсты на время снимка переводятся на камеру.</summary>

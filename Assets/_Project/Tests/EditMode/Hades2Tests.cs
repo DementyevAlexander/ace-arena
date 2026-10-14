@@ -17,19 +17,6 @@ namespace Arena.Tests
             s.HurtPlayer(39f, Vector2.up);
             Assert.Greater(s.Player.HitInvuln, 1f, "50 + 39 за 0.6 с ≥ 15 урона Hades — 1.3 с неуязвимости");
         }
-
-        [Test]
-        public void FirstWaveIsOneWastrelThenThreeCaskets()
-        {
-            var s = new ArenaSim(4, RoomLibrary.Get("N_Combat06"));
-            s.Step(T.Dt, default);
-            Assert.AreEqual(1, s.Enemies.Count);
-            Assert.AreEqual(EnemyKind.Wastrel, s.Enemies[0].Kind);
-            Assert.AreEqual(AiState.Wander, s.Enemies[0].State, "первая волна стоит в комнате без появления");
-            s.Enemies[0].Dead = true; s.Enemies[0].DeathT = 0f;
-            T.Run(s, 2f);
-            Assert.AreEqual(3, s.Enemies.FindAll(e => e.Kind == EnemyKind.Casket).Count, "вторая — три Casket");
-        }
     }
 
     /// <summary>Wastrel (Brawler) из Hades II: комбо выпад-трапеция → дуга.</summary>

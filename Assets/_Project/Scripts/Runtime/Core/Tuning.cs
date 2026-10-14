@@ -145,6 +145,9 @@ namespace Arena.Core
     {
         public float acceleration = Hades.U(2000f); // Acceleration: до полной скорости за 0.27 с
         public float dashAtCursor; // 1 — синие карты летят к курсору (опция Hades «Dash at Cursor»), по умолчанию выключено
+        /// <summary>Опция Hades «Помощь в прицеливании» (Aim Assist): «во время атаки автоматически наводиться на врагов в радиусе».
+        /// Выключена — удар идёт ровно в курсор или по стику.</summary>
+        public bool aimAssist = true;
         public float fullControlSpeed = Hades.U(400f); // FullControlVelocityThreshold: выше — ввод не управляет инерцией
         public float grip = Hades.U(1000f);            // Grip: торможение внешней скорости (отбрасывание, выпады)
         public float hp = 30f * HadesScale.Damage;  // MaxHealth 30 → ≈ 167 в нашем масштабе урона врагов
@@ -265,7 +268,8 @@ namespace Arena.Core
         public float knockback = Hades.U(600f);      // ImpactVelocity по герою
         public float knockbackGripTime = 0.3f;       // MeleeAttackVictimGrip: сцепление героя ×0.05 на 0.3 с, затем стоп
         public float lungeSpeed = Hades.U(1000f);    // SelfVelocity
-        public float preAttack = 0.4f;               // PreAttackDuration (дрожь и белая вспышка)
+        public float lungeDistance = Hades.U(104f);  // выпад: 1000 с торможением 4800 — ≈104 (для зоны атаки на земле)
+        public float preAttack = 0.4f;               // PreAttackDuration (дрожь)
         public float preFire = 0.13f;                // PreFireDuration
         public float postAttack = 1.5f;              // PostAttackDuration
         public float radius = Hades.U(76f);
@@ -299,8 +303,8 @@ namespace Arena.Core
         public float takeCover = 2.3f;              // TakeCoverDuration
     }
 
-    /// <summary>Комнаты и волны. Комнаты Hades — как Тартар (EncounterData.lua), арены Hades II — как бой Эреба
-    /// (FIntroFight, GeneratedF): свои задержки и пределы у энкаунтера комнаты (RoomDef.Encounter).</summary>
+    /// <summary>Комнаты и волны — как Тартар Hades (EncounterData.lua): свои наборы врагов и пределы у энкаунтера комнаты
+    /// (RoomDef.Encounter).</summary>
     [Serializable]
     public sealed class ArenaTuning
     {
@@ -315,8 +319,11 @@ namespace Arena.Core
         public float wakeReactionMin = 0.15f;
         public float wakeReactionMax = 0.45f;
         public float casketWeight = 0.8f;       // ActiveCapWeight Casket
-        /// <summary>Режим форм: карточка — после каждой третьей волны, когда она добита; бюджет случайных волн растёт с каждым выбором.</summary>
-        public int wavesPerReward = 3;
+        /// <summary>Режим форм: в конце комнаты — одна карточка на земле, как дар в Hades (SpawnRoomReward): в 110 от героя
+        /// к ближайшей точке спавна. Подобрать — подойти ближе 140 (BaseLoot Interact Distance) и нажать «взаимодействие».
+        /// Бюджет случайных волн растёт с каждой взятой карточкой.</summary>
+        public float lootOffset = Hades.U(110f);
+        public float lootReach = Hades.U(140f);
         public int budgetPerReward = 8;
         /// <summary>Арена зачищена: сначала надпись «Арена пройдена», через столько секунд загорается дверь и пускает дальше.</summary>
         public float doorsDelay = 2.5f;

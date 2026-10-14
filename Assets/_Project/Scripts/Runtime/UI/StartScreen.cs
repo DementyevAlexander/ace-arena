@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Arena.UI
 {
-    /// <summary>Стартовый экран в духе Hades: за затемнением — ночная арена, слева название и меню
+    /// <summary>Стартовый экран в духе Hades: за затемнением — комната, слева название и меню
     /// (новый забег, управление, выход). Управление открывается панелью справа, B / Esc / Backspace — закрыть.</summary>
     public sealed class StartScreen
     {

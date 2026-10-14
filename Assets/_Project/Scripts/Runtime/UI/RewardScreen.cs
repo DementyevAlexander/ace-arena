@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Arena.Core;
 using Arena.Sim;
 using Arena.View;
@@ -7,28 +6,33 @@ using UnityEngine.UI;
 
 namespace Arena.UI
 {
-    /// <summary>Выбор карточки (после каждой третьей волны) и просмотр скиллов (Tab). Сверху — три карточки «форма + свойство»,
-    /// снизу — четыре слота. Выбрал карточку — у каждого слота две кнопки: поставить её в слот (прежняя карта пропадёт)
-    /// или влить её душу — свойство перейдёт к карте слота, форма останется от неё.
-    /// Геймпад: стик или крестовина — выбор, A — взять карточку, затем на слоте A — поставить, Y — влить душу, B — назад.</summary>
+    /// <summary>Подобранная карточка и просмотр скиллов (Tab). Сверху две карты рядом: «Сейчас в слоте» и «Получено» —
+    /// видно, что на что меняешь. Ниже ряд слотов и две кнопки: «Заменить» / «Вставить» (A) и «Влить» (Y);
+    /// под каждой — что пропадёт или что станет. Недоступная кнопка погашена и объясняет почему.
+    /// Слот — ← → (стик, крестовина, стрелки) или клик; B / Esc — оставить карточку на земле.
+    /// В просмотре скиллов — только карта слота в фокусе и ряд слотов.</summary>
     public sealed class RewardScreen
     {
-        static readonly string[] Keys = { "ЛКМ / X", "ПКМ / Y", "Q / B", "Space / A" };
+        static readonly string[] KeysMouse = { "ЛКМ", "ПКМ", "Q", "Space" };
+        static readonly string[] KeysPad = { "X", "Y", "B", "A" };
+        static readonly Color Got = new(1f, 0.6f, 0.2f);
+        static readonly Color TakeTint = new(0.72f, 0.58f, 1f);
+        static readonly Color FuseTint = new(0.3f, 0.86f, 0.74f);
+        static readonly Color Loss = new(1f, 0.47f, 0.42f);
+        static readonly Color Gain = new(1f, 0.85f, 0.35f);
+        const float InputDelay = 0.35f; // рывок или «взять», зажатые в бою, не должны сразу нажать кнопку
 
         readonly Canvas canvas;
         readonly ArenaSim sim;
-        readonly Text title, sub, info;
-        readonly OfferPanel[] offers = new OfferPanel[3];
-        readonly SlotPanel[] slots = new SlotPanel[4];
-        int selected = -1;
-        string hoverText;
-        bool viewOnly;
-        // геймпад: ряд (0 — карточки, 1 — слоты), что в фокусе; первые 0.35 с нажатия не принимаются — чтобы рывок,
-        // зажатый в бою, не выбрал карточку случайно
-        int row, focusOffer, focusSlot;
-        bool pad;
+        readonly CardPanel current, offered;
+        readonly GameObject swap, actionsRow, leaveHint;
+        readonly Text actionsCaption;
+        readonly SlotButton[] slots = new SlotButton[4];
+        readonly ActionButton take, fuse;
+        readonly Text viewTitle;
+        int focus;
+        bool viewOnly, pad;
         float openedAt;
-        const float InputDelay = 0.35f;
 
         public bool Visible => canvas.enabled;
 
@@ -36,16 +40,46 @@ namespace Arena.UI
         {
             this.sim = sim;
             canvas = UiKit.Canvas("Reward", 25);
-            var t = canvas.transform;
-            UiKit.Fill(t, "Dim", new Color(0.04f, 0.02f, 0.07f, 0.9f)).raycastTarget = true;
-            title = UiKit.Label(t, "", 44, new Color(1f, 0.85f, 0.45f), new Vector2(0.5f, 1f), new Vector2(0f, -50f), new Vector2(1600f, 60f));
-            sub = UiKit.Label(t, "", 19, new Color(0.85f, 0.8f, 0.95f), new Vector2(0.5f, 1f), new Vector2(0f, -92f), new Vector2(1700f, 30f), TextAnchor.MiddleCenter, FontStyle.Normal);
-            for (int i = 0; i < 3; i++) offers[i] = new OfferPanel(this, t, i, new Vector2(-470f + i * 470f, -130f));
-            for (int i = 0; i < 4; i++) slots[i] = new SlotPanel(this, t, i, new Vector2(-675f + i * 450f, -500f));
-            info = UiKit.Label(t, "", 19, new Color(0.75f, 1f, 0.95f), new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(1700f, 60f), TextAnchor.MiddleCenter, FontStyle.Normal);
-            info.supportRichText = true;
+            UiKit.Fill(canvas.transform, "Dim", new Color(0.03f, 0.02f, 0.05f, 0.72f)).raycastTarget = true;
+            // макет 1920×1080: координаты от левого верхнего угла
+            var t = UiKit.Rect(canvas.transform, "Layout", new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1920f, 1080f));
+
+            viewTitle = Lbl(t, "Скиллы", 44, Pal.Gold, 60f, 70f, 800f, 60f);
+            current = new CardPanel(t, 60f, 165f);
+            offered = new CardPanel(t, 1010f, 165f);
+            var sw = UiKit.Image(t, "Swap", Pal.GoldDim, new Vector2(0f, 1f), new Vector2(960f, -365f), new Vector2(76f, 76f), new Vector2(0.5f, 0.5f));
+            UiKit.Image(sw.transform, "Bg", Pal.Card, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(72f, 72f));
+            UiKit.Label(sw.transform, "⇄", 40, Pal.Text, new Vector2(0.5f, 0.5f), new Vector2(0f, 2f), new Vector2(76f, 76f), TextAnchor.MiddleCenter, FontStyle.Normal);
+            swap = sw.gameObject;
+
+            var box = UiKit.Image(t, "Box", Pal.Line, new Vector2(0f, 1f), new Vector2(60f, -590f), new Vector2(1800f, 278f), new Vector2(0f, 1f));
+            UiKit.Image(box.transform, "Bg", new Color(0.07f, 0.055f, 0.1f, 0.92f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(1796f, 274f));
+            Lbl(box.transform, "СЛОТ", 22, Pal.Muted, 30f, 66f, 200f, 30f);
+            for (int i = 0; i < 4; i++) slots[i] = new SlotButton(this, box.transform, i, 224f + i * 391f, 22f);
+            actionsRow = UiKit.Rect(box.transform, "Actions", new Vector2(0f, 1f), Vector2.zero, new Vector2(1800f, 278f), new Vector2(0f, 1f)).gameObject;
+            actionsCaption = Lbl(actionsRow.transform, "ДЕЙСТВИЕ", 22, Pal.Muted, 30f, 192f, 200f, 30f);
+            take = new ActionButton(actionsRow.transform, 224f, 134f, 762f, TakeTint, new Color(0.17f, 0.12f, 0.26f), () => Take());
+            fuse = new ActionButton(actionsRow.transform, 1006f, 134f, 762f, FuseTint, new Color(0.07f, 0.19f, 0.17f), () => Fuse());
+
+            var leave = UiKit.Label(t, "", 22, Pal.Muted, new Vector2(0f, 1f), new Vector2(960f, -905f), new Vector2(800f, 36f), TextAnchor.MiddleCenter, FontStyle.Normal);
+            leave.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            leave.raycastTarget = true;
+            var lb = leave.gameObject.AddComponent<Button>();
+            lb.transition = Selectable.Transition.None;
+            lb.onClick.AddListener(() => { if (!viewOnly) sim.LeaveLoot(); });
+            leaveHint = leave.gameObject;
             canvas.enabled = false;
         }
+
+        static Text Lbl(Transform parent, string text, int size, Color color, float x, float y, float w, float h, FontStyle style = FontStyle.Normal)
+        {
+            var l = UiKit.Label(parent, text, size, color, new Vector2(0f, 1f), new Vector2(x, -y), new Vector2(w, h), TextAnchor.MiddleLeft, style);
+            l.rectTransform.pivot = new Vector2(0f, 0.5f);
+            l.supportRichText = true;
+            return l;
+        }
+
+        static string Hex(Color c) => ColorUtility.ToHtmlStringRGB(c);
 
         /// <summary>Показывает выбор, пока он не сделан; Tab — просмотр скиллов без выбора.</summary>
         public void Sync(bool viewRequested, InputReader input)
@@ -53,223 +87,250 @@ namespace Arena.UI
             bool want = sim.RewardPending || viewRequested;
             if (want != canvas.enabled)
             {
-                canvas.enabled = want; selected = -1; hoverText = null;
-                row = 0; focusOffer = 0; focusSlot = 0; openedAt = Time.unscaledTime;
+                canvas.enabled = want;
+                openedAt = Time.unscaledTime;
+                if (want) focus = sim.RewardPending && sim.Offers.Count > 0 ? BestSlot() : 0;
             }
             if (!want) return;
-            viewOnly = !sim.RewardPending;
+            viewOnly = !sim.RewardPending || sim.Offers.Count == 0;
             pad = !input.UseMouse;
-            if (selected >= sim.Offers.Count) selected = -1;
             if (Time.unscaledTime - openedAt >= InputDelay)
             {
-                if (!viewOnly) Navigate(input);
-                else if (input.NavX != 0) focusSlot = Mathf.Clamp(focusSlot + input.NavX, 0, 3);
+                if (input.NavX != 0) focus = (focus + input.NavX + 4) % 4;
+                if (!viewOnly)
+                {
+                    if (input.NavConfirm) Take();
+                    else if (input.NavAlt) Fuse();
+                    else if (input.NavBack || input.PausePressed) sim.LeaveLoot();
+                }
             }
-            title.text = viewOnly ? "Скиллы" : sim.Rewards == 0 ? "Первая душа" : "Души павших";
-            sub.text = viewOnly
-                ? (pad ? "B или View — вернуться в бой" : "Tab или Esc — вернуться в бой")
-                : pad
-                    ? "Стик — выбор · A — взять карточку · на слоте: A — поставить, Y — влить душу · B — назад к карточкам"
-                    : "Выбери карточку, затем слот: «Поставить» — карточка займёт слот, «Влить душу» — её свойство перейдёт к карте слота";
-            for (int i = 0; i < 3; i++)
-                offers[i].Sync(viewOnly || i >= sim.Offers.Count ? null : sim.Offers[i], i == selected, pad && row == 0 && i == focusOffer);
-            for (int i = 0; i < 4; i++) slots[i].Sync(pad && (row == 1 || viewOnly) && i == focusSlot);
-            info.text = pad && !viewOnly ? PadInfo() : hoverText ?? (viewOnly ? "" : selected < 0 ? "Наведи на карточку, чтобы прочитать её" : "Наведи на кнопку слота — увидишь, что получится");
-        }
-
-        void Navigate(InputReader input)
-        {
-            int n = sim.Offers.Count;
-            if (n == 0) return;
-            focusOffer = Mathf.Clamp(focusOffer, 0, n - 1);
-            if (row == 0)
-            {
-                if (input.NavX != 0) focusOffer = Mathf.Clamp(focusOffer + input.NavX, 0, n - 1);
-                if (input.NavConfirm || input.NavY < 0) { selected = focusOffer; row = 1; focusSlot = BestSlot(selected); }
-                return;
-            }
-            if (input.NavX != 0) focusSlot = Mathf.Clamp(focusSlot + input.NavX, 0, 3);
-            if (input.NavBack || input.NavY > 0) { row = 0; return; }
-            if (input.NavConfirm) Take(focusSlot);
-            else if (input.NavAlt) Fuse(focusSlot);
+            // выбор сделан или карточка оставлена — экран закроется; иначе перерисовать по текущему состоянию
+            viewOnly = !sim.RewardPending || sim.Offers.Count == 0;
+            if (!sim.RewardPending && !viewRequested) { canvas.enabled = false; return; }
+            Draw(input.UseMouse);
         }
 
         /// <summary>С какого слота начать: рывок — Space; иначе пустой подходящий слот, иначе первый, куда можно влить душу.</summary>
-        int BestSlot(int offer)
+        int BestSlot()
         {
-            for (int i = 0; i < 4; i++) if (sim.CanTake(offer, i) && sim.Forms[i].Card == null) return i;
-            for (int i = 0; i < 4; i++) if (sim.CanFuse(offer, i)) return i;
-            for (int i = 0; i < 4; i++) if (sim.CanTake(offer, i)) return i;
+            for (int i = 0; i < 4; i++) if (sim.CanTake(0, i) && sim.Forms[i].Card == null) return i;
+            for (int i = 0; i < 4; i++) if (sim.CanFuse(0, i)) return i;
+            for (int i = 0; i < 4; i++) if (sim.CanTake(0, i)) return i;
             return 0;
         }
 
-        string PadInfo()
+        void Take() { if (!viewOnly && sim.CanTake(0, focus)) sim.TakeOffer(0, focus); }
+
+        void Fuse() { if (!viewOnly && sim.CanFuse(0, focus)) sim.FuseOffer(0, focus); }
+
+        void Draw(bool mouse)
         {
-            if (row == 0)
-                return focusOffer < sim.Offers.Count ? $"A — взять «{sim.Offers[focusOffer].Name}»" : "";
-            var s = slots[focusSlot];
-            string take = s.TakePreview(), fuse = s.FusePreview();
-            return $"<b>A</b> — {take}\n<b>Y</b> — {fuse}";
-        }
+            var keys = mouse ? KeysMouse : KeysPad;
+            var cur = sim.Forms[focus].Card;
+            string slotKey = KeysMouse[focus];
+            viewTitle.gameObject.SetActive(viewOnly);
+            offered.SetActive(!viewOnly);
+            swap.SetActive(!viewOnly);
+            actionsRow.SetActive(!viewOnly);
+            leaveHint.SetActive(!viewOnly);
 
-        void Select(int i) { if (!viewOnly && i < sim.Offers.Count) selected = selected == i ? -1 : i; }
+            if (cur != null) current.Show(cur, (viewOnly ? $"СЛОТ {slotKey}" : $"СЕЙЧАС В {slotKey}").ToUpperInvariant(), Pal.Gold, Pal.Gold);
+            else current.ShowEmpty($"СЕЙЧАС В {slotKey}".ToUpperInvariant(), focus == ArenaSim.DashSlot ? "Сюда ставится только рывок." : "Сюда можно поставить снаряд, зону, призыв или барьер.");
+            for (int i = 0; i < 4; i++) slots[i].Sync(sim.Forms[i].Card, keys[i], i == focus);
+            if (viewOnly) return;
 
-        void Take(int slot) { if (selected >= 0 && sim.CanTake(selected, slot)) { sim.TakeOffer(selected, slot); selected = -1; hoverText = null; } }
+            var got = sim.Offers[0];
+            offered.Show(got, "ПОЛУЧЕНО", Got, Got);
+            leaveHint.GetComponent<Text>().text = mouse ? "Esc — оставить на земле" : "B — оставить на земле";
+            actionsCaption.text = "ДЕЙСТВИЕ";
 
-        void Fuse(int slot) { if (selected >= 0 && sim.CanFuse(selected, slot)) { sim.FuseOffer(selected, slot); selected = -1; hoverText = null; } }
-
-        static string Hex(Color c) => ColorUtility.ToHtmlStringRGB(c);
-
-        static string CardText(SkillCard c)
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.Append(FormText.Base(c.Form)).Append('\n');
-            foreach (var t in c.Traits)
+            // A: заменить (занятый слот) или вставить (пустой)
+            string gotName = FormText.Name(got.Form);
+            if (!sim.CanTake(0, focus))
+                take.Set(pad ? "A" : "", cur != null ? $"Заменить на {gotName}" : $"Вставить {gotName}",
+                    got.Form == FormKind.Dash ? "Рывок ставится только в Space" : "Space — только для рывка", Pal.Faint, false);
+            else if (cur == null)
+                take.Set(pad ? "A" : "", $"Вставить {gotName} в {slotKey}", "Ничего не пропадёт", Pal.Muted, true);
+            else
             {
-                int lvl = c.Level(t);
-                sb.Append($"\n<color=#{Hex(Art.TraitColor(t))}><b>{FormText.Name(t)}{(lvl > 1 ? $" ×{lvl}" : "")}</b></color> — {FormText.Cell(t, c.Form)}");
-            }
-            return sb.ToString();
-        }
-
-        static Button MakeButton(Transform parent, string label, Vector2 anchor, Vector2 pos, Vector2 size, System.Action click, out Text text, out Image img)
-        {
-            img = UiKit.Image(parent, label, new Color(0.25f, 0.16f, 0.32f), anchor, pos, size);
-            img.raycastTarget = true;
-            var btn = img.gameObject.AddComponent<Button>();
-            btn.transition = Selectable.Transition.None;
-            btn.onClick.AddListener(() => click());
-            text = UiKit.Label(img.transform, label, 18, Color.white, new Vector2(0.5f, 0.5f), Vector2.zero, size);
-            return btn;
-        }
-
-        static void Hover(GameObject go, System.Action enter, System.Action exit)
-        {
-            var h = go.AddComponent<HoverRelay>();
-            h.Enter = enter; h.Exit = exit;
-        }
-
-        // ---------- карточка ----------
-
-        sealed class OfferPanel
-        {
-            readonly RewardScreen screen;
-            readonly RectTransform root;
-            readonly Image frame, header;
-            readonly Text glyph, name, body;
-
-            public OfferPanel(RewardScreen screen, Transform parent, int index, Vector2 pos)
-            {
-                this.screen = screen;
-                root = UiKit.Rect(parent, "Offer", new Vector2(0.5f, 1f), pos, new Vector2(430f, 330f), new Vector2(0.5f, 1f));
-                frame = UiKit.Image(root, "Frame", Color.white, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(430f, 330f));
-                frame.raycastTarget = true;
-                UiKit.Image(root, "Bg", new Color(0.11f, 0.06f, 0.16f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(422f, 322f));
-                header = UiKit.Image(root, "Header", Color.white, new Vector2(0.5f, 1f), new Vector2(0f, -4f), new Vector2(422f, 52f), new Vector2(0.5f, 1f));
-                name = UiKit.Label(header.transform, "", 24, new Color(0.08f, 0.04f, 0.12f), new Vector2(0.5f, 0.5f), new Vector2(20f, 0f), new Vector2(380f, 50f));
-                name.GetComponent<Shadow>().enabled = false;
-                glyph = UiKit.Label(header.transform, "", 34, new Color(0.08f, 0.04f, 0.12f), new Vector2(0f, 0.5f), new Vector2(30f, 0f), new Vector2(50f, 50f));
-                glyph.GetComponent<Shadow>().enabled = false;
-                body = UiKit.Label(root, "", 17, new Color(0.9f, 0.88f, 0.95f), new Vector2(0.5f, 1f), new Vector2(0f, -68f), new Vector2(395f, 250f), TextAnchor.UpperLeft, FontStyle.Normal);
-                body.rectTransform.pivot = new Vector2(0.5f, 1f);
-                body.supportRichText = true;
-                var btn = frame.gameObject.AddComponent<Button>();
-                btn.transition = Selectable.Transition.None;
-                btn.onClick.AddListener(() => screen.Select(index));
+                var sb = new System.Text.StringBuilder($"− {FormText.Name(cur.Form)} пропадёт");
+                var traits = cur.Traits;
+                for (int k = 0; k < traits.Count; k++) sb.Append(k == 0 ? " вместе с " : k == traits.Count - 1 ? " и " : ", ").Append(FormText.Name(traits[k]));
+                take.Set(pad ? "A" : "", $"Заменить на {gotName}", sb.ToString(), Loss, true);
             }
 
-            public void Sync(SkillCard c, bool selected, bool focused)
+            // Y: влить свойство карточки в карту слота
+            var trait = got.Own.Value;
+            if (cur == null) fuse.Set(pad ? "Y" : "", $"Влить {FormText.Name(trait)}", "Слот пуст — вливать некуда", Pal.Faint, false);
+            else if (!cur.CanFuse) fuse.Set(pad ? "Y" : "", $"Влить {FormText.Name(trait)} в {FormText.Name(cur.Form)}", "Ячейки душ заполнены", Pal.Faint, false);
+            else
             {
-                root.gameObject.SetActive(c != null);
-                if (c == null) return;
-                var col = Art.CardTint(c);
-                float pulse = 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 8f);
-                frame.color = selected ? Color.white : focused ? Color.Lerp(col, Color.white, 0.6f) * pulse + new Color(0f, 0f, 0f, 1f) : col * 0.75f;
-                header.color = col;
-                name.text = c.Name;
-                glyph.text = FormText.Glyph(c.Form);
-                var t = c.Own.Value;
-                body.text = $"<b>Как скилл</b> — {(c.Form == FormKind.Dash ? "в слот Space" : "в слот ЛКМ, ПКМ или Q")}:\n{CardText(c)}\n\n" +
-                            $"<b>Как душа</b> — отдаёт <color=#{Hex(Art.TraitColor(t))}>{FormText.Name(t)}</color> карте слота (действие зависит от её формы).";
+                int lvl = cur.Level(trait) + 1;
+                string what = lvl > 1 ? $"▲ {FormText.Name(trait)} ×{lvl}" : $"+ {FormText.Name(trait)}: {FormText.Cell(trait, cur.Form)}";
+                fuse.Set(pad ? "Y" : "", $"Влить {FormText.Name(trait)} в {FormText.Name(cur.Form)}", $"{what} · {gotName} исчезнет", Gain, true);
+            }
+        }
+
+        // ---------- карта сверху ----------
+
+        sealed class CardPanel
+        {
+            const float W = 850f, H = 400f;
+            readonly GameObject root;
+            readonly Image frame;
+            readonly Text caption, glyph, name, desc, traits, souls;
+            readonly Image[] cells = new Image[SkillCard.SoulCells];
+
+            public CardPanel(Transform parent, float x, float y)
+            {
+                var r = UiKit.Rect(parent, "Card", new Vector2(0f, 1f), new Vector2(x, -y), new Vector2(W, H), new Vector2(0f, 1f));
+                root = r.gameObject;
+                frame = UiKit.Image(r, "Frame", Pal.Gold, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W, H));
+                UiKit.Image(r, "Bg", new Color(0.09f, 0.07f, 0.13f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W - 4f, H - 4f));
+                caption = Lbl(r, "", 22, Pal.Gold, 34f, 42f, 700f, 30f, FontStyle.Bold);
+                glyph = UiKit.Label(r, "", 50, Color.white, new Vector2(0f, 1f), new Vector2(66f, -98f), new Vector2(70f, 70f));
+                glyph.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                name = Lbl(r, "", 54, Pal.Text, 116f, 98f, 700f, 70f, FontStyle.Bold);
+                desc = UiKit.Label(r, "", 24, Pal.TextDim, new Vector2(0f, 1f), new Vector2(34f, -140f), new Vector2(W - 68f, 70f), TextAnchor.UpperLeft, FontStyle.Normal);
+                desc.rectTransform.pivot = new Vector2(0f, 1f);
+                traits = UiKit.Label(r, "", 25, Pal.Text, new Vector2(0f, 1f), new Vector2(34f, -212f), new Vector2(W - 68f, 130f), TextAnchor.UpperLeft, FontStyle.Normal);
+                traits.rectTransform.pivot = new Vector2(0f, 1f);
+                traits.supportRichText = true;
+                traits.lineSpacing = 1.25f;
+                souls = Lbl(r, "", 21, Pal.Muted, 34f, 356f, 160f, 30f);
+                for (int k = 0; k < cells.Length; k++)
+                    cells[k] = UiKit.Image(r, "Cell", Color.white, new Vector2(0f, 1f), new Vector2(150f + k * 30f, -356f), new Vector2(18f, 18f));
+            }
+
+            public void SetActive(bool v) { if (root.activeSelf != v) root.SetActive(v); }
+
+            public void Show(SkillCard c, string cap, Color capColor, Color frameColor)
+            {
+                SetActive(true);
+                frame.color = frameColor;
+                caption.text = cap; caption.color = capColor;
+                glyph.text = FormText.Glyph(c.Form); glyph.color = Art.CardTint(c); glyph.enabled = true;
+                name.text = FormText.Name(c.Form);
+                name.rectTransform.anchoredPosition = new Vector2(116f, -98f);
+                desc.text = FormText.Base(c.Form);
+                var sb = new System.Text.StringBuilder();
+                foreach (var t in c.Traits)
+                {
+                    if (sb.Length > 0) sb.Append('\n');
+                    sb.Append($"<color=#{Hex(Art.TraitColor(t))}>◆ {FormText.Name(t)}{(c.Level(t) > 1 ? $" ×{c.Level(t)}" : "")}</color> — {FormText.Cell(t, c.Form)}");
+                }
+                traits.text = sb.ToString();
+                souls.text = $"Души {c.Souls.Count}/{SkillCard.SoulCells}";
+                for (int k = 0; k < cells.Length; k++)
+                {
+                    cells[k].enabled = true;
+                    cells[k].color = k < c.Souls.Count ? Art.TraitColor(c.Souls[k]) : new Color(1f, 1f, 1f, 0.16f);
+                }
+            }
+
+            public void ShowEmpty(string cap, string text)
+            {
+                SetActive(true);
+                frame.color = Pal.GoldDim;
+                caption.text = cap; caption.color = Pal.Gold;
+                glyph.enabled = false;
+                name.text = "Слот пуст";
+                name.rectTransform.anchoredPosition = new Vector2(34f, -98f);
+                desc.text = text;
+                traits.text = "";
+                souls.text = "";
+                foreach (var c in cells) c.enabled = false;
             }
         }
 
         // ---------- слот ----------
 
-        sealed class SlotPanel
+        sealed class SlotButton
         {
-            readonly RewardScreen screen;
-            readonly int index;
-            readonly Image frame;
-            readonly Text key, name, body;
-            readonly Button take, fuse;
-            readonly Text takeText, fuseText;
-            readonly Image takeImg, fuseImg;
+            readonly Image frame, bg, key;
+            readonly Text keyText, glyph, name;
 
-            public SlotPanel(RewardScreen screen, Transform parent, int index, Vector2 pos)
+            public SlotButton(RewardScreen screen, Transform parent, int index, float x, float y)
             {
-                this.screen = screen;
-                this.index = index;
-                var root = UiKit.Rect(parent, "Slot", new Vector2(0.5f, 1f), pos, new Vector2(430f, 420f), new Vector2(0.5f, 1f));
-                frame = UiKit.Image(root, "Frame", Color.white, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(430f, 420f));
-                UiKit.Image(root, "Bg", new Color(0.09f, 0.05f, 0.13f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(422f, 412f));
-                key = UiKit.Label(root, Keys[index], 18, new Color(1f, 0.85f, 0.45f), new Vector2(0.5f, 1f), new Vector2(0f, -20f), new Vector2(400f, 26f));
-                name = UiKit.Label(root, "", 23, Color.white, new Vector2(0.5f, 1f), new Vector2(0f, -50f), new Vector2(400f, 30f));
-                body = UiKit.Label(root, "", 16, new Color(0.88f, 0.86f, 0.93f), new Vector2(0.5f, 1f), new Vector2(0f, -72f), new Vector2(395f, 250f), TextAnchor.UpperLeft, FontStyle.Normal);
-                body.rectTransform.pivot = new Vector2(0.5f, 1f);
-                body.supportRichText = true;
-                take = MakeButton(root, "Поставить", new Vector2(0.5f, 0f), new Vector2(-105f, 36f), new Vector2(195f, 46f), () => screen.Take(index), out takeText, out takeImg);
-                fuse = MakeButton(root, "Влить душу", new Vector2(0.5f, 0f), new Vector2(105f, 36f), new Vector2(195f, 46f), () => screen.Fuse(index), out fuseText, out fuseImg);
-                Hover(take.gameObject, () => screen.hoverText = TakePreview(), () => screen.hoverText = null);
-                Hover(fuse.gameObject, () => screen.hoverText = FusePreview(), () => screen.hoverText = null);
+                frame = UiKit.Image(parent, "Slot", Pal.Line, new Vector2(0f, 1f), new Vector2(x, -y), new Vector2(372f, 90f), new Vector2(0f, 1f));
+                frame.raycastTarget = true;
+                var btn = frame.gameObject.AddComponent<Button>();
+                btn.transition = Selectable.Transition.None;
+                btn.onClick.AddListener(() => screen.focus = index);
+                bg = UiKit.Image(frame.transform, "Bg", Pal.Card, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(366f, 84f));
+                key = UiKit.Image(frame.transform, "Key", Pal.KeyDark, new Vector2(0f, 0.5f), new Vector2(22f, 0f), new Vector2(72f, 36f), new Vector2(0f, 0.5f));
+                keyText = UiKit.Label(key.transform, "", 21, Pal.Gold, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(72f, 36f));
+                keyText.GetComponent<Shadow>().enabled = false;
+                glyph = UiKit.Label(frame.transform, "", 30, Color.white, new Vector2(0f, 0.5f), new Vector2(146f, 0f), new Vector2(50f, 50f));
+                glyph.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                name = UiKit.Label(frame.transform, "", 27, Pal.Text, new Vector2(0f, 0.5f), new Vector2(180f, 0f), new Vector2(180f, 50f), TextAnchor.MiddleLeft, FontStyle.Bold);
+                name.rectTransform.pivot = new Vector2(0f, 0.5f);
             }
 
-            public string TakePreview()
+            public void Sync(SkillCard c, string k, bool focused)
             {
-                var sim = screen.sim;
-                int o = screen.selected;
-                if (o < 0) return null;
-                if (!sim.CanTake(o, index)) return sim.Offers[o].Form == FormKind.Dash ? "Рывок ставится только в слот Space" : "Слот Space — только для рывка";
-                var cur = sim.Forms[index].Card;
-                return cur == null ? $"«{sim.Offers[o].Name}» займёт пустой слот" : $"«{sim.Offers[o].Name}» заменит «{cur.Name}» — её души пропадут";
+                frame.color = focused ? Pal.Gold : c == null ? new Color(1f, 1f, 1f, 0.12f) : Pal.Line;
+                bg.color = focused ? Pal.Focus : Pal.Card;
+                if (keyText.text != k)
+                {
+                    keyText.text = k;
+                    key.rectTransform.sizeDelta = new Vector2(Mathf.Max(48f, keyText.preferredWidth + 22f), 36f);
+                    keyText.rectTransform.sizeDelta = key.rectTransform.sizeDelta;
+                }
+                glyph.enabled = c != null;
+                if (c != null) { glyph.text = FormText.Glyph(c.Form); glyph.color = Art.CardTint(c); }
+                name.text = c != null ? FormText.Name(c.Form) : "пусто";
+                name.color = c != null ? Pal.Text : Pal.Faint;
+                name.fontStyle = c != null ? FontStyle.Bold : FontStyle.Normal;
+            }
+        }
+
+        // ---------- действие ----------
+
+        sealed class ActionButton
+        {
+            readonly Image frame, bg, badge;
+            readonly Text badgeText, title, note;
+            readonly Color tint, fill;
+            bool enabled;
+            readonly System.Action click;
+
+            public ActionButton(Transform parent, float x, float y, float w, Color tint, Color fill, System.Action click)
+            {
+                this.tint = tint; this.fill = fill; this.click = click;
+                frame = UiKit.Image(parent, "Action", tint, new Vector2(0f, 1f), new Vector2(x, -y), new Vector2(w, 116f), new Vector2(0f, 1f));
+                frame.raycastTarget = true;
+                var btn = frame.gameObject.AddComponent<Button>();
+                btn.transition = Selectable.Transition.None;
+                btn.onClick.AddListener(() => { if (enabled) this.click(); });
+                bg = UiKit.Image(frame.transform, "Bg", fill, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(w - 4f, 112f));
+                badge = UiKit.Image(frame.transform, "Badge", tint, new Vector2(0f, 0.5f), new Vector2(28f, 0f), new Vector2(52f, 52f), new Vector2(0f, 0.5f));
+                badgeText = UiKit.Label(badge.transform, "", 26, fill, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(52f, 52f));
+                badgeText.GetComponent<Shadow>().enabled = false;
+                title = UiKit.Label(frame.transform, "", 32, tint, new Vector2(0f, 1f), new Vector2(100f, -38f), new Vector2(w - 120f, 44f), TextAnchor.MiddleLeft, FontStyle.Bold);
+                title.rectTransform.pivot = new Vector2(0f, 0.5f);
+                note = UiKit.Label(frame.transform, "", 22, Pal.Muted, new Vector2(0f, 1f), new Vector2(100f, -78f), new Vector2(w - 120f, 32f), TextAnchor.MiddleLeft, FontStyle.Bold);
+                note.rectTransform.pivot = new Vector2(0f, 0.5f);
+                note.horizontalOverflow = HorizontalWrapMode.Wrap;
             }
 
-            public string FusePreview()
+            public void Set(string key, string titleText, string noteText, Color noteColor, bool on)
             {
-                var sim = screen.sim;
-                int o = screen.selected;
-                if (o < 0) return null;
-                var cur = sim.Forms[index].Card;
-                if (cur == null) return "Слот пуст — вливать некуда";
-                if (!cur.CanFuse) return "Ячейки душ заполнены";
-                var t = sim.Offers[o].Own.Value;
-                int lvl = cur.Level(t) + 1;
-                return $"{FormText.Name(cur.Form)} получит <color=#{Hex(Art.TraitColor(t))}><b>{FormText.Name(t)}{(lvl > 1 ? $" ×{lvl}" : "")}</b></color> — {FormText.Cell(t, cur.Form)}";
+                enabled = on;
+                frame.color = on ? tint : new Color(1f, 1f, 1f, 0.12f);
+                bg.color = on ? fill : new Color(0.08f, 0.065f, 0.11f, 0.9f);
+                badge.enabled = key.Length > 0;
+                badge.color = on ? tint : Pal.KeyDark;
+                badgeText.text = key;
+                badgeText.color = on ? fill : Pal.Faint;
+                float x = key.Length > 0 ? 100f : 32f;
+                title.rectTransform.anchoredPosition = new Vector2(x, -38f);
+                note.rectTransform.anchoredPosition = new Vector2(x, -78f);
+                title.text = titleText;
+                title.color = on ? tint : Pal.Faint;
+                note.text = noteText;
+                note.color = noteColor;
             }
-
-            public void Sync(bool focused)
-            {
-                var sim = screen.sim;
-                var card = sim.Forms[index].Card;
-                float pulse = 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 8f);
-                frame.color = focused ? new Color(pulse, pulse, pulse, 1f) : Art.CardTint(card) * (card != null ? 0.7f : 0.25f);
-                takeText.text = screen.pad ? "Поставить (A)" : "Поставить";
-                fuseText.text = screen.pad ? "Влить душу (Y)" : "Влить душу";
-                name.text = card == null ? "— пусто —" : FormText.Name(card.Form);
-                body.text = card == null ? (index == DashSlotIndex ? "Сюда — только рывок." : "Сюда можно поставить снаряд, зону, призыв или барьер.")
-                    : CardText(card) + $"\n\nДуши: {card.Souls.Count} / {SkillCard.SoulCells}";
-                bool choose = !screen.viewOnly && screen.selected >= 0;
-                take.gameObject.SetActive(!screen.viewOnly);
-                fuse.gameObject.SetActive(!screen.viewOnly);
-                bool canTake = choose && sim.CanTake(screen.selected, index);
-                bool canFuse = choose && sim.CanFuse(screen.selected, index);
-                takeImg.color = canTake ? new Color(0.35f, 0.22f, 0.5f) : new Color(0.16f, 0.12f, 0.2f);
-                fuseImg.color = canFuse ? new Color(0.15f, 0.45f, 0.42f) : new Color(0.12f, 0.16f, 0.18f);
-                takeText.color = canTake ? Color.white : new Color(1f, 1f, 1f, 0.3f);
-                fuseText.color = canFuse ? Color.white : new Color(1f, 1f, 1f, 0.3f);
-            }
-
-            const int DashSlotIndex = ArenaSim.DashSlot;
         }
     }
 }
