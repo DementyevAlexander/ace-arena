@@ -456,13 +456,13 @@ namespace Arena.View
             r = Art.Part(model, MeshKit.Prism(5), dark, new Vector3(0.17f, 0f, 0f), new Vector3(0.12f, 0.3f, 0.12f)).transform;
         }
 
-        /// <summary>Wastrel: оливковый каменный голем — бочка-торс с поясами, ржавые наплечники, голова утоплена в плечи,
+        /// <summary>Wastrel: оливковый каменный голем — бочка-торс с поясами, зелёные наплечники, голова утоплена в плечи,
         /// руки до земли с огромными кулаками, короткие ноги.</summary>
         void BuildWastrel(out Transform l, out Transform r)
         {
             var stone = Art.LitMat(new Color(0.50f, 0.53f, 0.27f));
             var stoneDark = Art.LitMat(new Color(0.35f, 0.38f, 0.19f));
-            var rust = Art.LitMat(new Color(0.58f, 0.38f, 0.24f));
+            var pad = Art.LitMat(new Color(0.42f, 0.47f, 0.22f));
             var eye = Art.LitMat(new Color(1f, 0.85f, 0.45f), 1.5f);
             Art.Part(body, MeshKit.Ico(1, 0.03f, 3), stone, new Vector3(0f, 1.0f, 0f), new Vector3(0.95f, 1.0f, 0.8f));           // торс
             Art.Part(body, MeshKit.Prism(10, 0.92f), stoneDark, new Vector3(0f, 0.72f, 0f), new Vector3(0.92f, 0.07f, 0.78f));      // пояса
@@ -472,7 +472,7 @@ namespace Arena.View
             Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.08f, 1.44f, 0.39f), Vector3.one * 0.06f, default, false);
             foreach (float sx in new[] { -1f, 1f })
             {
-                Art.Part(body, MeshKit.Ico(1, 0.03f, 8), rust, new Vector3(sx * 0.5f, 1.38f, 0f), new Vector3(0.46f, 0.3f, 0.5f));  // наплечник
+                Art.Part(body, MeshKit.Ico(1, 0.03f, 8), pad, new Vector3(sx * 0.5f, 1.38f, 0f), new Vector3(0.46f, 0.3f, 0.5f));  // наплечник
                 PlayerView.Limb(body, MeshKit.Prism(8, 1.3f), stone, new Vector3(sx * 0.55f, 1.25f, 0.02f), new Vector3(sx * 0.66f, 0.42f, 0.14f), 0.16f); // рука до земли
                 Art.Part(body, MeshKit.Ico(1, 0.06f, 6), stoneDark, new Vector3(sx * 0.68f, 0.3f, 0.16f), new Vector3(0.48f, 0.44f, 0.5f)); // кулак
             }
