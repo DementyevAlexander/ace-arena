@@ -275,6 +275,52 @@ namespace Arena.View
             for (int k = 1; k + 1 < idx.Count; k++) yield return (poly[idx[0]], poly[idx[k]], poly[idx[k + 1]]);
         }
 
+        /// <summary>Тор в плоскости XZ: большой радиус 0.5, minor — радиус трубки; n сегментов по кругу, m по сечению (нимб, кольца).</summary>
+        public static Mesh Torus(float minor = 0.08f, int n = 20, int m = 6) => Cached($"torus{minor}_{n}_{m}", () =>
+        {
+            var b = new Builder { Raw = true };
+            Vector3 P(int i, int j)
+            {
+                float u = i * Mathf.PI * 2f / n, w = j * Mathf.PI * 2f / m;
+                float r = 0.5f + minor * Mathf.Cos(w);
+                return new Vector3(r * Mathf.Cos(u), minor * Mathf.Sin(w), r * Mathf.Sin(u));
+            }
+            void Tri(Vector3 a, Vector3 c, Vector3 d, Vector3 o)
+            {
+                // лицевая сторона наружу от оси трубки (o — точка на оси)
+                if (Vector3.Dot(Vector3.Cross(c - a, d - a), (a + c + d) / 3f - o) < 0f) (c, d) = (d, c);
+                b.Tri(a, c, d);
+            }
+            for (int i = 0; i < n; i++)
+                for (int j = 0; j < m; j++)
+                {
+                    float u = (i + 0.5f) * Mathf.PI * 2f / n;
+                    var o = new Vector3(0.5f * Mathf.Cos(u), 0f, 0.5f * Mathf.Sin(u));
+                    Vector3 a = P(i, j), c = P(i + 1, j), d = P(i + 1, j + 1), e = P(i, j + 1);
+                    Tri(a, c, d, o); Tri(a, d, e, o);
+                }
+            return b.Build("Torus");
+        });
+
+        /// <summary>Выпуклая пластина: контур в плоскости XY (x, y), толщина depth по Z (от −depth/2 до +depth/2).
+        /// key — имя для кэша (у каждой фигуры своё). Гроб Casket, крышка, плоские детали.</summary>
+        public static Mesh Plate(string key, IReadOnlyList<Vector2> poly, float depth) => Cached($"plate_{key}_{depth}", () =>
+        {
+            var c = Vector2.zero;
+            foreach (var p in poly) c += p;
+            c /= poly.Count;
+            var b = new Builder { Center = new Vector3(c.x, c.y, 0f) };
+            float h = depth * 0.5f;
+            for (int i = 0; i < poly.Count; i++)
+            {
+                Vector2 p0 = poly[i], p1 = poly[(i + 1) % poly.Count];
+                b.Quad(new Vector3(p0.x, p0.y, -h), new Vector3(p1.x, p1.y, -h), new Vector3(p1.x, p1.y, h), new Vector3(p0.x, p0.y, h));
+                b.Tri(new Vector3(c.x, c.y, h), new Vector3(p0.x, p0.y, h), new Vector3(p1.x, p1.y, h));
+                b.Tri(new Vector3(c.x, c.y, -h), new Vector3(p1.x, p1.y, -h), new Vector3(p0.x, p0.y, -h));
+            }
+            return b.Build("Plate");
+        });
+
         /// <summary>Треугольник-крыло (для мыши Dio и стрелки прицела).</summary>
         public static Mesh Wedge() => Cached("wedge", () =>
         {

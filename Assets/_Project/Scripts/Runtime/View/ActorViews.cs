@@ -4,52 +4,35 @@ using UnityEngine;
 
 namespace Arena.View
 {
-    /// <summary>Смерть: тёмный балахон с капюшоном, бледная маска-череп, светящиеся глаза, коса.
-    /// Под ней — стрелка прицела (направление следующего удара).</summary>
+    /// <summary>Серафина, ангел-хранитель (Screenshots/mockups/enemy_caste_reference.webp): светлая роба с золотой каймой,
+    /// капюшон с маской и светящимися глазами, нимб, крылья, сияющий меч остриём вверх в правой руке, кадило на цепях
+    /// в левой. Собрана из low-poly частей. Под ней — стрелка прицела (направление следующего удара).</summary>
     public sealed class PlayerView
     {
         public readonly Transform Root;
-        readonly Transform body, model, aim, shield, aimLine, aimLineBack, reticle, reticleLine, chargeRing;
+        readonly Transform body, model, aim, shield, aimLine, aimLineBack, reticle, reticleLine, chargeRing, censer;
+        readonly Quaternion censerRest;
         readonly Material chargeMat;
         readonly Renderer[] renderers;
         readonly Material aimMat, reticleMat, reticleLineMat;
-        float bob;
+        float bob, censerTilt;
 
         public PlayerView(Transform parent)
         {
-            Root = new GameObject("Death").transform;
+            Root = new GameObject("Seraphina").transform;
             Root.SetParent(parent, false);
             model = new GameObject("Model").transform;
             model.SetParent(Root, false);
             body = new GameObject("Body").transform;
             body.SetParent(model, false);
-            model.localScale = Vector3.one * 0.82f; // рост как у Мелинои в Hades (~150 пикселей мира ≈ 1.3 юнита)
-            var robe = Art.LitMat(new Color(0.11f, 0.09f, 0.14f));
-            var robeEdge = Art.LitMat(new Color(0.24f, 0.10f, 0.16f));
-            var bone = Art.LitMat(new Color(0.86f, 0.83f, 0.76f));
-            var eyes = Art.LitMat(Art.Soul, 4f);
-            var shaft = Art.LitMat(new Color(0.20f, 0.15f, 0.13f));
-            var blade = Art.LitMat(new Color(0.72f, 0.78f, 0.82f), 0.35f);
-            // балахон: широкий низ, рваный подол, плечи
-            Art.Part(body, MeshKit.Prism(9, 0.38f), robe, Vector3.zero, new Vector3(0.82f, 1.05f, 0.78f));
-            Art.Part(body, MeshKit.Prism(9, 1.1f, false), robeEdge, new Vector3(0f, 0.02f, 0f), new Vector3(0.86f, 0.12f, 0.82f));
-            Art.Part(body, MeshKit.Ico(0, 0.15f, 3), robe, new Vector3(0f, 0.95f, -0.02f), new Vector3(0.62f, 0.32f, 0.5f));
-            // капюшон и маска-череп внутри
-            Art.Part(body, MeshKit.Ico(1, 0.1f, 5), robe, new Vector3(0f, 1.2f, -0.04f), new Vector3(0.5f, 0.56f, 0.52f));
-            Art.Part(body, MeshKit.Prism(6, 0f), robe, new Vector3(0f, 1.38f, -0.12f), new Vector3(0.3f, 0.3f, 0.3f), new Vector3(-35f, 0f, 0f)); // острый верх
-            Art.Part(body, MeshKit.Ico(1), bone, new Vector3(0f, 1.15f, 0.12f), new Vector3(0.3f, 0.34f, 0.26f));
-            Art.Part(body, MeshKit.Ico(0), eyes, new Vector3(-0.065f, 1.19f, 0.245f), Vector3.one * 0.07f, default, false);
-            Art.Part(body, MeshKit.Ico(0), eyes, new Vector3(0.065f, 1.19f, 0.245f), Vector3.one * 0.07f, default, false);
-            // костяная кисть и коса
-            Art.Part(body, MeshKit.Ico(0), bone, new Vector3(0.3f, 0.62f, 0.2f), Vector3.one * 0.11f);
-            Art.Part(body, MeshKit.Prism(5), shaft, new Vector3(0.3f, -0.05f, 0.2f), new Vector3(0.06f, 1.75f, 0.06f), new Vector3(0f, 0f, -6f));
-            Art.Part(body, MeshKit.Box(), blade, new Vector3(0.12f, 1.62f, 0.26f), new Vector3(0.62f, 0.07f, 0.03f), new Vector3(0f, 20f, 18f));
-            Art.Part(body, MeshKit.Box(), blade, new Vector3(-0.2f, 1.5f, 0.32f), new Vector3(0.22f, 0.05f, 0.03f), new Vector3(0f, 20f, -25f));
-            // холодный ореол вокруг героини, как у Мелинои в Hades: Смерть читается на тёмной улице
+            BuildSeraphina(body, out censer, out var blade, out var smoke);
+            censerRest = censer.localRotation;
+            body.gameObject.AddComponent<SeraphFx>().Init(blade, smoke, parent);
+            // тёплый ореол: герой читается на тёмной улице
             var halo = new GameObject("Halo").AddComponent<Light>();
             halo.transform.SetParent(Root, false);
             halo.transform.localPosition = new Vector3(0f, 1.6f, 0f);
-            halo.type = LightType.Point; halo.color = new Color(0.55f, 0.9f, 0.88f); halo.range = 4f; halo.intensity = 1.6f; halo.shadows = LightShadows.None;
+            halo.type = LightType.Point; halo.color = new Color(1f, 0.88f, 0.68f); halo.range = 4f; halo.intensity = 1.6f; halo.shadows = LightShadows.None;
             renderers = Root.GetComponentsInChildren<Renderer>();
 
             aimMat = Art.DecalInstance(new Color(1f, 1f, 1f, 0.55f), -1, 5);
@@ -78,6 +61,142 @@ namespace Arena.View
             shieldGo.SetActive(false);
         }
 
+        /// <summary>Часть-конечность: призма от a до b (основание в a), радиус r.</summary>
+        internal static GameObject Limb(Transform parent, Mesh mesh, Material mat, Vector3 a, Vector3 b, float r, bool shadows = true)
+        {
+            var d = b - a;
+            return Art.Part(parent, mesh, mat, a, new Vector3(r * 2f, d.magnitude, r * 2f), Quaternion.FromToRotation(Vector3.up, d).eulerAngles, shadows);
+        }
+
+        /// <summary>Серафина ростом ~1.3 (как прежняя героиня, рост Мелинои в Hades). Смотрит в +Z, правая рука — +X.</summary>
+        static void BuildSeraphina(Transform body, out Transform censer, out Transform blade, out Transform smoke)
+        {
+            var robe = Art.LitMat(new Color(0.94f, 0.88f, 0.76f));
+            var robeShade = Art.LitMat(new Color(0.84f, 0.76f, 0.62f));
+            var hood = Art.LitMat(new Color(0.90f, 0.80f, 0.62f));
+            var porcelain = Art.LitMat(new Color(0.97f, 0.94f, 0.88f));
+            var socket = Art.LitMat(new Color(0.42f, 0.33f, 0.27f));
+            var limb = Art.LitMat(new Color(0.84f, 0.78f, 0.68f));
+            var gold = Art.LitMat(new Color(0.93f, 0.70f, 0.30f));
+            var goldDark = Art.LitMat(new Color(0.72f, 0.50f, 0.22f));
+            var bronze = Art.LitMat(new Color(0.58f, 0.36f, 0.20f));
+            var feather = Art.LitMat(new Color(0.97f, 0.94f, 0.86f));
+            var eyes = Art.LitMat(new Color(1f, 0.95f, 0.78f), 3f);
+            var bladeMat = Art.LitMat(new Color(1f, 0.96f, 0.86f), 1.1f);
+            var flame = Art.LitMat(new Color(1f, 0.66f, 0.25f), 1.4f);
+            var gem = Art.LitMat(new Color(1f, 0.85f, 0.6f), 2f);
+            var ember = Art.LitMat(new Color(1f, 0.45f, 0.15f), 2.2f);
+            var halo = Art.LitMat(new Color(1f, 0.78f, 0.36f), 0.7f);
+
+            // ножки, роба-колокол, кайма подола
+            foreach (float x in new[] { -0.1f, 0.1f })
+                Art.Part(body, MeshKit.Prism(8), limb, new Vector3(x, 0f, 0.02f), new Vector3(0.13f, 0.16f, 0.14f));
+            Art.Part(body, MeshKit.Prism(14, 0.42f), robe, new Vector3(0f, 0.08f, 0f), new Vector3(0.78f, 0.70f, 0.64f));
+            Art.Part(body, MeshKit.Prism(14, 0.97f), gold, new Vector3(0f, 0.075f, 0f), new Vector3(0.81f, 0.06f, 0.67f));
+            Art.Part(body, MeshKit.Prism(14, 0.97f), goldDark, new Vector3(0f, 0.16f, 0f), new Vector3(0.755f, 0.016f, 0.62f), default, false);
+            // фартук спереди: полотно по наклону робы, золотые края, шеврон и ромб
+            const float slope = -14.8f;
+            float Front(float y) => 0.32f * (1f - 0.58f * (y - 0.08f) / 0.70f) + 0.006f;
+            Art.Part(body, MeshKit.Box(), robeShade, new Vector3(0f, 0.42f, Front(0.42f)), new Vector3(0.19f, 0.66f, 0.012f), new Vector3(slope, 0f, 0f), false);
+            foreach (float x in new[] { -0.1f, 0.1f })
+                Art.Part(body, MeshKit.Box(), gold, new Vector3(x, 0.42f, Front(0.42f) + 0.004f), new Vector3(0.03f, 0.66f, 0.018f), new Vector3(slope, 0f, 0f), false);
+            foreach (float sx in new[] { -1f, 1f })
+            {
+                Art.Part(body, MeshKit.Box(), gold, new Vector3(sx * 0.045f, 0.43f, Front(0.43f) + 0.006f), new Vector3(0.115f, 0.026f, 0.018f), new Vector3(slope, 0f, sx * 30f), false);
+                Art.Part(body, MeshKit.Box(), gold, new Vector3(sx * 0.04f, 0.36f, Front(0.36f) + 0.006f), new Vector3(0.1f, 0.018f, 0.018f), new Vector3(slope, 0f, sx * 30f), false);
+            }
+            Art.Part(body, MeshKit.Box(), gold, new Vector3(0f, 0.23f, Front(0.23f) + 0.006f), new Vector3(0.085f, 0.085f, 0.018f), new Vector3(slope, 0f, 45f), false);
+            Art.Part(body, MeshKit.Box(), robeShade, new Vector3(0f, 0.23f, Front(0.23f) + 0.012f), new Vector3(0.045f, 0.045f, 0.012f), new Vector3(slope, 0f, 45f), false);
+            // плечи-мантия, V-отвороты, золотой ворот
+            Art.Part(body, MeshKit.Ico(1), robe, new Vector3(0f, 0.70f, -0.01f), new Vector3(0.54f, 0.26f, 0.42f));
+            foreach (float sx in new[] { -1f, 1f })
+            {
+                Art.Part(body, MeshKit.Box(), gold, new Vector3(sx * 0.05f, 0.68f, 0.19f), new Vector3(0.038f, 0.26f, 0.03f), new Vector3(-28f, 0f, -sx * 22f), false);
+                Art.Part(body, MeshKit.Box(), gold, new Vector3(sx * 0.12f, 0.68f, 0.165f), new Vector3(0.026f, 0.22f, 0.03f), new Vector3(-30f, 0f, -sx * 30f), false);
+            }
+            Art.Part(body, MeshKit.Prism(12), gold, new Vector3(0f, 0.765f, 0f), new Vector3(0.27f, 0.045f, 0.24f));
+            // голова: капюшон, маска лица, глаза-миндалины, нимб
+            Art.Part(body, MeshKit.Ico(2), hood, new Vector3(0f, 1.04f, -0.01f), new Vector3(0.48f, 0.50f, 0.46f));
+            Art.Part(body, MeshKit.Ico(2), porcelain, new Vector3(0f, 1.03f, 0.11f), new Vector3(0.36f, 0.39f, 0.26f));
+            foreach (float sx in new[] { -1f, 1f })
+            {
+                Art.Part(body, MeshKit.Ico(1), socket, new Vector3(sx * 0.07f, 1.062f, 0.226f), new Vector3(0.1f, 0.058f, 0.03f), new Vector3(0f, sx * 14f, sx * 12f), false);
+                Art.Part(body, MeshKit.Ico(1), eyes, new Vector3(sx * 0.07f, 1.065f, 0.236f), new Vector3(0.072f, 0.032f, 0.03f), new Vector3(0f, sx * 14f, sx * 12f), false);
+            }
+            Art.Part(body, MeshKit.Torus(0.07f, 24, 6), halo, new Vector3(0f, 1.37f, -0.04f), Vector3.one * 0.38f, new Vector3(-12f, 0f, 0f), false);
+            // крылья: веер маховых перьев и золотистые кроющие сверху, отведены назад
+            foreach (float sx in new[] { -1f, 1f })
+            {
+                var wing = new GameObject(sx > 0 ? "WingR" : "WingL").transform;
+                wing.SetParent(body, false);
+                wing.localPosition = new Vector3(sx * 0.1f, 0.88f, -0.16f);
+                wing.localEulerAngles = new Vector3(-8f, sx * 24f, 0f);
+                for (int i = 0; i < 6; i++)
+                {
+                    float ang = 36f + 19f * i, len = 0.56f - 0.04f * i;
+                    var dir = Quaternion.Euler(0f, 0f, -sx * ang) * Vector3.up;
+                    Art.Part(wing, MeshKit.Ico(1), feather, dir * (len * 0.5f) - Vector3.forward * 0.01f * i, new Vector3(0.15f, len, 0.04f), new Vector3(0f, 0f, -sx * ang));
+                }
+                for (int i = 0; i < 4; i++)
+                {
+                    float ang = 32f + 20f * i, len = 0.3f;
+                    var dir = Quaternion.Euler(0f, 0f, -sx * ang) * Vector3.up;
+                    Art.Part(wing, MeshKit.Ico(1), i == 0 ? gold : feather, dir * (len * 0.5f) + Vector3.forward * 0.03f, new Vector3(0.11f, len, 0.04f), new Vector3(0f, 0f, -sx * ang));
+                }
+            }
+            // рукава с золотыми манжетами и кисти: правая (+X) держит меч у груди, левая опущена с кадилом
+            var swordHand = new Vector3(0.36f, 0.62f, 0.17f);
+            var censerHand = new Vector3(-0.39f, 0.44f, 0.08f);
+            void Arm(Vector3 sh, Vector3 el, Vector3 hand)
+            {
+                var wr = hand + (el - hand).normalized * 0.06f;
+                Limb(body, MeshKit.Prism(8, 1.2f), robe, sh, el, 0.075f);
+                Limb(body, MeshKit.Prism(8, 1.15f), robe, el, wr, 0.085f);
+                Limb(body, MeshKit.Prism(10), gold, wr - (wr - el).normalized * 0.05f, wr + (wr - el).normalized * 0.012f, 0.105f);
+                Art.Part(body, MeshKit.Ico(1), limb, hand, Vector3.one * 0.11f);
+            }
+            Arm(new Vector3(0.19f, 0.72f, 0f), new Vector3(0.35f, 0.44f, 0.1f), swordHand);
+            Arm(new Vector3(-0.19f, 0.72f, 0f), new Vector3(-0.36f, 0.57f, 0.02f), censerHand);
+
+            // меч: рукоять, навершие с камнем, гарда с загнутыми концами, сияющий клинок с огненным узором
+            var hilt = new GameObject("Sword").transform;
+            hilt.SetParent(body, false);
+            hilt.localPosition = swordHand;
+            Art.Part(hilt, MeshKit.Prism(6), goldDark, new Vector3(0f, -0.09f, 0f), new Vector3(0.045f, 0.18f, 0.045f));
+            Art.Part(hilt, MeshKit.Ico(1), gold, new Vector3(0f, -0.11f, 0f), Vector3.one * 0.055f);
+            Art.Part(hilt, MeshKit.Prism(4, 0f), gem, new Vector3(0f, -0.13f, 0f), new Vector3(0.05f, 0.07f, 0.05f), new Vector3(180f, 45f, 0f), false);
+            Art.Part(hilt, MeshKit.Box(), gold, new Vector3(0f, 0.1f, 0f), new Vector3(0.26f, 0.035f, 0.05f));
+            foreach (float sx in new[] { -1f, 1f })
+                Art.Part(hilt, MeshKit.Ico(1), gold, new Vector3(sx * 0.135f, 0.125f, 0f), new Vector3(0.05f, 0.065f, 0.05f));
+            Art.Part(hilt, MeshKit.Ico(0), gem, new Vector3(0f, 0.1f, 0.03f), new Vector3(0.05f, 0.05f, 0.03f), default, false);
+            Art.Part(hilt, MeshKit.Box(), bladeMat, new Vector3(0f, 0.52f, 0f), new Vector3(0.11f, 0.8f, 0.026f), default, false);
+            Art.Part(hilt, MeshKit.Prism(4, 0f), bladeMat, new Vector3(0f, 0.92f, 0f), new Vector3(0.155f, 0.15f, 0.036f), default, false);
+            Art.Part(hilt, MeshKit.Box(), flame, new Vector3(0f, 0.36f, 0f), new Vector3(0.036f, 0.34f, 0.032f), new Vector3(0f, 0f, 6f), false);
+            Art.Part(hilt, MeshKit.Box(), flame, new Vector3(0.006f, 0.58f, 0f), new Vector3(0.024f, 0.2f, 0.032f), new Vector3(0f, 0f, -12f), false);
+            blade = new GameObject("SwordFlame").transform;
+            blade.SetParent(hilt, false);
+            blade.localPosition = new Vector3(0f, 0.52f, 0f);
+
+            // кадило: пивот в кулаке (качается на цепях), три цепи к крышке, чаша, обод, купол, маковка
+            censer = new GameObject("Censer").transform;
+            censer.SetParent(body, false);
+            censer.localPosition = censerHand;
+            for (int k = 0; k < 3; k++)
+            {
+                float a = Mathf.PI * 0.5f + k * Mathf.PI * 2f / 3f;
+                Limb(censer, MeshKit.Box(), goldDark, Vector3.zero, new Vector3(Mathf.Cos(a) * 0.065f, -0.2f, Mathf.Sin(a) * 0.065f), 0.006f, false);
+            }
+            Art.Part(censer, MeshKit.Prism(8), bronze, new Vector3(0f, -0.4f, 0f), new Vector3(0.12f, 0.03f, 0.12f));
+            Art.Part(censer, MeshKit.Prism(8, 1.4f), bronze, new Vector3(0f, -0.37f, 0f), new Vector3(0.12f, 0.08f, 0.12f));
+            Art.Part(censer, MeshKit.Prism(8), gold, new Vector3(0f, -0.29f, 0f), new Vector3(0.19f, 0.025f, 0.19f));
+            Art.Part(censer, MeshKit.Prism(8, 0.35f), bronze, new Vector3(0f, -0.265f, 0f), new Vector3(0.165f, 0.09f, 0.165f));
+            Art.Part(censer, MeshKit.Prism(8, 0.75f), ember, new Vector3(0f, -0.26f, 0f), new Vector3(0.15f, 0.04f, 0.15f), default, false);
+            Art.Part(censer, MeshKit.Ico(1), gold, new Vector3(0f, -0.165f, 0f), Vector3.one * 0.045f);
+            smoke = new GameObject("CenserSmoke").transform;
+            smoke.SetParent(censer, false);
+            smoke.localPosition = new Vector3(0f, -0.14f, 0f);
+        }
+
         public void Sync(ArenaSim sim, float dt, float time)
         {
             var p = sim.Player;
@@ -92,6 +211,9 @@ namespace Arena.View
             body.localPosition = new Vector3(0f, p.Moving ? Mathf.Abs(Mathf.Sin(bob)) * 0.08f : 0f, 0f);
             body.localScale = new Vector3(1f + squash, 1f - squash, 1f + squash);
             body.localEulerAngles = new Vector3(p.Moving ? 8f : 0f, 0f, 0f);
+            // кадило на цепях: на бегу отстаёт назад, на месте покачивается
+            censerTilt = Mathf.Lerp(censerTilt, p.Moving ? 24f : 0f, Mathf.Clamp01(dt * 6f));
+            censer.localRotation = censerRest * Quaternion.Euler(censerTilt + Mathf.Sin(time * 2.4f) * 7f, 0f, Mathf.Sin(time * 1.7f) * 4f);
             // мигание неуязвимости
             bool blink = (p.HitInvuln > 0f || p.BuffInvuln > 0f) && Mathf.Repeat(time * 20f, 1f) < 0.5f;
             foreach (var r in renderers) r.enabled = !blink;
@@ -160,13 +282,14 @@ namespace Arena.View
         }
     }
 
-    /// <summary>Враг: Ghost, Топотун (DandyAce, Пуфф), Thug, Witch (Hades), Wastrel, Casket (Hades II); полоска здоровья,
+    /// <summary>Враг: Ghost, Топотун (DandyAce, Пуфф), Thug, Witch (Hades), Wastrel, Casket (Hades II) — последние четыре по
+    /// концепту Screenshots/mockups/enemy_caste_reference.webp; полоска здоровья,
     /// иконки статусов, «!» и обозначение атаки.</summary>
     public sealed class EnemyView
     {
         public readonly Enemy E;
         public readonly Transform Root;
-        readonly Transform model, body, hpFill, alert, statusRoot, legL, legR, attackIcon;
+        readonly Transform model, body, hpFill, alert, statusRoot, legL, legR, attackIcon, lid, vortex;
         readonly Material attackMat;
         TeleShape iconShape = (TeleShape)(-1);
         readonly Renderer[] renderers;
@@ -177,7 +300,7 @@ namespace Arena.View
         readonly Material spawnMat;
         readonly Transform[] statusIcons = new Transform[11];
         static readonly bool[] StatusOn = new bool[11];
-        float t;
+        float t, lidOpen;
 
         public EnemyView(Enemy e, Transform parent)
         {
@@ -195,10 +318,9 @@ namespace Arena.View
                 case EnemyKind.Thug: BuildThug(out legL, out legR); break;
                 case EnemyKind.Witch: BuildWitch(); break;
                 case EnemyKind.Wastrel: BuildWastrel(out legL, out legR); break;
-                default: BuildCasket(); break;
+                default: BuildCasket(out legL, out legR, out lid, out vortex); break;
             }
-            if (e.Kind is EnemyKind.Wastrel or EnemyKind.Casket)
-                model.localScale = Vector3.one * (e.Kind == EnemyKind.Wastrel ? 0.95f : 0.8f); // Wastrel крупнее Мелинои, Casket — с неё
+            if (e.Kind == EnemyKind.Wastrel) model.localScale = Vector3.one * 0.95f; // Wastrel крупнее Мелинои
             renderers = body.GetComponentsInChildren<Renderer>();
             flashMats = new Material[renderers.Length];
             baseColors = new Color[renderers.Length];
@@ -252,38 +374,58 @@ namespace Arena.View
             tele = new TelegraphView(parent);
         }
 
-        static float Height(EnemyKind k) => k switch { EnemyKind.Ghost => 1.55f, EnemyKind.Thug => 1.9f, EnemyKind.Witch => 1.45f, EnemyKind.Wastrel => 1.5f, EnemyKind.Casket => 1.3f, _ => 0.9f };
+        static float Height(EnemyKind k) => k switch { EnemyKind.Ghost => 1.55f, EnemyKind.Thug => 1.9f, EnemyKind.Witch => 1.6f, EnemyKind.Wastrel => 1.55f, EnemyKind.Casket => 1.35f, _ => 0.9f };
 
-        /// <summary>Wretched Thug: громила-тень с дубиной, выше Ace (Tallness 380 против 200).</summary>
+        /// <summary>Wretched Thug (концепт «Enemy caste»): глиняный толстяк — огромное пузо, маленькая голова, насупленные
+        /// брови, каменная дубина в правой руке; выше Ace (Tallness 380 против 200).</summary>
         void BuildThug(out Transform l, out Transform r)
         {
-            var shade = Art.LitMat(new Color(0.42f, 0.36f, 0.5f));
-            var dark = Art.LitMat(new Color(0.22f, 0.18f, 0.28f));
-            var eye = Art.LitMat(new Color(1f, 0.85f, 0.35f), 2f);
-            var wood = Art.LitMat(new Color(0.5f, 0.36f, 0.26f));
-            Art.Part(body, MeshKit.Ico(1, 0.08f, 11), shade, new Vector3(0f, 1.05f, 0f), new Vector3(1.15f, 1.1f, 0.95f));
-            Art.Part(body, MeshKit.Ico(1, 0.06f, 12), shade, new Vector3(0f, 1.75f, 0.15f), new Vector3(0.55f, 0.5f, 0.5f));
-            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.12f, 1.8f, 0.38f), Vector3.one * 0.09f);
-            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.12f, 1.8f, 0.38f), Vector3.one * 0.09f);
-            Art.Part(body, MeshKit.Ico(1, 0.05f, 13), shade, new Vector3(-0.62f, 1.15f, 0.1f), new Vector3(0.35f, 0.6f, 0.35f));
-            // правая рука с дубиной — ей и бьёт трапецией перед собой
-            Art.Part(body, MeshKit.Ico(1, 0.05f, 14), shade, new Vector3(0.6f, 1.1f, 0.2f), new Vector3(0.35f, 0.55f, 0.35f));
-            Art.Part(body, MeshKit.Prism(6, 1.3f), wood, new Vector3(0.62f, 0.85f, 0.4f), new Vector3(0.22f, 0.85f, 0.22f), new Vector3(70f, 0f, 0f));
-            l = Art.Part(model, MeshKit.Prism(6), dark, new Vector3(-0.28f, 0f, 0f), new Vector3(0.28f, 0.55f, 0.28f)).transform;
-            r = Art.Part(model, MeshKit.Prism(6), dark, new Vector3(0.28f, 0f, 0f), new Vector3(0.28f, 0.55f, 0.28f)).transform;
+            var clay = Art.LitMat(new Color(0.66f, 0.45f, 0.33f));
+            var clayDark = Art.LitMat(new Color(0.47f, 0.31f, 0.23f));
+            var rock = Art.LitMat(new Color(0.60f, 0.57f, 0.52f));
+            var eye = Art.LitMat(new Color(0.16f, 0.1f, 0.08f));
+            Art.Part(body, MeshKit.Ico(1, 0.04f, 11), clay, new Vector3(0f, 1.0f, 0f), new Vector3(1.2f, 1.15f, 1.0f));      // туловище
+            Art.Part(body, MeshKit.Ico(1, 0.03f, 15), clay, new Vector3(0f, 0.78f, 0.22f), new Vector3(0.95f, 0.8f, 0.7f));  // пузо
+            Art.Part(body, MeshKit.Ico(1, 0.05f, 12), clay, new Vector3(0f, 1.66f, 0.2f), new Vector3(0.46f, 0.44f, 0.44f)); // голова в плечах
+            Art.Part(body, MeshKit.Box(), clayDark, new Vector3(0f, 1.74f, 0.4f), new Vector3(0.3f, 0.06f, 0.08f), new Vector3(-15f, 0f, 0f)); // брови
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.08f, 1.68f, 0.41f), Vector3.one * 0.06f, default, false);
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.08f, 1.68f, 0.41f), Vector3.one * 0.06f, default, false);
+            foreach (float sx in new[] { -1f, 1f })
+            {
+                Art.Part(body, MeshKit.Ico(1, 0.04f, 13), clay, new Vector3(sx * 0.62f, 1.3f, 0.05f), new Vector3(0.46f, 0.5f, 0.46f));  // плечо
+                Art.Part(body, MeshKit.Ico(1, 0.04f, 14), clay, new Vector3(sx * 0.7f, 0.92f, 0.12f), new Vector3(0.36f, 0.62f, 0.36f)); // рука
+                Art.Part(body, MeshKit.Ico(1, 0.06f, 16), clayDark, new Vector3(sx * 0.72f, 0.6f, 0.2f), Vector3.one * 0.34f);           // кулак
+            }
+            // каменная дубина в правой руке, тяжёлым концом вперёд-вниз — ей и бьёт трапецией перед собой
+            PlayerView.Limb(body, MeshKit.Prism(6, 1.25f), clayDark, new Vector3(0.72f, 0.62f, 0.15f), new Vector3(0.78f, 0.5f, 0.75f), 0.07f);
+            Art.Part(body, MeshKit.Ico(1, 0.18f, 17), rock, new Vector3(0.8f, 0.48f, 0.82f), new Vector3(0.36f, 0.32f, 0.5f), new Vector3(20f, 10f, 0f));
+            l = Art.Part(model, MeshKit.Prism(7, 0.9f), clayDark, new Vector3(-0.3f, 0f, 0f), new Vector3(0.34f, 0.5f, 0.34f)).transform;
+            r = Art.Part(model, MeshKit.Prism(7, 0.9f), clayDark, new Vector3(0.3f, 0f, 0f), new Vector3(0.34f, 0.5f, 0.34f)).transform;
         }
 
-        /// <summary>Wretched Witch: тень в балахоне со светящимся шаром в руке — им и стреляет.</summary>
+        /// <summary>Wretched Witch: сине-лиловый балахон с острым капюшоном, тьма вместо лица, белые глаза,
+        /// деревянный посох с завитком в правой руке.</summary>
         void BuildWitch()
         {
-            var robe = Art.LitMat(new Color(0.3f, 0.24f, 0.42f));
-            var hood = Art.LitMat(new Color(0.2f, 0.15f, 0.3f));
-            var glow = Art.LitMat(new Color(0.75f, 0.45f, 1f), 2.5f);
-            Art.Part(body, MeshKit.Prism(7, 0.35f), robe, new Vector3(0f, 0f, 0f), new Vector3(0.85f, 1.15f, 0.8f));
-            Art.Part(body, MeshKit.Prism(6, 0f), hood, new Vector3(0f, 1.1f, 0f), new Vector3(0.55f, 0.55f, 0.55f));
-            Art.Part(body, MeshKit.Ico(0), glow, new Vector3(-0.1f, 1.2f, 0.25f), Vector3.one * 0.07f);
-            Art.Part(body, MeshKit.Ico(0), glow, new Vector3(0.1f, 1.2f, 0.25f), Vector3.one * 0.07f);
-            Art.Part(body, MeshKit.Ico(1), glow, new Vector3(0.38f, 0.9f, 0.35f), Vector3.one * 0.22f);
+            var robe = Art.LitMat(new Color(0.46f, 0.46f, 0.64f));
+            var robeDark = Art.LitMat(new Color(0.32f, 0.32f, 0.47f));
+            var voidMat = Art.LitMat(new Color(0.05f, 0.04f, 0.08f));
+            var eye = Art.LitMat(new Color(1f, 0.96f, 0.9f), 3f);
+            var wood = Art.LitMat(new Color(0.55f, 0.38f, 0.24f));
+            var hand = Art.LitMat(new Color(0.55f, 0.55f, 0.66f));
+            Art.Part(body, MeshKit.Prism(8, 0.38f), robe, Vector3.zero, new Vector3(0.82f, 1.0f, 0.76f));                       // балахон
+            Art.Part(body, MeshKit.Prism(8, 1.04f), robeDark, Vector3.zero, new Vector3(0.84f, 0.08f, 0.78f));                  // тёмный подол
+            Art.Part(body, MeshKit.Ico(1), robe, new Vector3(0f, 1.02f, -0.02f), new Vector3(0.62f, 0.6f, 0.6f));                // капюшон
+            Art.Part(body, MeshKit.Prism(8, 0f), robe, new Vector3(0f, 1.1f, -0.08f), new Vector3(0.56f, 0.6f, 0.52f), new Vector3(-24f, 0f, 0f)); // острый верх
+            Art.Part(body, MeshKit.Ico(1), robeDark, new Vector3(0f, 0.99f, 0.17f), new Vector3(0.44f, 0.42f, 0.3f), default, false); // край капюшона
+            Art.Part(body, MeshKit.Ico(1), voidMat, new Vector3(0f, 0.99f, 0.2f), new Vector3(0.36f, 0.34f, 0.28f), default, false);  // тьма лица
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.07f, 1.0f, 0.335f), new Vector3(0.075f, 0.05f, 0.03f), new Vector3(0f, 0f, -12f), false);
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.07f, 1.0f, 0.335f), new Vector3(0.075f, 0.05f, 0.03f), new Vector3(0f, 0f, 12f), false);
+            // рука и посох с завитком
+            Art.Part(body, MeshKit.Ico(1), hand, new Vector3(0.36f, 0.66f, 0.2f), Vector3.one * 0.12f);
+            Art.Part(body, MeshKit.Prism(6), wood, new Vector3(0.38f, 0f, 0.22f), new Vector3(0.06f, 1.38f, 0.06f), new Vector3(0f, 0f, -4f));
+            Art.Part(body, MeshKit.Torus(0.14f, 14, 5), wood, new Vector3(0.33f, 1.5f, 0.22f), Vector3.one * 0.24f, new Vector3(90f, 0f, 0f));
+            Art.Part(body, MeshKit.Ico(0), wood, new Vector3(0.28f, 1.46f, 0.22f), Vector3.one * 0.07f);
         }
 
         void BuildGhost()
@@ -314,40 +456,63 @@ namespace Arena.View
             r = Art.Part(model, MeshKit.Prism(5), dark, new Vector3(0.17f, 0f, 0f), new Vector3(0.12f, 0.3f, 0.12f)).transform;
         }
 
-        /// <summary>Wastrel — сгорбленная тень-громила Эреба: широкие плечи, маленькая голова, тяжёлые кулаки, ходит.</summary>
+        /// <summary>Wastrel: оливковый каменный голем — бочка-торс с поясами, ржавые наплечники, голова утоплена в плечи,
+        /// руки до земли с огромными кулаками, короткие ноги.</summary>
         void BuildWastrel(out Transform l, out Transform r)
         {
-            var hide = Art.LitMat(new Color(0.30f, 0.24f, 0.36f));
-            var dark = Art.LitMat(new Color(0.14f, 0.11f, 0.17f));
-            var eye = Art.LitMat(new Color(1f, 0.3f, 0.2f), 3f);
-            Art.Part(body, MeshKit.Ico(1, 0.08f, 3), hide, new Vector3(0f, 0.95f, 0f), new Vector3(0.95f, 0.85f, 0.75f));      // туловище
-            Art.Part(body, MeshKit.Ico(1, 0.1f, 4), hide, new Vector3(0f, 1.35f, 0.08f), new Vector3(1.05f, 0.45f, 0.6f));     // плечи-горб
-            Art.Part(body, MeshKit.Ico(0, 0.05f, 5), dark, new Vector3(0f, 1.3f, 0.38f), new Vector3(0.36f, 0.32f, 0.32f));    // голова низко
-            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.08f, 1.33f, 0.53f), Vector3.one * 0.07f, default, false);
-            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.08f, 1.33f, 0.53f), Vector3.one * 0.07f, default, false);
-            // руки до земли и кулаки
-            Art.Part(body, MeshKit.Prism(6, 0.8f), hide, new Vector3(-0.55f, 0.45f, 0.15f), new Vector3(0.22f, 0.8f, 0.22f), new Vector3(10f, 0f, -8f));
-            Art.Part(body, MeshKit.Prism(6, 0.8f), hide, new Vector3(0.55f, 0.45f, 0.15f), new Vector3(0.22f, 0.8f, 0.22f), new Vector3(10f, 0f, 8f));
-            Art.Part(body, MeshKit.Ico(0, 0.1f, 6), dark, new Vector3(-0.58f, 0.38f, 0.22f), Vector3.one * 0.34f);
-            Art.Part(body, MeshKit.Ico(0, 0.1f, 7), dark, new Vector3(0.58f, 0.38f, 0.22f), Vector3.one * 0.34f);
-            l = Art.Part(model, MeshKit.Prism(5), dark, new Vector3(-0.22f, 0f, 0f), new Vector3(0.2f, 0.45f, 0.2f)).transform;
-            r = Art.Part(model, MeshKit.Prism(5), dark, new Vector3(0.22f, 0f, 0f), new Vector3(0.2f, 0.45f, 0.2f)).transform;
+            var stone = Art.LitMat(new Color(0.50f, 0.53f, 0.27f));
+            var stoneDark = Art.LitMat(new Color(0.35f, 0.38f, 0.19f));
+            var rust = Art.LitMat(new Color(0.58f, 0.38f, 0.24f));
+            var eye = Art.LitMat(new Color(1f, 0.85f, 0.45f), 1.5f);
+            Art.Part(body, MeshKit.Ico(1, 0.03f, 3), stone, new Vector3(0f, 1.0f, 0f), new Vector3(0.95f, 1.0f, 0.8f));           // торс
+            Art.Part(body, MeshKit.Prism(10, 0.92f), stoneDark, new Vector3(0f, 0.72f, 0f), new Vector3(0.92f, 0.07f, 0.78f));      // пояса
+            Art.Part(body, MeshKit.Prism(10, 1.05f), stoneDark, new Vector3(0f, 0.9f, 0f), new Vector3(0.96f, 0.05f, 0.82f));
+            Art.Part(body, MeshKit.Ico(1, 0.04f, 5), stoneDark, new Vector3(0f, 1.42f, 0.22f), new Vector3(0.38f, 0.34f, 0.36f));  // голова
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.08f, 1.44f, 0.39f), Vector3.one * 0.06f, default, false);
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.08f, 1.44f, 0.39f), Vector3.one * 0.06f, default, false);
+            foreach (float sx in new[] { -1f, 1f })
+            {
+                Art.Part(body, MeshKit.Ico(1, 0.03f, 8), rust, new Vector3(sx * 0.5f, 1.38f, 0f), new Vector3(0.46f, 0.3f, 0.5f));  // наплечник
+                PlayerView.Limb(body, MeshKit.Prism(8, 1.3f), stone, new Vector3(sx * 0.55f, 1.25f, 0.02f), new Vector3(sx * 0.66f, 0.42f, 0.14f), 0.16f); // рука до земли
+                Art.Part(body, MeshKit.Ico(1, 0.06f, 6), stoneDark, new Vector3(sx * 0.68f, 0.3f, 0.16f), new Vector3(0.48f, 0.44f, 0.5f)); // кулак
+            }
+            l = Art.Part(model, MeshKit.Prism(6), stoneDark, new Vector3(-0.22f, 0f, 0f), new Vector3(0.26f, 0.5f, 0.26f)).transform;
+            r = Art.Part(model, MeshKit.Prism(6), stoneDark, new Vector3(0.22f, 0f, 0f), new Vector3(0.26f, 0.5f, 0.26f)).transform;
         }
 
-        /// <summary>Casket — парящий заклинатель-ларец: узкий балахон без ног, капюшон, светящаяся сфера-заряд перед собой.</summary>
-        void BuildCasket()
+        static readonly Vector2[] CoffinShape = { new(-0.2f, 0f), new(0.2f, 0f), new(0.33f, 0.82f), new(0.24f, 1.12f), new(-0.24f, 1.12f), new(-0.33f, 0.82f) };
+        static readonly Vector2[] CoffinPanel = { new(-0.13f, 0.12f), new(0.13f, 0.12f), new(0.23f, 0.8f), new(0.17f, 1.0f), new(-0.17f, 1.0f), new(-0.23f, 0.8f) };
+
+        /// <summary>Casket — каменный гроб на коротких ножках, щель-глаз светится на крышке; в замахе крышка распахивается
+        /// и внутри крутится красный вихрь (им и стреляет).</summary>
+        void BuildCasket(out Transform l, out Transform r, out Transform lidHinge, out Transform vortex)
         {
-            var robe = Art.LitMat(new Color(0.22f, 0.16f, 0.32f));
-            var trim = Art.LitMat(new Color(0.55f, 0.42f, 0.25f));
-            var glow = Art.LitMat(new Color(0.75f, 0.4f, 1f), 2.5f);
-            var eye = Art.LitMat(new Color(0.85f, 0.6f, 1f), 3f);
-            Art.Part(body, MeshKit.Prism(8, 0.45f), robe, new Vector3(0f, 0.25f, 0f), new Vector3(0.62f, 1.05f, 0.6f));      // балахон
-            Art.Part(body, MeshKit.Prism(8, 1.1f, false), trim, new Vector3(0f, 0.25f, 0f), new Vector3(0.64f, 0.1f, 0.62f));  // кайма
-            Art.Part(body, MeshKit.Prism(4, 0.9f), trim, new Vector3(0f, 0.95f, 0.05f), new Vector3(0.5f, 0.35f, 0.4f), new Vector3(0f, 45f, 0f)); // ларец-грудь
-            Art.Part(body, MeshKit.Ico(1, 0.08f, 2), robe, new Vector3(0f, 1.38f, -0.02f), new Vector3(0.42f, 0.46f, 0.44f));  // капюшон
-            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.07f, 1.38f, 0.19f), Vector3.one * 0.06f, default, false);
-            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.07f, 1.38f, 0.19f), Vector3.one * 0.06f, default, false);
-            Art.Part(body, MeshKit.Ico(1), glow, new Vector3(0f, 1f, 0.45f), Vector3.one * 0.2f, default, false);              // заряд
+            var stone = Art.LitMat(new Color(0.29f, 0.47f, 0.43f));
+            var stoneLight = Art.LitMat(new Color(0.37f, 0.56f, 0.51f));
+            var rim = Art.LitMat(new Color(0.22f, 0.30f, 0.29f));
+            var slit = Art.LitMat(new Color(1f, 0.93f, 0.7f), 2.2f);
+            var core = Art.LitMat(new Color(1f, 0.15f, 0.12f), 2.5f);
+            var coreDark = Art.LitMat(new Color(0.55f, 0.04f, 0.06f), 1f);
+            const float y0 = 0.2f, depth = 0.34f;
+            var box = Art.Part(body, MeshKit.Plate("coffin", CoffinShape, depth), stone, new Vector3(0f, y0, 0f), Vector3.one).transform;
+            Art.Part(box, MeshKit.Plate("coffinRim", CoffinShape, 0.04f), rim, new Vector3(0f, 0f, depth * 0.5f + 0.005f), new Vector3(1.03f, 1.02f, 1f), default, false);
+            // вихрь внутри — виден, когда крышка открыта
+            vortex = new GameObject("Vortex").transform;
+            vortex.SetParent(box, false);
+            vortex.localPosition = new Vector3(0f, 0.6f, depth * 0.5f + 0.03f);
+            Art.Part(vortex, MeshKit.Prism(10), coreDark, Vector3.zero, new Vector3(0.42f, 0.02f, 0.42f), new Vector3(90f, 0f, 0f), false);
+            Art.Part(vortex, MeshKit.Torus(0.12f, 12, 4), core, new Vector3(0f, 0f, 0.012f), Vector3.one * 0.3f, new Vector3(90f, 0f, 0f), false);
+            Art.Part(vortex, MeshKit.Torus(0.16f, 10, 4), core, new Vector3(0f, 0f, 0.016f), Vector3.one * 0.15f, new Vector3(90f, 0f, 0f), false);
+            Art.Part(vortex, MeshKit.Ico(0), core, new Vector3(0f, 0f, 0.02f), new Vector3(0.07f, 0.07f, 0.03f), default, false);
+            // крышка на петле у левого края
+            lidHinge = new GameObject("LidHinge").transform;
+            lidHinge.SetParent(box, false);
+            lidHinge.localPosition = new Vector3(-0.33f, 0f, depth * 0.5f + 0.06f);
+            var lid = Art.Part(lidHinge, MeshKit.Plate("coffin", CoffinShape, 0.07f), stoneLight, new Vector3(0.33f, 0f, 0f), new Vector3(1f, 1f, 1f), default, false).transform;
+            Art.Part(lid, MeshKit.Plate("coffinPanel", CoffinPanel, 0.03f), stone, new Vector3(0f, 0f, 0.045f), Vector3.one, default, false);
+            Art.Part(lid, MeshKit.Box(), slit, new Vector3(0f, 0.86f, 0.062f), new Vector3(0.2f, 0.035f, 0.02f), default, false);
+            l = Art.Part(model, MeshKit.Prism(6), rim, new Vector3(-0.1f, 0f, 0f), new Vector3(0.11f, y0 + 0.02f, 0.11f)).transform;
+            r = Art.Part(model, MeshKit.Prism(6), rim, new Vector3(0.1f, 0f, 0f), new Vector3(0.11f, y0 + 0.02f, 0.11f)).transform;
         }
 
         public void Sync(float dt, float time)
@@ -380,7 +545,6 @@ namespace Arena.View
             if (e.HadesKind && windup) scale = 1f; // в Hades враг не растёт — только дрожит
             float hover = e.Kind switch
             {
-                EnemyKind.Casket => 0.25f + Mathf.Sin(t * 3f) * 0.08f, // Casket парит
                 EnemyKind.Ghost or EnemyKind.Witch => Mathf.Sin(t * 3f) * 0.08f,
                 _ => 0f,
             };
@@ -397,6 +561,14 @@ namespace Arena.View
             else if (e.HadesKind && (e.State is AiState.Windup or AiState.PreFire)) body.localEulerAngles = new Vector3(-12f, 0f, 0f); // отклоняется назад в замахе
             else if (e.Stun > 0f) body.localEulerAngles = new Vector3(0f, 0f, Mathf.Sin(t * 20f) * 8f);
             else body.localEulerAngles = Vector3.zero;
+            if (lid != null)
+            {
+                // Casket: в замахе и перед выстрелом крышка распахивается, вихрь крутится
+                bool open = !e.Dead && (e.State is AiState.Windup or AiState.PreFire or AiState.Strike || e.Tele != null);
+                lidOpen = Mathf.MoveTowards(lidOpen, open ? 1f : 0f, dt * (open ? 4f : 2.5f));
+                lid.localEulerAngles = new Vector3(0f, -105f * lidOpen * lidOpen * (3f - 2f * lidOpen), 0f);
+                vortex.localEulerAngles = new Vector3(0f, 0f, t * 400f);
+            }
             if (legL != null)
             {
                 float s = e.Moved > 0.001f ? Mathf.Sin(t * (e.Kind == EnemyKind.Thug ? 9f : 16f)) * 0.12f : 0f;
