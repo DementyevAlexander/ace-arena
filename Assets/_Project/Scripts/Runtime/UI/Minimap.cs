@@ -6,9 +6,9 @@ using UnityEngine.UI;
 namespace Arena.UI
 {
     /// <summary>Мини-карта этажа в духе Enter the Gungeon: окрестность Смерти крупно (PixelsPerCell на клетку), карта едет
-    /// вместе с ней. Коридоры открываются там, где прошла Смерть
-    /// (радиус 6 клеток), комната — целиком при входе; соседние за дверями видны контуром. Босс — красный, выход — синий,
-    /// запертая комната — оранжевая, Смерть — светлая точка.</summary>
+    /// вместе с ней. Силуэт всех комнат этажа виден сразу — тусклая заливка с кромкой, соседние за дверями — ярче.
+    /// Коридоры открываются там, где прошла Смерть (радиус 6 клеток), комната — целиком при входе. Босс — красный,
+    /// выход — синий, запертая комната — оранжевая, Смерть — светлая точка.</summary>
     public sealed class Minimap
     {
         const float Size = 300f, PixelsPerCell = 5f;
@@ -88,13 +88,16 @@ namespace Arena.UI
                     int r = f.RoomAt(gx, gy);
                     var st = r >= 0 ? sim.RoomStates[r] : ArenaSim.FloorRoomState.Unseen;
                     bool open = r >= 0 ? st is ArenaSim.FloorRoomState.Visited or ArenaSim.FloorRoomState.Active or ArenaSim.FloorRoomState.Cleared : explored[i];
-                    bool seen = r >= 0 && st == ArenaSim.FloorRoomState.Seen;
-                    if (!open && !seen) { px[i] = clear; continue; }
-                    if (seen)
+                    if (!open && r < 0) { px[i] = clear; continue; }
+                    if (!open)
                     {
-                        // соседняя комната — только контур
-                        bool edge = c == EtgCell.Wall && (f.At(gx + 1, gy) != EtgCell.Wall || f.At(gx - 1, gy) != EtgCell.Wall || f.At(gx, gy + 1) != EtgCell.Wall || f.At(gx, gy - 1) != EtgCell.Wall);
-                        px[i] = edge ? new Color32(150, 150, 170, 140) : clear;
+                        // комната, где Смерть не была, — силуэт: тусклая заливка и кромка по границе её клеток (у арен края —
+                        // многоугольник пола, а не стены). Соседняя за дверью — ярче, остальные — тусклее
+                        if (c is not (EtgCell.Floor or EtgCell.Door or EtgCell.Wall)) { px[i] = clear; continue; }
+                        bool edge = f.RoomAt(gx + 1, gy) != r || f.RoomAt(gx - 1, gy) != r || f.RoomAt(gx, gy + 1) != r || f.RoomAt(gx, gy - 1) != r;
+                        bool near = st == ArenaSim.FloorRoomState.Seen;
+                        px[i] = edge ? (near ? new Color32(165, 162, 185, 170) : new Color32(130, 126, 152, 120))
+                                     : (near ? new Color32(110, 106, 130, 80) : new Color32(90, 86, 110, 45));
                         continue;
                     }
                     var kind = r >= 0 ? f.Rooms[r].Kind : EtgRoomKind.Connector;
