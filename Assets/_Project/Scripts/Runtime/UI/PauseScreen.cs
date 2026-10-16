@@ -149,7 +149,8 @@ namespace Arena.UI
                 trinketLines[i].text = t == null
                     ? "<color=#6f6688>пусто</color>"
                     : $"{TrinketBook.Name(t.Kind)} <color=#{ColorUtility.ToHtmlStringRGB(Art.TrinketColor(t.Kind))}>{TrinketBook.Roman(t.Level)}</color>" +
-                      $"  <color=#{ColorUtility.ToHtmlStringRGB(Pal.TextDim)}>— {TrinketBook.Bonus(t.Kind, t.Level, sim.TrinketCfg)}</color>";
+                      $"  <color=#{ColorUtility.ToHtmlStringRGB(Pal.TextDim)}>— {TrinketBook.Bonus(t.Kind, t.Level, sim.TrinketCfg)}" +
+                      (TrinketBook.Group(t.Kind) == TrinketGroup.Curse ? $"; {TrinketBook.Curse(t.Kind, sim.TrinketCfg)}" : t.Level >= 3 ? $"; III: {TrinketBook.Special(t.Kind)}" : "") + "</color>";
             }
             if (input.UseMouse) hints.Set("ЛКМ", "или Enter — выбрать", "!Esc", "— продолжить", "!R", "— заново");
             else hints.Set("A", "выбрать", "!Menu / B", "продолжить", "!Y", "заново");
@@ -169,10 +170,11 @@ namespace Arena.UI
                 sb.Append(k == 0 ? " · " : " + ");
                 sb.Append($"<color=#{ColorUtility.ToHtmlStringRGB(Art.TraitColor(tr))}>{FormText.Name(tr)}{(lvl > 1 ? $" ×{lvl}" : "")}</color>");
             }
+            foreach (var b in Bonds.Of(card)) sb.Append($" <color=#{ColorUtility.ToHtmlStringRGB(Pal.Gold)}>◇ {Bonds.Name(b)}</color>");
             // вливания: занятые ячейки — ярко, свободные — тускло, цветом редкости
             var rar = Art.RarityColor(card.Rarity);
             sb.Append($"  <color=#{ColorUtility.ToHtmlStringRGB(rar)}>{new string('◆', card.Souls.Count)}</color>");
-            sb.Append($"<color=#{ColorUtility.ToHtmlStringRGBA(rar.WithAlpha(0.3f))}>{new string('◆', card.SoulCells - card.Souls.Count)}</color>");
+            sb.Append($"<color=#{ColorUtility.ToHtmlStringRGBA(rar.WithAlpha(0.3f))}>{new string('◆', Mathf.Max(0, sim.SoulCellsOf(card) - card.Souls.Count))}</color>");
             return sb.ToString();
         }
     }

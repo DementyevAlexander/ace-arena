@@ -83,6 +83,62 @@ namespace Arena.Tests
             Assert.IsFalse(s.Forms[0].Card.CanFuse, "две ячейки заполнены");
         }
 
+        /// <summary>Скиллы задевают предметы комнаты: снаряд разбивает урну на пути и поджигает фитиль взрывного куба
+        /// (бой идёт — комната не зачищена).</summary>
+        [Test]
+        public void ShotBreaksUrnAndLightsBlastCube()
+        {
+            var room = RoomDef.Box(15f, 15f);
+            room.breakables = new[] { new RoomDef.Prop { type = "Urn", pos = new Vector2(3f, 0f), r = 0.4f, h = 0.8f } };
+            room.traps = new[] { new RoomDef.Trap { type = "BlastCubeFused", pos = new Vector2(0f, 3f) } };
+            var s = new ArenaSim(5, room) { WavesEnabled = false, MirrorRooms = false };
+            s.EnableForms();
+            s.Player.BuffInvuln = 999f;
+            s.Player.Pos = Vector2.zero;
+            var urn = s.Breakables[0];
+            var cube = s.Traps[0];
+            Assert.AreEqual(TrapKind.BlastCube, cube.Kind);
+            Assert.IsTrue(s.TrapArmed(cube), "комната не зачищена — бой идёт");
+
+            s.Player.Face = s.Player.Aim = Vector2.right;
+            Tap(s, 0);
+            T.Run(s, 1f, new SimInput { Move = Vector2.zero });
+            Assert.IsTrue(urn.Broken || !s.Breakables.Contains(urn), "снаряд разбил урну");
+
+            s.Player.Face = s.Player.Aim = Vector2.up;
+            T.Run(s, 0.5f, new SimInput());
+            Tap(s, 0);
+            for (int i = 0; i < 60 && cube.Phase == TrapPhase.Idle; i++) s.Step(T.Dt, new SimInput());
+            Assert.AreNotEqual(TrapPhase.Idle, cube.Phase, "снаряд поджёг фитиль куба");
+        }
+
+        /// <summary>На экране выбора награды перелистываются по кругу; взята перелистнутая — сгорает другая.</summary>
+        [Test]
+        public void ChoiceCyclesThroughPedestal()
+        {
+            var s = new ArenaSim(5);
+            s.EnableForms();
+            var a = new SkillCard(FormKind.Zone, Trait.Fire);
+            var b = new SkillCard(FormKind.Summon, Trait.Frost);
+            s.Loot.Add(new GroundCard { Card = a, Pos = s.Player.Pos });
+            s.Loot.Add(new GroundCard { Card = b, Pos = s.Player.Pos + Vector2.right * 3f });
+            s.LootReadyAt = 0f;
+            Assert.IsTrue(s.PickUpLoot());
+            Assert.AreSame(a, s.Offers[0]);
+            Assert.AreEqual(0, s.LootOpenIndex);
+            Assert.IsTrue(s.CycleLoot(1));
+            Assert.AreSame(b, s.Offers[0], "вправо — следующая");
+            Assert.AreEqual(1, s.LootOpenIndex);
+            Assert.IsTrue(s.CycleLoot(1));
+            Assert.AreSame(a, s.Offers[0], "по кругу");
+            Assert.IsTrue(s.CycleLoot(-1));
+            Assert.AreSame(b, s.Offers[0], "влево");
+            s.FuseOffer(0, 0);
+            Assert.IsTrue(s.Events.Exists(e => e.Kind == EventKind.LootBurned && e.Value == 0), "сгорела не взятая");
+            Assert.IsTrue(s.Forms[0].Card.Has(Trait.Frost));
+            Assert.IsFalse(s.CycleLoot(1), "выбор закрыт — листать нечего");
+        }
+
         /// <summary>Редкость задаёт число вливаний: редкая — 2, эпическая — 3, легендарная — 4. Считаются ячейки карты в слоте,
         /// редкость донора не важна. Стартовые снаряд и рывок — редкие.</summary>
         [Test]
@@ -562,6 +618,7 @@ namespace Arena.Tests
                 foreach (var g in s.Loot)
                 {
                     Assert.IsTrue(s.InsideRoom(g.Pos, s.ArenaCfg.pedestalClearMin - 0.15f), $"{name}: карточка у стены {g.Pos}");
+                    Assert.IsFalse(s.Occluded(g.Pos, 1f), $"{name}: карточку {g.Pos} закрывает от камеры объект");
                     foreach (var h in s.Hazards) Assert.IsFalse(Geo.InPoly(h.Poly, g.Pos), $"{name}: карточка в лаве");
                 }
             }

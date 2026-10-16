@@ -26,6 +26,8 @@ namespace Arena.Sim
         public bool RunRequested { get; private set; }
         /// <summary>Боевых комнат пройдено за забег — для итогов.</summary>
         public int RunRoomsCleared { get; private set; }
+        /// <summary>Открыт выбор стартового набора (Наставник): бой стоит, ввод — у экрана выбора.</summary>
+        public bool KitOpen { get; private set; }
 
         /// <summary>В хаб: площадь, места, мишени; билд и здоровье — как в начале забега.</summary>
         public void EnterHub()
@@ -39,6 +41,7 @@ namespace Arena.Sim
             hubTalks.Clear();
             SpeechSpot = null; SpeechText = null;
             RunRequested = false;
+            KitOpen = false;
             WavesEnabled = false;
             Restart();
         }
@@ -48,6 +51,7 @@ namespace Arena.Sim
         {
             HubMode = false;
             RunRequested = false;
+            KitOpen = false;
             HubSpots.Clear(); hubDummies.Clear();
             SpeechSpot = null; SpeechText = null;
             RunWon = false; RunRoomsCleared = 0;
@@ -72,7 +76,7 @@ namespace Arena.Sim
         {
             get
             {
-                if (!HubMode || GameOver || RewardPending) return null;
+                if (!HubMode || GameOver || RewardPending || KitOpen) return null;
                 HubSpot best = null;
                 float bd = HubReach * HubReach;
                 foreach (var s in HubSpots)
@@ -96,6 +100,12 @@ namespace Arena.Sim
                 Events.Add(new SimEvent { Kind = EventKind.HubGate, Pos = s.Pos });
                 return true;
             }
+            if (s.Kit)
+            {
+                KitOpen = true;
+                Events.Add(new SimEvent { Kind = EventKind.HubTalk, Pos = s.Pos });
+                return true;
+            }
             hubTalks.TryGetValue(s, out int i);
             SpeechSpot = s;
             SpeechText = s.Lines.Length > 0 ? s.Lines[i % s.Lines.Length] : "…";
@@ -103,6 +113,22 @@ namespace Arena.Sim
             hubTalks[s] = i + 1;
             Events.Add(new SimEvent { Kind = EventKind.HubTalk, Pos = s.Pos });
             return true;
+        }
+
+        /// <summary>Закрыть выбор стартового набора.</summary>
+        public void CloseKit() => KitOpen = false;
+
+        /// <summary>Стартовый набор: карта в ЛКМ — форма (снаряд, зона, призыв) и своё свойство (null — без свойства).
+        /// В хабе карта сразу встаёт в ЛКМ — её можно попробовать на мишенях; в забег идёт с ней же.</summary>
+        public void SetKit(FormKind main, Trait? soul)
+        {
+            if (System.Array.IndexOf(StartKit.Mains, main) < 0) return;
+            Kit.Main = main;
+            Kit.Soul = soul;
+            if (!HubMode) return;
+            foreach (var f in Forms[0].Active) f.Done = true;
+            Forms[0].Card = Kit.Card();
+            Forms[0].Reset();
         }
 
         /// <summary>Выход с пятого этажа забега из арен: забег пройден.</summary>

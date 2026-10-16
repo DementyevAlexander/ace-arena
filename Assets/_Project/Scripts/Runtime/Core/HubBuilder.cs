@@ -13,6 +13,8 @@ namespace Arena.Core
         public Vector2 Pos;
         public Color Color;
         public string[] Lines = System.Array.Empty<string>();
+        /// <summary>Персонаж открывает выбор стартового набора вместо реплики (Наставник).</summary>
+        public bool Kit;
     }
 
     /// <summary>Хаб, как Breach в Enter the Gungeon: площадь полиса между забегами, вокруг — кварталы. Строится в коде, координаты —
@@ -72,8 +74,8 @@ namespace Arena.Core
                 },
                 new()
                 {
-                    Kind = HubSpotKind.Npc, Name = "Наставник", Pos = S(4.5f, -1f), Color = new Color(0.55f, 0.95f, 0.5f),
-                    Lines = new[] { "Мишени справа не умирают — пробуй на них скиллы и заряд.", "Отпусти заряд в белом окне — получишь усиление." },
+                    Kind = HubSpotKind.Npc, Name = "Наставник", Pos = S(4.5f, -1f), Color = new Color(0.55f, 0.95f, 0.5f), Kit = true,
+                    Lines = new[] { "Выбери, с чем идёшь в забег. Мишени справа не умирают — пробуй на них.", "Отпусти заряд в белом окне — получишь усиление." },
                 },
             };
             dummies = new List<Vector2> { S(7.5f, 2.5f), S(9f, -1.5f), S(7f, -4.5f) };

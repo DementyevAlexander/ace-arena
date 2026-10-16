@@ -12,6 +12,120 @@ namespace Arena.Core
         Fire, Frost, Lightning, Rot, Doom,         // статусы
         Ricochet, Split, Pierce, Return, Echo,     // геометрия
         Pull, Push, Blast, Reap, Grow,             // сила
+        Homing, Orbit, Trigger,                    // траектория и спуск (Noita, Nova Drift) — в конце, номера прежних не сдвигаются
+        Kinetic, Snipe, Siphon,                    // разгон, дальнобой, поглощение (Nova Drift: Kinetic Boost, Snipe, Siphon)
+    }
+
+    public static class Traits
+    {
+        /// <summary>Сколько всего свойств — под веса выпадения и перебор.</summary>
+        public static readonly int Count = Enum.GetValues(typeof(Trait)).Length;
+    }
+
+    /// <summary>Связка — два свойства на одной карте (своё или влитые души) дают третий эффект, как синергии Nova Drift.
+    /// Работает, пока на карте есть оба свойства; уровень свойств на связку не влияет.</summary>
+    public enum Bond
+    {
+        Napalm,          // Пламя + Взрыв
+        Icebreaker,      // Иней + Отталкивание
+        Contagion,       // Молния + Гниль
+        DoubleDoom,      // Приговор + Эхо
+        Implosion,       // Притяжение + Взрыв
+        Shrapnel,        // Рикошет + Раздвоение
+        ChainDetonation, // Жатва + Взрыв
+        Superconductor,  // Иней + Молния
+        ThermalShock,    // Пламя + Иней
+        SmartRicochet,   // Наведение + Рикошет
+        Millstone,       // Орбита + Пронзание
+        Purification,    // Поглощение + Пламя
+        Hunter,          // Дальнобой + Наведение
+    }
+
+    public static class Bonds
+    {
+        public static readonly Bond[] All = (Bond[])Enum.GetValues(typeof(Bond));
+
+        public static (Trait a, Trait b) Pair(Bond b) => b switch
+        {
+            Bond.Napalm => (Trait.Fire, Trait.Blast),
+            Bond.Icebreaker => (Trait.Frost, Trait.Push),
+            Bond.Contagion => (Trait.Lightning, Trait.Rot),
+            Bond.DoubleDoom => (Trait.Doom, Trait.Echo),
+            Bond.Implosion => (Trait.Pull, Trait.Blast),
+            Bond.Shrapnel => (Trait.Ricochet, Trait.Split),
+            Bond.ChainDetonation => (Trait.Reap, Trait.Blast),
+            Bond.Superconductor => (Trait.Frost, Trait.Lightning),
+            Bond.ThermalShock => (Trait.Fire, Trait.Frost),
+            Bond.SmartRicochet => (Trait.Homing, Trait.Ricochet),
+            Bond.Millstone => (Trait.Orbit, Trait.Pierce),
+            Bond.Purification => (Trait.Siphon, Trait.Fire),
+            _ => (Trait.Snipe, Trait.Homing),
+        };
+
+        public static string Name(Bond b) => b switch
+        {
+            Bond.Napalm => "Напалм", Bond.Icebreaker => "Ледокол", Bond.Contagion => "Зараза", Bond.DoubleDoom => "Двойной приговор",
+            Bond.Implosion => "Схлопывание", Bond.Shrapnel => "Шрапнель", Bond.ChainDetonation => "Цепная детонация",
+            Bond.Superconductor => "Сверхпроводник", Bond.ThermalShock => "Тепловой удар", Bond.SmartRicochet => "Умный рикошет",
+            Bond.Millstone => "Жернова", Bond.Purification => "Очищение", _ => "Охотник",
+        };
+
+        public static string Text(Bond b) => b switch
+        {
+            Bond.Napalm => "взрывы карты поджигают всех задетых",
+            Bond.Icebreaker => "заиндевевший или замёрзший враг бьётся об стену или врага втрое сильнее",
+            Bond.Contagion => "молния карты заражает гнилью всех, в кого попала",
+            Bond.DoubleDoom => "приговор срабатывает второй раз через 1 с (50%)",
+            Bond.Implosion => "взрыв шире в 1.5 раза и стягивает выживших к центру",
+            Bond.Shrapnel => "отскок снаряда выпускает осколок (50%)",
+            Bond.ChainDetonation => "враг, добитый картой, взрывается — взрыв может добить следующих",
+            Bond.Superconductor => "молния по заиндевевшему или замёрзшему врагу — урон ×2",
+            Bond.ThermalShock => "поджог замёрзшего врага раскалывает лёд: весь запас горения — сразу",
+            Bond.SmartRicochet => "отскок от стены летит в ближайшего врага",
+            Bond.Millstone => "орбита шире в 1.5 раза и бьёт каждого вдвое чаще",
+            Bond.Purification => "добивание горящего врага лечит 4% здоровья",
+            _ => "снаряд с наведением считает путь для дальнобоя вдвое",
+        };
+
+        public static bool Has(SkillCard c, Bond b)
+        {
+            var (x, y) = Pair(b);
+            return c != null && c.Has(x) && c.Has(y);
+        }
+
+        /// <summary>Связки, которые открыты на карте.</summary>
+        public static List<Bond> Of(SkillCard c)
+        {
+            var list = new List<Bond>();
+            foreach (var b in All) if (Has(c, b)) list.Add(b);
+            return list;
+        }
+
+        /// <summary>Связки, которые откроются, если влить в карту это свойство (их ещё нет).</summary>
+        public static List<Bond> Opens(SkillCard c, Trait soul)
+        {
+            var list = new List<Bond>();
+            if (c == null) return list;
+            foreach (var b in All)
+            {
+                if (Has(c, b)) continue;
+                var (x, y) = Pair(b);
+                if ((x == soul && c.Has(y)) || (y == soul && c.Has(x))) list.Add(b);
+            }
+            return list;
+        }
+    }
+
+    /// <summary>Стартовый набор (как выбор снаряжения перед забегом в Nova Drift): форма карты в ЛКМ и её своё свойство.
+    /// Выбирается у Наставника в хабе, живёт между забегами. Рывок в Space — всегда без свойства.</summary>
+    public sealed class StartKit
+    {
+        public static readonly FormKind[] Mains = { FormKind.Shot, FormKind.Zone, FormKind.Summon };
+
+        public FormKind Main = FormKind.Shot;
+        public Trait? Soul;
+
+        public SkillCard Card() => new(Main, Soul);
     }
 
     /// <summary>Редкость карты. Одна и та же карта бывает разной редкости и отличается только числом вливаний
@@ -228,6 +342,49 @@ namespace Arena.Core
         public float growBarrierTime = 0.3f;
         public int maxShotsPerSkill = 24;         // предел снарядов одного скилла на экране (Рикошет + Раздвоение + Эхо)
         public float reapLockout = 0.3f;          // Жатва срабатывает не чаще раза в 0.3 с
+
+        // ---------- Наведение, Орбита, Спуск (оценка; Noita — Homing, Orbiting Arc, Trigger; Nova Drift — орбиталы) ----------
+        public float homingRange = 5f;            // кого видит наведение
+        public float homingTurn = 300f;           // доворот снаряда, °/с на уровень
+        public float homingDashArc = 45f;         // рывок доворачивает к врагу в ± стольких градусах (+15° за уровень)
+        public float homingZoneSpeed = 1.5f;      // зона ползёт к врагу, ю/с на уровень
+        public float orbitRadius = 1.6f;          // орбита вокруг Смерти
+        public float orbitSpeed = 300f;           // °/с
+        public float orbitLife = 1.5f;            // снаряд на орбите живёт столько (+1 с за уровень)
+        public float orbitRehit = 0.6f;           // осколок бьёт того же врага не чаще
+        public float orbitShardDamage = 10f * D;  // осколок рывка и барьера
+        public float orbitDashTime = 2f;          // осколки после рывка
+        public float orbitSpiritRam = 8f * D;     // дух на орбите таранит касанием
+        public float triggerFraction = 0.4f;      // Спуск: сила карты следующего слота — 40% за уровень (до 100%)
+        public float triggerLockout = 0.5f;       // Спуск одного слота — не чаще раза в 0.5 с
+
+        // ---------- Связки (Bonds) ----------
+        public float bondIcebreaker = 3f;         // Ледокол: удар о стену ×3
+        public float bondDoubleDoom = 0.5f;       // Двойной приговор: второй раз — доля первого
+        public float bondImplosion = 1.5f;        // Схлопывание: радиус взрыва ×1.5
+        public float bondShrapnel = 0.5f;         // Шрапнель: урон осколка
+        public float bondChainDetonation = 0.5f;  // Цепная детонация: доля взрыва карты
+        public float bondSuperconductor = 2f;     // Сверхпроводник: урон молнии по замёрзшему
+        public float bondMillstone = 1.5f;        // Жернова: радиус орбиты
+        public float bondPurification = 0.04f;    // Очищение: доля здоровья за добитого горящего
+
+        // ---------- Разгон, Дальнобой, Поглощение (оценка; Nova Drift — Kinetic Boost, Snipe, Siphon, Purification) ----------
+        public float kineticRunUp = 0.6f;         // снаряд: +60% урона за каждые kineticRunDist пробежанных с прошлого выстрела
+        public float kineticRunDist = 4f;         // … (рывок считается), не больше одного раза
+        public float kineticRam = 15f * D;        // рывок: урон задетым за каждую пройденную ю
+        public float kineticMove = 0.5f;          // зона и дух: до +50% урона, пока Смерть бежит (по доле скорости)
+        public float kineticBarrierRam = 20f * D; // барьер: таран касанием на полном бегу
+        public float kineticBarrierRehit = 0.5f;
+        public float snipePerUnit = 0.15f;        // +15% урона за ю расстояния
+        public float snipeMaxDist = 6f;           // … до 6 ю (+90%)
+        public float snipeRange = 9f;             // рывок и барьер: выстрел в самого дальнего врага в этом радиусе
+        public float snipeSummonRange = 1.5f;     // дух видит дальше во столько раз
+        public float siphonKill = 0.02f;          // снаряд: добивание лечит 2% здоровья
+        public float siphonDash = 0.01f;          // рывок: каждый задетый — 1%
+        public float siphonZone = 0.004f;         // зона: каждый враг внутри — 0.4% в секунду
+        public float siphonSummon = 0.03f;        // призыв: добивание духом — 3%
+        public float siphonBarrier = 0.03f;       // барьер: поглощённый удар — 3%
+        public float siphonRoomCap = 0.2f;        // лечения до следующей награды — не больше 20% здоровья
     }
 
     /// <summary>Тексты: имена, значки, что делает каждое свойство на каждой форме.</summary>
@@ -242,7 +399,9 @@ namespace Arena.Core
         {
             Trait.Fire => "Пламя", Trait.Frost => "Иней", Trait.Lightning => "Молния", Trait.Rot => "Гниль", Trait.Doom => "Приговор",
             Trait.Ricochet => "Рикошет", Trait.Split => "Раздвоение", Trait.Pierce => "Пронзание", Trait.Return => "Возврат", Trait.Echo => "Эхо",
-            Trait.Pull => "Притяжение", Trait.Push => "Отталкивание", Trait.Blast => "Взрыв", Trait.Reap => "Жатва", _ => "Рост",
+            Trait.Pull => "Притяжение", Trait.Push => "Отталкивание", Trait.Blast => "Взрыв", Trait.Reap => "Жатва", Trait.Grow => "Рост",
+            Trait.Homing => "Наведение", Trait.Orbit => "Орбита", Trait.Trigger => "Спуск",
+            Trait.Kinetic => "Разгон", Trait.Snipe => "Дальнобой", _ => "Поглощение",
         };
 
         public static string Glyph(FormKind f) => f switch
@@ -279,7 +438,13 @@ namespace Arena.Core
                 Trait.Push => new[] { "отброс: удар о стену или врага наносит урон", "таран: враги разлетаются", "ударная волна при появлении", "выстрелы духа отбрасывают", "при активации отбрасывает всех вокруг" }[i],
                 Trait.Blast => new[] { "взрыв при попадании (229)", "взрыв в точке финиша", "детонация в конце", "дух-камикадзе: летит в толпу и взрывается", "разрушаясь, взрывается: сильнее за каждый удар" }[i],
                 Trait.Reap => new[] { "добивание: 1.5 с вдвое быстрее выстрелы и заряд", "добивание рывком сразу восстанавливает рывок", "добивание продлевает зону на 1 с", "добивание сбрасывает перезарядку призыва", "добивание при барьере: +1 прочность" }[i],
-                _ => new[] { "растёт с каждым попаданием: +25% урона и размера", "каждый задетый враг: +20% дальности", "расширяется с каждым новым врагом внутри", "растёт с каждым добиванием", "каждый поглощённый удар: +0.3 с и больше" }[i],
+                Trait.Grow => new[] { "растёт с каждым попаданием: +25% урона и размера", "каждый задетый враг: +20% дальности", "расширяется с каждым новым врагом внутри", "растёт с каждым добиванием", "каждый поглощённый удар: +0.3 с и больше" }[i],
+                Trait.Homing => new[] { "доворачивает к ближайшему врагу", "доворачивает к врагу впереди (±45°)", "ползёт к ближайшему врагу", "выстрелы духа доворачивают к врагу", "поглощённые снаряды летят обратно в ближайшего врага" }[i],
+                Trait.Orbit => new[] { "кружит вокруг тебя 1.5 с, задевая всех", "после рывка вокруг тебя 2 с кружат осколки", "аура: зона всегда вокруг тебя", "дух кружит вокруг тебя и таранит касанием", "вокруг щита кружат 2 осколка" }[i],
+                Trait.Trigger => new[] { "попадание применяет карту следующего слота в цель (40%)", "в конце рывка — карта следующего слота (40%)", "исчезая, применяет карту следующего слота (40%)", "попадание духа — карта следующего слота (40%)", "поглощённый удар — карта следующего слота (40%)" }[i],
+                Trait.Kinetic => new[] { "разбег: +60% урона за каждые 4 ю, пробежанные с прошлого выстрела (рывок считается)", "таран: задетые получают урон по пройденному пути (86 за ю)", "пока бежишь, бьёт до +50% сильнее", "пока бежишь, дух бьёт до +50% сильнее", "пока бежишь, щит таранит касанием (до 114)" }[i],
+                Trait.Snipe => new[] { "+15% урона за каждую ю полёта (до +90%)", "в конце — выстрел в самого дальнего врага в 9 ю, урон растёт с расстоянием", "+15% урона за каждую ю от тебя до зоны (до +90%)", "дух бьёт издалека: дальность ×1.5, +15% за ю до цели", "поглощённый удар — выстрел в самого дальнего врага, урон растёт с расстоянием" }[i],
+                _ => new[] { "добивание лечит 2% здоровья", "каждый задетый враг лечит 1% здоровья", "вытягивает жизнь: каждый враг внутри лечит 0.4% в секунду", "добивание духом лечит 3% здоровья", "каждый поглощённый удар лечит 3% здоровья" }[i],
             };
         }
 
@@ -292,7 +457,16 @@ namespace Arena.Core
                 int lvl = c.Level(t);
                 lines.Add($"{Name(t)}{(lvl > 1 ? $" ×{lvl}" : "")}: {Cell(t, c.Form)}");
             }
+            foreach (var b in Bonds.Of(c)) lines.Add(BondLine(b));
+            if (c.Has(Trait.Siphon)) lines.Add("Лечение до следующей награды — не больше 20% здоровья.");
             return lines;
+        }
+
+        /// <summary>Связка одной строкой: «Связка «Напалм» (Пламя + Взрыв): …».</summary>
+        public static string BondLine(Bond b)
+        {
+            var (x, y) = Bonds.Pair(b);
+            return $"Связка «{Bonds.Name(b)}» ({Name(x)} + {Name(y)}): {Bonds.Text(b)}";
         }
     }
 }

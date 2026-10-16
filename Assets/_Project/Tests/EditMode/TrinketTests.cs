@@ -125,7 +125,7 @@ namespace Arena.Tests
             Assert.AreEqual(1f, TrinketBook.SoulDamageMul(card, new Trinket[] { null, null }, c), 0.001f);
         }
 
-        /// <summary>Тринкет направляет выпадение: Уголёк — Пламя ×3 (1/15 → 3/17), Колчан — снаряды ×2 (1/4.6 → 2/5.6).</summary>
+        /// <summary>Тринкет направляет выпадение: Уголёк — Пламя ×3 (1/18 → 3/20), Колчан — снаряды ×2 (1/4.6 → 2/5.6).</summary>
         [Test]
         public void TrinketsSteerCardDrops()
         {
@@ -137,11 +137,11 @@ namespace Arena.Tests
                 return n / (float)N;
             }
             var a = NewForms();
-            Assert.AreEqual(1f / 15f, Share(a, x => x.Own == Trait.Fire), 0.012f, "без тринкета");
+            Assert.AreEqual(1f / Traits.Count, Share(a, x => x.Own == Trait.Fire), 0.012f, "без тринкета");
             Assert.AreEqual(1f / 4.6f, Share(a, x => x.Form == FormKind.Shot), 0.015f);
             a.TrinketSlots[0] = new Trinket(TrinketKind.Ember);
             a.TrinketSlots[1] = new Trinket(TrinketKind.Quiver);
-            Assert.AreEqual(3f / 17f, Share(a, x => x.Own == Trait.Fire), 0.015f, "Уголёк");
+            Assert.AreEqual(3f / (Traits.Count + 2), Share(a, x => x.Own == Trait.Fire), 0.015f, "Уголёк");
             Assert.AreEqual(2f / 5.6f, Share(a, x => x.Form == FormKind.Shot), 0.015f, "Колчан");
         }
 

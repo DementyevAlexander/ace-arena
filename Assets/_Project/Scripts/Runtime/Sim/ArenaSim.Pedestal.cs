@@ -1,9 +1,11 @@
 using System.Collections.Generic;
+using Arena.Core;
 using UnityEngine;
 
 namespace Arena.Sim
 {
-    /// <summary>Где встаёт пятачок наград: ближайшая к центру комнаты точка, где он помещается целиком.</summary>
+    /// <summary>Где встаёт пятачок наград: ближайшая к центру комнаты точка, где он помещается целиком и его не закрывает
+    /// от камеры ни один объект (если такой нет нигде — просто ближайшая, где помещается).</summary>
     public sealed partial class ArenaSim
     {
         const float PedestalStep = 0.2f;
@@ -99,21 +101,92 @@ namespace Arena.Sim
             var spot = Player.Pos;
             var cfg = ArenaCfg;
             float[] needs = { cfg.pedestalClear, (cfg.pedestalClear + cfg.pedestalClearMin) * 0.5f, cfg.pedestalClearMin };
-            foreach (float need in needs)
-            {
-                int found = -1;
-                foreach (int k in cand)
+            // сначала — места, где награду не закрывает от камеры ни один объект; не нашлось нигде — как получится
+            bool done = false;
+            for (int pass = 0; pass < 2 && !done; pass++)
+                foreach (float need in needs)
                 {
-                    var c = At(k);
-                    bool fits = true;
-                    for (int s = 0; s <= 6 && fits; s++)
-                        fits = Clearance(c + ScreenRight * (half * (s / 3f - 1f))) >= need;
-                    if (fits) { found = k; break; }
+                    int found = -1;
+                    foreach (int k in cand)
+                    {
+                        var c = At(k);
+                        bool fits = true;
+                        for (int s = 0; s <= 6 && fits; s++)
+                            fits = Clearance(c + ScreenRight * (half * (s / 3f - 1f))) >= need;
+                        if (fits && pass == 0)
+                            for (int s = -1; s <= 1 && fits; s++)
+                                fits = !Occluded(c + ScreenRight * (half * s), 1.0f);
+                        if (fits) { found = k; break; }
+                    }
+                    if (found >= 0) { spot = At(found); done = true; break; }
                 }
-                if (found >= 0) { spot = At(found); break; }
-            }
             if (key != null) pedestalCache[key] = spot;
             return spot;
+        }
+
+        // ---------- что закрывает от камеры ----------
+
+        readonly List<(Vector2 c, float r, float h)> hides = new();
+        RoomDef hidesRoom;
+        int hidesCount = -1;
+
+        /// <summary>Стена ближнего края: за ней (дальше от камеры) пол комнаты, а перед ней (к камере) пола нет. В комнате
+        /// Hades её рисуют низкой (RoomView.FrontWall), чтобы не закрывала бой; колонны посреди комнаты под это не попадают.</summary>
+        public bool IsFrontWall(Obstacle o)
+        {
+            var camFwd = new Vector2(0.70710678f, 0.70710678f);
+            bool behind = false;
+            for (float d = 0.6f; d <= 3f && !behind; d += 0.6f)
+                if (InsideRoom(o.Pos + camFwd * (o.R + d), 0f)) behind = true;
+            if (!behind) return false;
+            for (float d = 0.6f; d <= 3f; d += 0.6f)
+                if (InsideRoom(o.Pos - camFwd * (o.R + d), 0f)) return false;
+            return true;
+        }
+
+        /// <summary>Точку p на высоте y закрывает от камеры что-то перед ней (PolisDressing.Hides): объект комнаты — той высоты,
+        /// какой его рисуют (в комнате Hades — до 1.8, стена ближнего края — 0.4), дом полиса, стена зала. Решётки — не в счёт.</summary>
+        public bool Occluded(Vector2 p, float y)
+        {
+            if (hidesRoom != Room || hidesCount != Obstacles.Count) BuildHides();
+            foreach (var (c, r, h) in hides) if (PolisDressing.Hides(c, r, h, p, y)) return true;
+            return false;
+        }
+
+        void BuildHides()
+        {
+            hidesRoom = Room;
+            hidesCount = Obstacles.Count;
+            hides.Clear();
+            bool polis = Room.biome == PolisDressing.Biome;
+            foreach (var o in Obstacles)
+            {
+                if (o.Type == "Bars" || !float.IsFinite(o.Pos.x) || !float.IsFinite(o.R)) continue;
+                float h = polis ? o.Height : Mathf.Min(o.Height, 1.8f);
+                if (!polis && h > 0.4f && IsFrontWall(o)) h = 0.4f; // как рисует RoomView
+                if (h > 0.3f) hides.Add((o.Pos, o.R, h));
+            }
+            foreach (var b in Room.city)
+            {
+                if (b.p.Length < 3) continue;
+                var c = Geo.Centroid(b.p);
+                float r = 0f;
+                foreach (var v in b.p) r = Mathf.Max(r, (v - c).magnitude);
+                hides.Add((c, r, b.h + 0.8f)); // с крышей
+            }
+            if (FloorMode && Floor.Polygonal)
+                foreach (var room in Floor.Rooms)
+                {
+                    if (!room.Indoor || room.Arena == null) continue;
+                    var doors = ArenaFloorBuilder.DoorPoints(room);
+                    var off = room.ArenaOffset;
+                    foreach (var f in room.Arena.Def.floor)
+                    {
+                        var poly = new Vector2[f.p.Length];
+                        for (int i = 0; i < poly.Length; i++) poly[i] = f.p[i] + off;
+                        foreach (var (c, r) in PolisDressing.HallPieces(poly, doors)) hides.Add((c, r, PolisDressing.HallHeight));
+                    }
+                }
         }
 
         bool InHazard(Vector2 p)

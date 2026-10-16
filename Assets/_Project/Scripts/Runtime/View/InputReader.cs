@@ -17,6 +17,8 @@ namespace Arena.View
         /// <summary>Меню (кадр): шаг по горизонтали и вертикали (−1, 0, 1) — крестовина, стик (по одному шагу за наклон), стрелки;
         /// A / Enter — выбрать, B / Backspace — назад, Y — второе действие (влить душу), X — третье.</summary>
         public int NavX, NavY;
+        /// <summary>Перелистнуть награду на экране выбора: Q / E, LB / RB (−1 / +1).</summary>
+        public int NavPage;
         public bool NavConfirm, NavBack, NavAlt, NavX3;
 
         /// <summary>Вызывается каждый кадр: копит нажатия до следующего шага симуляции.</summary>
@@ -44,7 +46,7 @@ namespace Arena.View
 
         void PollNav(Keyboard kb, Gamepad pad)
         {
-            NavX = NavY = 0;
+            NavX = NavY = NavPage = 0;
             NavConfirm = NavBack = NavAlt = NavX3 = false;
             if (pad != null)
             {
@@ -61,6 +63,8 @@ namespace Arena.View
                 NavBack = pad.buttonEast.wasPressedThisFrame;
                 NavAlt = pad.buttonNorth.wasPressedThisFrame;
                 NavX3 = pad.buttonWest.wasPressedThisFrame;
+                if (pad.leftShoulder.wasPressedThisFrame) NavPage = -1;
+                if (pad.rightShoulder.wasPressedThisFrame) NavPage = 1;
             }
             if (kb != null)
             {
@@ -70,6 +74,8 @@ namespace Arena.View
                 if (kb.downArrowKey.wasPressedThisFrame) NavY = -1;
                 NavConfirm |= kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame;
                 NavBack |= kb.backspaceKey.wasPressedThisFrame;
+                if (kb.qKey.wasPressedThisFrame) NavPage = -1;
+                if (kb.eKey.wasPressedThisFrame) NavPage = 1;
             }
         }
 
@@ -171,6 +177,10 @@ namespace Arena.View
             (Keyboard.current?.escapeKey.wasPressedThisFrame ?? false) || (Gamepad.current?.startButton.wasPressedThisFrame ?? false);
 
         public bool RestartPressed => Keyboard.current?.rKey.wasPressedThisFrame ?? false;
+
+        /// <summary>Перебросить награды пятачка, стоя рядом: F; на геймпаде — LB (в бою свободна).</summary>
+        public bool RerollPressed =>
+            (Keyboard.current?.fKey.wasPressedThisFrame ?? false) || (Gamepad.current?.leftShoulder.wasPressedThisFrame ?? false);
 
         /// <summary>«Взаимодействие» — подобрать карточку с земли: E, как в Hades; на геймпаде — RB (все четыре кнопки
         /// справа заняты скиллами).</summary>

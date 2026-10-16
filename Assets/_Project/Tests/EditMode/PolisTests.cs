@@ -38,6 +38,8 @@ namespace Arena.Tests
             }
             Assert.AreEqual(-1, s.ActiveRoom, "комната зачищена");
             Assert.IsFalse(s.TrapArmed(trap), "зачищена — сброшена");
+            Assert.IsTrue(s.Pedestal);
+            foreach (var g in s.Loot) Assert.IsFalse(s.Occluded(g.Pos, 1f), $"награду {g.Pos} ничто не закрывает от камеры");
             s.Step(1f / 60f, default);
             Assert.AreEqual(TrapPhase.Idle, trap.Phase, "сброшенная стоит");
         }
@@ -59,6 +61,20 @@ namespace Arena.Tests
             }
             Assert.IsTrue(s.DoorsOpen);
             Assert.IsFalse(s.TrapArmed(s.Traps[0]), "зачищена — сброшена");
+        }
+
+        /// <summary>Ловушки этажа не закрыты от камеры ни объектами арен, ни стенами залов, ни домами.</summary>
+        [Test]
+        public void FloorTrapsAreNotHidden()
+        {
+            foreach (int seed in new[] { 1, 2, 3 })
+            {
+                var s = new ArenaSim(seed);
+                s.EnableForms();
+                s.StartFloors(seed, arenas: true);
+                foreach (var t in s.Room.traps)
+                    Assert.IsFalse(s.Occluded(t.pos, 0.1f), $"#{seed}: ловушка {t.type} в {t.pos} закрыта от камеры");
+            }
         }
 
         /// <summary>Препятствия арен на этаже — городские объекты; мелочи (радиус до 0.5) почти не осталось.</summary>

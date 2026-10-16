@@ -230,6 +230,12 @@ namespace Arena.View
             Arena.Core.Trait.Push => new Color(1f, 0.82f, 0.35f),
             Arena.Core.Trait.Blast => new Color(1f, 0.42f, 0.15f),
             Arena.Core.Trait.Reap => new Color(0.35f, 0.95f, 0.85f),
+            Arena.Core.Trait.Homing => new Color(1f, 0.55f, 0.75f),
+            Arena.Core.Trait.Orbit => new Color(0.6f, 0.9f, 1f),
+            Arena.Core.Trait.Trigger => new Color(1f, 0.7f, 0.95f),
+            Arena.Core.Trait.Kinetic => new Color(1f, 0.62f, 0.4f),
+            Arena.Core.Trait.Snipe => new Color(0.75f, 0.95f, 1f),
+            Arena.Core.Trait.Siphon => new Color(0.95f, 0.3f, 0.45f),
             _ => new Color(0.85f, 1f, 0.4f),
         };
 
@@ -237,7 +243,8 @@ namespace Arena.View
         /// <summary>Цвет тринкета: тринкет свойства — цвет свойства, формы — золото, механики — цвет души.</summary>
         public static Color TrinketColor(Arena.Core.TrinketKind k) =>
             Arena.Core.TrinketBook.TraitOf(k) is Arena.Core.Trait t ? TraitColor(t)
-            : Arena.Core.TrinketBook.FormOf(k) != null ? new Color(1f, 0.8f, 0.4f) : Soul;
+            : Arena.Core.TrinketBook.FormOf(k) != null ? new Color(1f, 0.8f, 0.4f)
+            : Arena.Core.TrinketBook.Group(k) == Arena.Core.TrinketGroup.Curse ? new Color(0.85f, 0.2f, 0.3f) : Soul;
 
         /// <summary>Цвет редкости: редкая — синяя, эпическая — фиолетовая, легендарная — золотая.</summary>
         public static Color RarityColor(Arena.Core.Rarity r) => r switch

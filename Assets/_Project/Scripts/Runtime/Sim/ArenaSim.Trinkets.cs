@@ -31,6 +31,17 @@ namespace Arena.Sim
             return -1;
         }
 
+        /// <summary>Особый эффект тринкета включён: он стоит на уровне III и выше.</summary>
+        public bool TrinketIII(TrinketKind kind) => TrinketBook.HasSpecial(kind, TrinketSlots);
+
+        /// <summary>Ячейки душ карты: по редкости; Сосуд душ III — каждая вторая влитая душа даёт +1 ячейку (до 4).</summary>
+        public int SoulCellsOf(SkillCard card)
+        {
+            if (card == null) return 0;
+            if (!TrinketIII(TrinketKind.SoulVessel)) return card.SoulCells;
+            return System.Math.Min(SkillCard.MaxSoulCells, card.SoulCells + card.Souls.Count / 2);
+        }
+
         /// <summary>Предложенный тринкет уже стоит — выбор поднимает его уровень, слот не нужен.</summary>
         public bool TrinketOfferIsLevelUp => TrinketOffer != null && TrinketSlotOf(TrinketOffer.Kind) >= 0;
 

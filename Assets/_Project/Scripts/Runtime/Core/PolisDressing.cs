@@ -132,6 +132,51 @@ namespace Arena.Core
             return res;
         }
 
+        // ---------- что закрывает от камеры ----------
+
+        static readonly Vector2 CamRight = new(0.70710678f, -0.70710678f), CamFwd = new(0.70710678f, 0.70710678f);
+        const float CamSin = 0.5f, CamCos = 0.8660254f; // наклон камеры 30°
+
+        /// <summary>Объект (центр c, радиус r, высота h) закрывает от камеры точку p на высоте y: стоит ближе к камере,
+        /// перекрывает её по горизонтали экрана, и его верх на экране выше точки. Камера арены фиксирована (CameraRig:
+        /// поворот 45°, наклон 30°), поэтому без самой камеры — геометрией экрана.</summary>
+        public static bool Hides(Vector2 c, float r, float h, Vector2 p, float y)
+        {
+            if (h <= 0.3f) return false;
+            if (Mathf.Abs(Vector2.Dot(c - p, CamRight)) > r + 0.3f) return false;
+            float dc = Vector2.Dot(c, CamFwd), dp = Vector2.Dot(p, CamFwd);
+            if (dc >= dp) return false; // за точкой или вровень — не закрывает
+            return (dc + r) * CamSin + h * CamCos > dp * CamSin + y * CamCos;
+        }
+
+        /// <summary>Стены зала как закрывающие куски: по краю пола арены кусками до 1.5 ю, снаружи на 0.55 ю, высота 3.4;
+        /// у дверей (ближе HallDoorClear) — проёмы. Те же правила, что у PolisKit.Hall.</summary>
+        public const float HallHeight = 3.4f, HallDoorClear = 2.2f;
+
+        public static List<(Vector2 c, float r)> HallPieces(Vector2[] floor, IList<Vector2> doors)
+        {
+            var list = new List<(Vector2, float)>();
+            bool ccw = Geo.SignedArea(floor) > 0f;
+            for (int i = 0; i < floor.Length; i++)
+            {
+                var a = floor[i];
+                var b = floor[(i + 1) % floor.Length];
+                var e = b - a;
+                float len = e.magnitude;
+                if (len < 0.05f) continue;
+                var nrm = ccw ? new Vector2(e.y, -e.x) / len : new Vector2(-e.y, e.x) / len;
+                int pieces = Mathf.Max(1, Mathf.CeilToInt(len / 1.5f));
+                for (int k = 0; k < pieces; k++)
+                {
+                    var mid = Vector2.Lerp(a, b, (k + 0.5f) / pieces) + nrm * 0.55f;
+                    bool door = false;
+                    foreach (var d in doors) if ((d - mid).magnitude < HallDoorClear) { door = true; break; }
+                    if (!door) list.Add((mid, len / pieces * 0.5f + 0.25f));
+                }
+            }
+            return list;
+        }
+
         // ---------- кварталы вокруг ----------
 
         /// <summary>Застройка по сетке 1 ю: near[i] — клетка рядом с проходимым (нельзя строить), может строить — клетка не дальше

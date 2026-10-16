@@ -26,6 +26,7 @@ namespace Arena.UI
         readonly SlotButton[] slots = new SlotButton[TrinketBook.Slots];
         readonly Image actFrame, actBg, actBadge;
         readonly Text actBadgeText, actTitle, actNote;
+        readonly PagerArrows pager;
         int focus;
         bool actOn;
         float openedAt;
@@ -75,6 +76,7 @@ namespace Arena.UI
             var lb = leave.gameObject.AddComponent<Button>();
             lb.transition = Selectable.Transition.None;
             lb.onClick.AddListener(() => sim.LeaveLoot());
+            pager = new PagerArrows(t, 340f, d => { if (sim.CycleLoot(d)) focus = BestSlot(); });
             canvas.enabled = false;
         }
 
@@ -101,11 +103,13 @@ namespace Arena.UI
             if (Time.unscaledTime - openedAt >= InputDelay)
             {
                 if (input.NavX != 0 && !sim.TrinketOfferIsLevelUp) focus = (focus + input.NavX + slots.Length) % slots.Length;
+                if (input.NavPage != 0 && sim.CycleLoot(input.NavPage)) focus = BestSlot();
                 if (input.NavConfirm) Act();
                 else if (input.NavBack || input.PausePressed) sim.LeaveLoot();
             }
             if (!sim.RewardPending || sim.TrinketOffer == null) { canvas.enabled = false; return; }
             Draw(input.UseMouse);
+            pager.Sync(true, sim.LootOpenIndex, sim.Loot.Count, !input.UseMouse);
         }
 
         /// <summary>С какого слота начать: где стоит такой же; иначе первый пустой; иначе первый.</summary>
@@ -137,10 +141,13 @@ namespace Arena.UI
             {
                 TrinketGroup.Trait => $"Свойство <color=#{Hex(col)}>{TrinketBook.Category(got.Kind)}</color> — на любой карте. Карты с ним выпадают чаще.",
                 TrinketGroup.Form => $"Форма <color=#{Hex(col)}>{TrinketBook.Category(got.Kind)}</color> — все карты этой формы. Они выпадают чаще.",
+                TrinketGroup.Curse => $"<color=#{Hex(col)}>Проклятие</color> — сила с платой. Плата не растёт с уровнем.",
                 _ => $"Механика <color=#{Hex(col)}>{TrinketBook.Category(got.Kind)}</color> — все карты.",
             };
             bonus.text = $"<color=#{Hex(col)}>◆</color> {Cap(TrinketBook.Bonus(got.Kind, got.Level, cfg))}";
-            special.text = $"III: {TrinketBook.Special(got.Kind)} <color=#{Hex(Pal.Faint)}>(пока не работает)</color>";
+            special.text = TrinketBook.Group(got.Kind) == TrinketGroup.Curse
+                ? $"<color=#{Hex(Loss)}>Плата: {TrinketBook.Curse(got.Kind, cfg)}</color>"
+                : $"III: {TrinketBook.Special(got.Kind)}{(got.Level >= 3 ? $" <color=#{Hex(Gain)}>· работает</color>" : "")}";
             hint.text = "Уровни I–V. Повтор такого же тринкета поднимает его уровень. Выбросить нельзя — только заменить.";
             for (int i = 0; i < slots.Length; i++) slots[i].Sync(sim.TrinketSlots[i], i, i == focus);
             leave.text = mouse ? "Esc — оставить на земле" : "B — оставить на земле";
@@ -151,7 +158,7 @@ namespace Arena.UI
                 var cur = sim.TrinketSlots[own];
                 if (sim.CanLevelTrinket)
                     SetAct(key, $"Поднять {TrinketBook.Name(got.Kind)} до {TrinketBook.Roman(cur.Level + 1)}",
-                        $"▲ {Cap(TrinketBook.Bonus(got.Kind, cur.Level + 1, cfg))}{(cur.Level + 1 == 3 ? " · особый эффект III" : "")}", Gain, true);
+                        $"▲ {Cap(TrinketBook.Bonus(got.Kind, cur.Level + 1, cfg))}{(cur.Level + 1 == 3 && TrinketBook.Group(got.Kind) != TrinketGroup.Curse ? " · особый эффект III" : "")}", Gain, true);
                 else SetAct(key, $"{TrinketBook.Name(got.Kind)} уже на V", "Выше не поднять", Pal.Faint, false);
             }
             else

@@ -9,9 +9,10 @@ namespace Arena.Core
         Ember, IceShard, LightningRod, RotBone, DoomSand, Mirror, TuningFork, PowderHorn, // свойства
         Quiver, Feather, Compass, Bell, Ward,                                            // формы
         Hourglass, SoulVessel, TimeSand,                                                 // механики
+        GlassHeart, EmptyHand, BrokenMirror,                                             // проклятия: сила с платой (wild-моды Nova Drift)
     }
 
-    public enum TrinketGroup { Trait, Form, Mechanic }
+    public enum TrinketGroup { Trait, Form, Mechanic, Curse }
 
     /// <summary>Тринкет в слоте или на пятачке: вид и уровень (I–V).</summary>
     public sealed class Trinket
@@ -23,7 +24,7 @@ namespace Arena.Core
     }
 
     /// <summary>Числа тринкетов: прибавка уровня I. На уровнях I–V она умножается на levelMul (1, 2, 2, 3, 4) —
-    /// III чисел не добавляет, зато даёт особый эффект (пока не сделан). Все числа — оценка.</summary>
+    /// III чисел не добавляет, зато даёт особый эффект (с III и выше). У проклятий плата постоянная, растёт только сила. Все числа — оценка.</summary>
     [Serializable]
     public sealed class TrinketTuning
     {
@@ -48,9 +49,26 @@ namespace Arena.Core
         public float compass = 0.15f;        // Компас: радиус зоны +15%
         public float bell = 2f;              // Колокольчик: дух живёт +2 с
         public int ward = 1;                 // Щит-оберег: барьер +1 удар
+        public float wardCooldown = 0.12f;   // … и перезарядка барьера −12%
         public float hourglass = 0.1f;       // Песочные часы: окно заряда +0.1 с
         public float soulVessel = 0.05f;     // Сосуд душ: каждая влитая душа +5% урона карты
         public float timeSand = 0.08f;       // Песок времени: перезарядка всех форм −8%
+
+        // особые эффекты III
+        public float rotBoneDps = 10f * HadesScale.Hp; // Гнилая кость III: заражённые горят гнилью, урон в секунду
+        public float doomSandTime = 2f;      // Песок приговора III: срабатывает через 2 с
+        public float mirrorBounce = 0.2f;    // Зеркальце III: каждый отскок +20% урона
+        public float ember3Radius = 2f;      // Уголёк III: умерший с горением поджигает в этом радиусе
+        public float hourglassBoost = 1.5f;  // Песочные часы III: усиление ×2.5 (заряд k = 1.5)
+        public float timeSandKill = 1f;      // Песок времени III: убийство сбрасывает столько перезарядки
+        public float featherZoneLife = 1f;   // Перо III: зона-след
+
+        // проклятия
+        public float glassHeart = 0.3f;      // Стеклянное сердце: урон всех форм +30%…
+        public float glassHeartTaken = 0.5f; // … но получаемый урон +50%
+        public float emptyHand = 0.25f;      // Пустая длань: урон рывка, зоны, призыва и барьера +25%…
+        public float emptyHandShot = 0.5f;   // … но снаряд бьёт вдвое слабее (Hidden Power Nova Drift)
+        public float brokenMirror = 0.12f;   // Разбитое зеркало: перезарядка всех форм −12%, но барьер не ставится
 
         public float Mul(int level) => levelMul[Math.Clamp(level, 1, levelMul.Length) - 1];
     }
@@ -63,7 +81,7 @@ namespace Arena.Core
         public static readonly TrinketKind[] All = (TrinketKind[])Enum.GetValues(typeof(TrinketKind));
 
         public static TrinketGroup Group(TrinketKind k) =>
-            k <= TrinketKind.PowderHorn ? TrinketGroup.Trait : k <= TrinketKind.Ward ? TrinketGroup.Form : TrinketGroup.Mechanic;
+            k <= TrinketKind.PowderHorn ? TrinketGroup.Trait : k <= TrinketKind.Ward ? TrinketGroup.Form : k <= TrinketKind.TimeSand ? TrinketGroup.Mechanic : TrinketGroup.Curse;
 
         public static Trait? TraitOf(TrinketKind k) => k switch
         {
@@ -88,14 +106,15 @@ namespace Arena.Core
             TrinketKind.TuningFork => "Камертон", TrinketKind.PowderHorn => "Пороховница", TrinketKind.Quiver => "Колчан",
             TrinketKind.Feather => "Перо", TrinketKind.Compass => "Компас", TrinketKind.Bell => "Колокольчик",
             TrinketKind.Ward => "Щит-оберег", TrinketKind.Hourglass => "Песочные часы", TrinketKind.SoulVessel => "Сосуд душ",
-            _ => "Песок времени",
+            TrinketKind.TimeSand => "Песок времени", TrinketKind.GlassHeart => "Стеклянное сердце", TrinketKind.EmptyHand => "Пустая длань",
+            _ => "Разбитое зеркало",
         };
 
         /// <summary>Категория словом: свойство, форма или механика.</summary>
         public static string Category(TrinketKind k) =>
             TraitOf(k) is Trait t ? FormText.Name(t) : FormOf(k) is FormKind f ? FormText.Name(f) : k switch
             {
-                TrinketKind.Hourglass => "Заряд", TrinketKind.SoulVessel => "Вливание", _ => "Перезарядка",
+                TrinketKind.Hourglass => "Заряд", TrinketKind.SoulVessel => "Вливание", TrinketKind.TimeSand => "Перезарядка", _ => "Проклятие",
             };
 
         public static string Roman(int level) => level switch { 1 => "I", 2 => "II", 3 => "III", 4 => "IV", _ => "V" };
@@ -120,14 +139,59 @@ namespace Arena.Core
                 TrinketKind.Feather => $"перезарядка рывка −{P(Math.Min(1f - c.minCooldownMul, c.feather * m))}%",
                 TrinketKind.Compass => $"радиус зоны +{P(c.compass * m)}%",
                 TrinketKind.Bell => $"дух живёт дольше на {N(c.bell * m)} с",
-                TrinketKind.Ward => $"барьер держит ударов +{c.ward * (int)m}",
+                TrinketKind.Ward => $"барьер держит ударов +{c.ward * (int)m}, перезарядка −{P(Math.Min(1f - c.minCooldownMul, c.wardCooldown * m))}%",
                 TrinketKind.Hourglass => $"окно заряда шире на {N(c.hourglass * m)} с",
                 TrinketKind.SoulVessel => $"каждая влитая душа: урон карты +{P(c.soulVessel * m)}%",
-                _ => $"перезарядка всех форм −{P(Math.Min(1f - c.minCooldownMul, c.timeSand * m))}%",
+                TrinketKind.TimeSand => $"перезарядка всех форм −{P(Math.Min(1f - c.minCooldownMul, c.timeSand * m))}%",
+                TrinketKind.GlassHeart => $"урон всех форм +{P(c.glassHeart * m)}%",
+                TrinketKind.EmptyHand => $"урон рывка, зоны, призыва и барьера +{P(c.emptyHand * m)}%",
+                _ => $"перезарядка всех форм −{P(Math.Min(1f - c.minCooldownMul, c.brokenMirror * m))}%",
             };
         }
 
-        /// <summary>Особый эффект уровня III. Пока не сделан — в игре помечен.</summary>
+        /// <summary>Плата проклятия (не растёт с уровнем); у остальных тринкетов — пусто.</summary>
+        public static string Curse(TrinketKind k, TrinketTuning c) => k switch
+        {
+            TrinketKind.GlassHeart => $"получаемый урон +{(c.glassHeartTaken * 100f):0}%",
+            TrinketKind.EmptyHand => $"снаряд бьёт на {((1f - c.emptyHandShot) * 100f):0}% слабее",
+            TrinketKind.BrokenMirror => "барьер не ставится",
+            _ => "",
+        };
+
+        /// <summary>Тринкет этого вида стоит на уровне III и выше — особый эффект включён.</summary>
+        public static bool HasSpecial(TrinketKind k, IEnumerable<Trinket> trinkets)
+        {
+            foreach (var t in trinkets) if (t != null && t.Kind == k && t.Level >= 3) return true;
+            return false;
+        }
+
+        static float LevelOf(TrinketKind k, IEnumerable<Trinket> trinkets, TrinketTuning c)
+        {
+            foreach (var t in trinkets) if (t != null && t.Kind == k) return c.Mul(t.Level);
+            return 0f;
+        }
+
+        /// <summary>Проклятия на урон формы: Стеклянное сердце — всё сильнее, Пустая длань — всё, кроме снаряда, сильнее, снаряд слабее.</summary>
+        public static float DamageMul(FormKind form, IEnumerable<Trinket> trinkets, TrinketTuning c)
+        {
+            float m = 1f + c.glassHeart * LevelOf(TrinketKind.GlassHeart, trinkets, c);
+            float hand = LevelOf(TrinketKind.EmptyHand, trinkets, c);
+            if (hand > 0f) m *= form == FormKind.Shot ? c.emptyHandShot : 1f + c.emptyHand * hand;
+            return m;
+        }
+
+        /// <summary>Стеклянное сердце: множитель урона по Смерти.</summary>
+        public static float TakenMul(IEnumerable<Trinket> trinkets, TrinketTuning c) =>
+            LevelOf(TrinketKind.GlassHeart, trinkets, c) > 0f ? 1f + c.glassHeartTaken : 1f;
+
+        /// <summary>Разбитое зеркало: барьер не ставится.</summary>
+        public static bool BarrierSealed(IEnumerable<Trinket> trinkets)
+        {
+            foreach (var t in trinkets) if (t != null && t.Kind == TrinketKind.BrokenMirror) return true;
+            return false;
+        }
+
+        /// <summary>Особый эффект уровня III (у проклятий нет — пусто).</summary>
         public static string Special(TrinketKind k) => k switch
         {
             TrinketKind.Ember => "умерший с горением поджигает врагов в 2 ю",
@@ -136,7 +200,7 @@ namespace Arena.Core
             TrinketKind.RotBone => "заражённые получают урон от заражения соседей",
             TrinketKind.DoomSand => "приговор срабатывает через 2 с",
             TrinketKind.Mirror => "каждый отскок +20% урона",
-            TrinketKind.TuningFork => "эхо повторяется второй раз",
+            TrinketKind.TuningFork => "эхо снаряда и зоны повторяется второй раз (50%)",
             TrinketKind.PowderHorn => "взрыв поджигает",
             TrinketKind.Quiver => "каждый 4-й выстрел — сразу очередь",
             TrinketKind.Feather => "конец рывка оставляет зону-след",
@@ -144,8 +208,9 @@ namespace Arena.Core
             TrinketKind.Bell => "дух, исчезая, взрывается",
             TrinketKind.Ward => "поглощённый удар отражается во врага",
             TrinketKind.Hourglass => "усиление ×2.5 вместо ×2",
-            TrinketKind.SoulVessel => "каждая вторая душа даёт +1 ячейку",
-            _ => "убийство сбрасывает 1 с перезарядки",
+            TrinketKind.SoulVessel => "каждая вторая душа даёт +1 ячейку (до 4)",
+            TrinketKind.TimeSand => "убийство сбрасывает 1 с перезарядки всех форм",
+            _ => "",
         };
 
         /// <summary>Итоговые числа форм: копия базы, к которой прибавлены все тринкеты (null-слоты пропускаются).</summary>
@@ -164,7 +229,10 @@ namespace Arena.Core
                     case TrinketKind.IceShard: f.freezeTime += c.iceShard * m; break;
                     case TrinketKind.LightningRod: f.chainTargets += c.lightningRod * n; break;
                     case TrinketKind.RotBone: f.rotVuln += c.rotBone * m; break;
-                    case TrinketKind.DoomSand: f.doomFraction += c.doomSand * m; break;
+                    case TrinketKind.DoomSand:
+                        f.doomFraction += c.doomSand * m;
+                        if (t.Level >= 3) f.doomTime = Math.Min(f.doomTime, c.doomSandTime); // III: срабатывает раньше
+                        break;
                     case TrinketKind.Mirror: f.ricochetBounces += c.mirror * n; break;
                     case TrinketKind.TuningFork: f.echoFraction += c.tuningFork * m; break;
                     case TrinketKind.PowderHorn: f.blastRadius *= 1f + c.powderHorn * m; break;
@@ -172,14 +240,15 @@ namespace Arena.Core
                     case TrinketKind.Feather: f.dashCooldown *= Cd(c.feather); break;
                     case TrinketKind.Compass: f.zoneRadius *= 1f + c.compass * m; break;
                     case TrinketKind.Bell: f.summonLife += c.bell * m; break;
-                    case TrinketKind.Ward: f.barrierHits += c.ward * n; break;
+                    case TrinketKind.Ward: f.barrierHits += c.ward * n; f.barrierCooldown *= Cd(c.wardCooldown); break;
                     case TrinketKind.Hourglass:
                         float w = c.hourglass * m;
                         f.shotChargeWindow += w; f.dashChargeWindow += w; f.zoneChargeWindow += w; f.summonChargeWindow += w; f.barrierChargeWindow += w;
                         break;
                     case TrinketKind.SoulVessel: break; // урон карты — SoulDamageMul
                     case TrinketKind.TimeSand:
-                        float k = Cd(c.timeSand);
+                    case TrinketKind.BrokenMirror:
+                        float k = Cd(t.Kind == TrinketKind.TimeSand ? c.timeSand : c.brokenMirror);
                         f.shotInterval *= k; f.dashCooldown *= k; f.zoneCooldown *= k; f.summonCooldown *= k; f.barrierCooldown *= k;
                         break;
                 }

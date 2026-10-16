@@ -21,6 +21,9 @@ namespace Arena.UI
         readonly RectTransform prompt;   // «E Взять» над ближайшей карточкой пятачка
         readonly Image promptKey;
         readonly Text promptKeyText, promptText;
+        readonly RectTransform reroll;   // «F Перебросить · 3» рядом с «E Взять», пока перебросы остались
+        readonly Image rerollKey;
+        readonly Text rerollKeyText, rerollText;
         readonly List<Text> lootLabels = new();
         readonly List<Text> hubLabels = new(); // хаб: имена персонажей и врат
         Text speech;                           // хаб: реплика персонажа над ним // над каждой карточкой пятачка — «Форма · Свойство ◆◆»
@@ -78,6 +81,14 @@ namespace Arena.UI
             promptText.rectTransform.pivot = new Vector2(0f, 0.5f);
             promptText.supportRichText = true;
             prompt.gameObject.SetActive(false);
+            reroll = UiKit.Rect(t, "LootReroll", Vector2.zero, Vector2.zero, new Vector2(600f, 40f), new Vector2(0.5f, 0.5f));
+            rerollKey = UiKit.Image(reroll, "Key", Pal.Muted, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(44f, 36f), new Vector2(1f, 0.5f));
+            rerollKeyText = UiKit.Label(rerollKey.transform, "", 21, Pal.Ink, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(80f, 36f));
+            rerollKeyText.GetComponent<Shadow>().enabled = false;
+            rerollText = UiKit.Label(reroll, "", 24, Pal.TextDim, new Vector2(0.5f, 0.5f), new Vector2(10f, 0f), new Vector2(500f, 40f), TextAnchor.MiddleLeft, FontStyle.Normal);
+            rerollText.rectTransform.pivot = new Vector2(0f, 0.5f);
+            rerollText.supportRichText = true;
+            reroll.gameObject.SetActive(false);
 
             for (int i = 0; i < 4; i++) slots[i] = new SlotWidget(t, new Vector2(-330f + i * 220f, 30f));
             // слоты форм — справа снизу: ЛКМ, ПКМ, Q, Space — небольшие квадраты со значком формы
@@ -257,12 +268,31 @@ namespace Arena.UI
                     promptKeyText.text = key;
                     promptKey.rectTransform.sizeDelta = new Vector2(promptKeyText.preferredWidth + 20f, PromptH);
                 }
-                promptText.text = nearCard != null ? "Взять" : hubNear.Kind == Arena.Core.HubSpotKind.Gate ? "Начать забег" : "Говорить";
+                promptText.text = nearCard != null ? "Взять" : hubNear.Kind == Arena.Core.HubSpotKind.Gate ? "Начать забег" : hubNear.Kit ? "Стартовый набор" : "Говорить";
                 // ключ и слово — по центру под названием
                 float keyW = promptKey.rectTransform.sizeDelta.x;
                 float w = keyW + 10f + promptText.preferredWidth;
-                prompt.anchoredPosition = new Vector2(vp.x * size.x - w * 0.5f + keyW, vp.y * size.y + Gap + PromptH * 0.5f);
+                // переброс — той же строкой справа: «E Взять   F Перебросить · 3»
+                bool canReroll = nearCard != null && sim.CanReroll;
+                if (reroll.gameObject.activeSelf != canReroll) reroll.gameObject.SetActive(canReroll);
+                float w2 = 0f, key2W = 0f;
+                if (canReroll)
+                {
+                    string rk = useMouse ? "F" : "LB";
+                    if (rerollKeyText.text != rk)
+                    {
+                        rerollKeyText.text = rk;
+                        rerollKey.rectTransform.sizeDelta = new Vector2(rerollKeyText.preferredWidth + 20f, PromptH);
+                    }
+                    rerollText.text = $"Перебросить <color=#{ColorUtility.ToHtmlStringRGB(Pal.Faint)}>· {sim.RerollsLeft}</color>";
+                    key2W = rerollKey.rectTransform.sizeDelta.x;
+                    w2 = 28f + key2W + 10f + rerollText.preferredWidth;
+                }
+                float left = vp.x * size.x - (w + w2) * 0.5f, y = vp.y * size.y + Gap + PromptH * 0.5f;
+                prompt.anchoredPosition = new Vector2(left + keyW, y);
+                if (canReroll) reroll.anchoredPosition = new Vector2(left + w + 28f + key2W, y);
             }
+            else if (reroll.gameObject.activeSelf) reroll.gameObject.SetActive(false);
         }
 
         /// <summary>Над чем в хабе пишется имя: над вратами — выше перемычки, над персонажем — над головой.</summary>

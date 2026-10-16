@@ -152,9 +152,10 @@ namespace Arena.View
                     Art.Part(root, MeshKit.Prism(8), wallMat, Art.W(o.Pos), new Vector3(o.R * 2f, h, o.R * 2f));
                     continue;
                 }
-                Mesh(root, MeshKit.Slab(o.Poly, h), wallMat, true);
+                var wallGo = Mesh(root, MeshKit.Slab(o.Poly, h), wallMat, true);
                 // мох или трава на крыше стены — мягкий силуэт как в TUNIC
-                if (h > 0.8f) Mesh(root, MeshKit.Polygon(o.Poly, h + 0.02f), topMat, false);
+                var topGo = h > 0.8f ? Mesh(root, MeshKit.Polygon(o.Poly, h + 0.02f), topMat, false) : null;
+                if (polis && h >= 1.2f) { Fadeables.Add(wallGo); if (topGo != null) Fadeables.Add(topGo); } // стены комнат ETG в городе
             }
 
             // опасный пол
@@ -229,18 +230,9 @@ namespace Arena.View
 
         /// <summary>Стена ближнего края: за ней (дальше от камеры) пол комнаты, а перед ней (к камере) пола нет.
         /// Колонны посреди комнаты под это не попадают — перед ними тоже пол.</summary>
-        static bool OccludesFloor(ArenaSim sim, Obstacle o, Vector2 camFwd)
-        {
-            bool behind = false;
-            for (float d = 0.6f; d <= 3f && !behind; d += 0.6f)
-                if (sim.InsideRoom(o.Pos + camFwd * (o.R + d), 0f)) behind = true;
-            if (!behind) return false;
-            for (float d = 0.6f; d <= 3f; d += 0.6f)
-                if (sim.InsideRoom(o.Pos - camFwd * (o.R + d), 0f)) return false;
-            return true;
-        }
+        static bool OccludesFloor(ArenaSim sim, Obstacle o, Vector2 camFwd) => sim.IsFrontWall(o);
 
-        static void Mesh(Transform root, Mesh mesh, Material mat, bool shadows)
+        static GameObject Mesh(Transform root, Mesh mesh, Material mat, bool shadows)
         {
             var go = new GameObject(mesh.name);
             go.transform.SetParent(root, false);
@@ -248,6 +240,7 @@ namespace Arena.View
             var r = go.AddComponent<MeshRenderer>();
             r.sharedMaterial = mat;
             r.shadowCastingMode = shadows ? UnityEngine.Rendering.ShadowCastingMode.On : UnityEngine.Rendering.ShadowCastingMode.Off;
+            return go;
         }
     }
 

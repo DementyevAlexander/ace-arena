@@ -9,7 +9,8 @@ namespace Arena.Core
     /// Gungeon — пол и стены из клеток (соседние клетки слиты в прямоугольники). Проходы между комнатами — мосты над бездной:
     /// пол без стен по бокам. Стены и урны арен, которые перекрывают мост у её двери или выходят за её прямоугольник
     /// (невидимые границы поля Hades), убираются. Ещё здесь выбираются
-    /// мини-боссы: две обычные арены дальше всех от входа (сначала тупики).</summary>
+    /// мини-боссы: две обычные арены дальше всех от входа (сначала тупики). Ловушки, которые на экране закрыты объектами
+    /// арены или стеной зала, на этаж не попадают.</summary>
     public static class ArenaFloorBuilder
     {
         public const float TallWall = 1.6f, LowWall = 0.4f;
@@ -57,6 +58,20 @@ namespace Arena.Core
             foreach (var rect in Merge(tall, w, h)) walls.Add(RectPoly(rect, b, "EtgWall", TallWall));
             foreach (var rect in Merge(low, w, h)) walls.Add(RectPoly(rect, b, "EtgWall", LowWall));
 
+            // кварталы и стены комнат ETG — тоже могут закрыть ловушку на краю арены
+            var city = City(l);
+            var outerHides = new List<(Vector2 c, float r, float h)>();
+            void AddHide(Vector2[] poly, float h)
+            {
+                if (h <= 0.3f || poly.Length < 3) return;
+                var c = Geo.Centroid(poly);
+                float rad = 0f;
+                foreach (var v in poly) rad = Mathf.Max(rad, (v - c).magnitude);
+                outerHides.Add((c, rad, h));
+            }
+            foreach (var w0 in walls) AddHide(w0.p, w0.h);
+            foreach (var c0 in city) AddHide(c0.p, c0.h + 0.8f); // с крышей
+
             // арены: всё на месте, кроме того, что перекрывает мост; треть — в помещении (босс — всегда)
             var hallRnd = new System.Random(l.Seed * 7919 + 13);
             foreach (var r in l.Rooms)
@@ -97,11 +112,44 @@ namespace Arena.Core
                     if (p.Length >= 3 && (OutsideArena(p) || OnBridge(p))) continue;
                     arenaWalls.Add(new RoomDef.Poly { p = p, type = wl.type, h = wl.h, shots = wl.shots });
                 }
+                var spawns = new List<RoomDef.Point>();
+                foreach (var s in def.spawns) spawns.Add(new RoomDef.Point { pos = s.pos + t, angle = s.angle, role = s.role });
+                r.ArenaSpawns = spawns.ToArray();
+                // полис: мелкие препятствия слиты, все — городские объекты (оболочка не накрывает точки появления и ловушки)
+                var keep = new List<Vector2>();
+                foreach (var s in spawns) keep.Add(s.pos);
+                foreach (var tr in def.traps) keep.Add(tr.pos + t);
+                foreach (var bk in def.breakables) keep.Add(bk.pos + t);
+                var dressed = PolisDressing.DressArena(arenaWalls, r.Indoor, keep, l.Seed * 31 + r.Index);
+                walls.AddRange(dressed);
+                // что закрывает арену от камеры: её объекты и стены зала
+                var hides = new List<(Vector2 c, float r, float h)>();
+                foreach (var dw in dressed)
+                {
+                    if (dw.h <= 0.3f || dw.p.Length < 3) continue;
+                    var c = Geo.Centroid(dw.p);
+                    float rad = 0f;
+                    foreach (var v in dw.p) rad = Mathf.Max(rad, (v - c).magnitude);
+                    hides.Add((c, rad, dw.h));
+                }
+                if (r.Indoor)
+                    foreach (var f in def.floor)
+                        foreach (var (c, rad) in PolisDressing.HallPieces(Move(f.p, t), DoorPoints(r)))
+                            hides.Add((c, rad, PolisDressing.HallHeight));
+                bool Hidden(Vector2 p)
+                {
+                    foreach (var (c, rad, hh) in hides) if (PolisDressing.Hides(c, rad, hh, p, 0.1f)) return true;
+                    foreach (var (c, rad, hh) in outerHides)
+                        if (Mathf.Abs(c.x - p.x) < 14f && Mathf.Abs(c.y - p.y) < 14f && PolisDressing.Hides(c, rad, hh, p, 0.1f)) return true;
+                    return false;
+                }
+
+                // ловушки — только те, что не на мосту и не закрыты от камеры
                 var trapIndex = new Dictionary<int, int>();
                 for (int i = 0; i < def.traps.Length; i++)
                 {
                     var tr = def.traps[i];
-                    if (PointOnBridge(tr.pos + t, 0.6f)) continue;
+                    if (PointOnBridge(tr.pos + t, 0.6f) || Hidden(tr.pos + t)) continue;
                     trapIndex[i] = traps.Count;
                     traps.Add(new RoomDef.Trap
                     {
@@ -122,15 +170,6 @@ namespace Arena.Core
                 foreach (var p in def.breakables)
                     if (!PointOnBridge(p.pos + t, p.r)) breakables.Add(new RoomDef.Prop { type = p.type, pos = p.pos + t, r = p.r, h = p.h });
                 foreach (var p in def.decor) decor.Add(new RoomDef.Prop { type = p.type, pos = p.pos + t, r = p.r, h = p.h });
-                var spawns = new List<RoomDef.Point>();
-                foreach (var s in def.spawns) spawns.Add(new RoomDef.Point { pos = s.pos + t, angle = s.angle, role = s.role });
-                r.ArenaSpawns = spawns.ToArray();
-                // полис: мелкие препятствия слиты, все — городские объекты (оболочка не накрывает точки появления и ловушки)
-                var keep = new List<Vector2>();
-                foreach (var s in spawns) keep.Add(s.pos);
-                foreach (var tr in def.traps) keep.Add(tr.pos + t);
-                foreach (var bk in def.breakables) keep.Add(bk.pos + t);
-                walls.AddRange(PolisDressing.DressArena(arenaWalls, r.Indoor, keep, l.Seed * 31 + r.Index));
             }
 
             l.Geometry = new RoomDef
@@ -139,10 +178,24 @@ namespace Arena.Core
                 heroStart = new Vector2(start.x + 0.5f, start.y + 0.5f), heroAngle = 90f,
                 min = new Vector2(b.xMin, b.yMin), max = new Vector2(b.xMax, b.yMax),
                 floor = floors.ToArray(), walls = walls.ToArray(), traps = traps.ToArray(),
-                breakables = breakables.ToArray(), decor = decor.ToArray(), city = City(l).ToArray(),
+                breakables = breakables.ToArray(), decor = decor.ToArray(), city = city.ToArray(),
                 encounter = new RoomDef.Encounter { name = "ArenaFloor", generated = true, budgetPerDepth = 0f },
             };
             PickElites(l);
+        }
+
+        /// <summary>Середины занятых дверей арены — где мост встаёт к краю её пола (проёмы в стенах зала).</summary>
+        public static List<Vector2> DoorPoints(EtgPlacedRoom r)
+        {
+            var list = new List<Vector2>();
+            foreach (var d in r.Doors)
+            {
+                var sum = Vector2.zero;
+                var cells = r.Room.exits[d.Exit].cells;
+                foreach (var c in cells) sum += new Vector2(r.Pos.x + c.x + 0.5f, r.Pos.y + c.y + 0.5f);
+                list.Add(sum / cells.Length);
+            }
+            return list;
         }
 
         /// <summary>Кварталы вокруг проходимого: от мостов и пола комнат ETG — через клетку, от арен (края многоугольниками) —
@@ -191,7 +244,8 @@ namespace Arena.Core
             return PolisDressing.Build(blocked, buildable, w, h, origin, l.Seed * 104729 + 3);
         }
 
-        /// <summary>Босс — комната босса; мини-боссы — две обычные арены дальше всех от входа по дверям, сначала тупики.</summary>
+        /// <summary>Босс — комната босса; мини-боссы — две обычные арены дальше всех от входа по дверям, сначала тупики.
+        /// Хабы — с боем, кроме стартового (ближайшего ко входу).</summary>
         static void PickElites(EtgFloorLayout l)
         {
             var dist = new int[l.Rooms.Count];
@@ -204,6 +258,12 @@ namespace Arena.Core
                 foreach (var d in l.Rooms[r].Doors)
                     if (dist[d.To] < 0) { dist[d.To] = dist[r] + 1; q.Enqueue(d.To); }
             }
+            // хабы — с боем, кроме стартового (ближайшего ко входу)
+            EtgPlacedRoom startHub = null;
+            foreach (var r in l.Rooms)
+                if (r.Kind == EtgRoomKind.Hub && dist[r.Index] >= 0 && (startHub == null || dist[r.Index] < dist[startHub.Index])) startHub = r;
+            foreach (var r in l.Rooms)
+                if (r.Kind == EtgRoomKind.Hub) r.PeacefulHubs = r == startHub;
             var cand = new List<EtgPlacedRoom>();
             foreach (var r in l.Rooms)
             {

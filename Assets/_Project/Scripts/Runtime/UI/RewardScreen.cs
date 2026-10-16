@@ -30,6 +30,7 @@ namespace Arena.UI
         readonly SlotButton[] slots = new SlotButton[4];
         readonly ActionButton take, fuse;
         readonly Text viewTitle;
+        readonly PagerArrows pager;
         int focus;
         bool viewOnly, pad;
         float openedAt;
@@ -68,6 +69,7 @@ namespace Arena.UI
             lb.transition = Selectable.Transition.None;
             lb.onClick.AddListener(() => { if (!viewOnly) sim.LeaveLoot(); });
             leaveHint = leave.gameObject;
+            pager = new PagerArrows(t, 365f, d => { if (!viewOnly && sim.CycleLoot(d)) focus = BestSlot(); });
             canvas.enabled = false;
         }
 
@@ -99,6 +101,7 @@ namespace Arena.UI
                 if (input.NavX != 0) focus = (focus + input.NavX + 4) % 4;
                 if (!viewOnly)
                 {
+                    if (input.NavPage != 0 && sim.CycleLoot(input.NavPage)) focus = BestSlot(); // у рывка свой слот
                     if (input.NavConfirm) Take();
                     else if (input.NavAlt) Fuse();
                     else if (input.NavBack || input.PausePressed) sim.LeaveLoot();
@@ -107,7 +110,9 @@ namespace Arena.UI
             // выбор сделан или карточка оставлена — экран закроется; иначе перерисовать по текущему состоянию
             viewOnly = !sim.RewardPending || sim.Offers.Count == 0;
             if (!sim.RewardPending && !viewRequested) { canvas.enabled = false; return; }
+            if (sim.TrinketOffer != null && !viewRequested) { canvas.enabled = false; return; } // перелистнули на тринкет
             Draw(input.UseMouse);
+            pager.Sync(!viewOnly, sim.LootOpenIndex, sim.Loot.Count, pad);
         }
 
         /// <summary>С какого слота начать: рывок — Space; иначе пустой подходящий слот, иначе первый, куда можно влить душу.</summary>
@@ -134,7 +139,7 @@ namespace Arena.UI
             actionsRow.SetActive(!viewOnly);
             leaveHint.SetActive(!viewOnly);
 
-            if (cur != null) current.Show(cur, (viewOnly ? $"СЛОТ {slotKey}" : $"СЕЙЧАС В {slotKey}").ToUpperInvariant(), Pal.Gold, Pal.Gold);
+            if (cur != null) current.Show(cur, (viewOnly ? $"СЛОТ {slotKey}" : $"СЕЙЧАС В {slotKey}").ToUpperInvariant(), Pal.Gold, Pal.Gold, sim.SoulCellsOf(cur));
             else current.ShowEmpty($"СЕЙЧАС В {slotKey}".ToUpperInvariant(), focus == ArenaSim.DashSlot ? "Сюда ставится только рывок." : "Сюда можно поставить снаряд, зону, призыв или барьер.");
             for (int i = 0; i < 4; i++) slots[i].Sync(sim.Forms[i].Card, keys[i], i == focus);
             if (viewOnly) return;
@@ -162,11 +167,13 @@ namespace Arena.UI
             // Y: влить свойство карточки в карту слота
             var trait = got.Own.Value;
             if (cur == null) fuse.Set(pad ? "Y" : "", $"Влить {FormText.Name(trait)}", "Слот пуст — вливать некуда", Pal.Faint, false);
-            else if (!cur.CanFuse) fuse.Set(pad ? "Y" : "", $"Влить {FormText.Name(trait)} в {FormText.Name(cur.Form)}", "Ячейки душ заполнены", Pal.Faint, false);
+            else if (cur.Souls.Count >= sim.SoulCellsOf(cur)) fuse.Set(pad ? "Y" : "", $"Влить {FormText.Name(trait)} в {FormText.Name(cur.Form)}", "Ячейки душ заполнены", Pal.Faint, false);
             else
             {
                 int lvl = cur.Level(trait) + 1;
                 string what = lvl > 1 ? $"▲ {FormText.Name(trait)} ×{lvl}" : $"+ {FormText.Name(trait)}: {FormText.Cell(trait, cur.Form)}";
+                var opens = Bonds.Opens(cur, trait);
+                if (opens.Count > 0) what += " · связка " + string.Join(", ", opens.ConvertAll(b => $"«{Bonds.Name(b)}»"));
                 fuse.Set(pad ? "Y" : "", $"Влить {FormText.Name(trait)} в {FormText.Name(cur.Form)}", $"{what} · {gotName} исчезнет", Gain, true);
             }
         }
@@ -204,8 +211,10 @@ namespace Arena.UI
 
             public void SetActive(bool v) { if (root.activeSelf != v) root.SetActive(v); }
 
-            public void Show(SkillCard c, string cap, Color capColor, Color frameColor)
+            /// <summary>soulCells — ячеек душ с тринкетами (Сосуд душ III); −1 — по редкости.</summary>
+            public void Show(SkillCard c, string cap, Color capColor, Color frameColor, int soulCells = -1)
             {
+                if (soulCells < 0) soulCells = c.SoulCells;
                 SetActive(true);
                 frame.color = frameColor;
                 var rar = Art.RarityColor(c.Rarity);
@@ -221,11 +230,16 @@ namespace Arena.UI
                     if (sb.Length > 0) sb.Append('\n');
                     sb.Append($"<color=#{Hex(Art.TraitColor(t))}>◆ {FormText.Name(t)}{(c.Level(t) > 1 ? $" ×{c.Level(t)}" : "")}</color> — {FormText.Cell(t, c.Form)}");
                 }
+                foreach (var b in Bonds.Of(c))
+                {
+                    if (sb.Length > 0) sb.Append('\n');
+                    sb.Append($"<color=#{Hex(Pal.Gold)}>◇ Связка «{Bonds.Name(b)}»</color> — {Bonds.Text(b)}");
+                }
                 traits.text = sb.ToString();
-                souls.text = $"Души {c.Souls.Count}/{c.SoulCells}";
+                souls.text = $"Души {c.Souls.Count}/{soulCells}";
                 for (int k = 0; k < cells.Length; k++)
                 {
-                    cells[k].enabled = k < c.SoulCells;
+                    cells[k].enabled = k < soulCells;
                     cells[k].color = k < c.Souls.Count ? Art.TraitColor(c.Souls[k]) : rar.WithAlpha(0.35f);
                 }
             }

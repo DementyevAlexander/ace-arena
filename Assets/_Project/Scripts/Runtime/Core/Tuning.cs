@@ -330,6 +330,9 @@ namespace Arena.Core
         public float pedestalClear = 1.4f;     // вокруг каждой карточки свободно 1.4 ю: кольцо 0.8 и проход Смерти
         public float pedestalClearMin = 0.85f; // если так не влезает нигде (острова Асфоделя) — отступ меньше, до этого
         public float lootAppear = 0.4f;        // карточки вырастают из пола, потом их можно брать
+        /// <summary>Переброс наград пятачка (F / LB рядом с ним): столько раз за одну выдачу. Цена — золото, пока бесплатно.</summary>
+        public int rerollsPerDrop = 3;
+        public int rerollCost = 0;
         public int budgetPerReward = 8;
         /// <summary>Этаж из арен: мини-босс и босс — обычный враг из набора арены, красный, с таким множителем здоровья.</summary>
         public float eliteHpMini = 10f, eliteHpBoss = 20f;

@@ -16,13 +16,16 @@ namespace Arena.Sim
         public float Haste;           // Жатва снаряда: двойная скорострельность
         public float ReapLock;
         public bool FreeDash;         // Рикошет рывка: второй рывок уже бесплатный
+        public float TriggerLock;     // Спуск: до следующего срабатывания
+        public float Run;             // Разгон снаряда: сколько пробежано с прошлого выстрела
+        public int Shots;             // Колчан III: каждый 4-й выстрел — сразу очередь
         public readonly List<Effect> Active = new();
 
         public bool Ready => Card != null && Cd <= 0f;
 
         public void Reset()
         {
-            Cd = CdTotal = 0f; Holding = false; HoldT = 0f; Burst = 0; BurstT = BurstMul = 0f; Haste = ReapLock = 0f; FreeDash = false;
+            Cd = CdTotal = 0f; Holding = false; HoldT = 0f; Burst = 0; BurstT = BurstMul = 0f; Haste = ReapLock = TriggerLock = Run = 0f; FreeDash = false; Shots = 0;
             Active.Clear();
         }
     }
@@ -45,6 +48,12 @@ namespace Arena.Sim
         public readonly FormTuning FormBase = new();
         /// <summary>Итоговые числа с тринкетами — их читают скиллы (TrinketBook.Apply поверх FormBase).</summary>
         public FormTuning FormCfg { get; private set; } = new();
+        /// <summary>Стартовый набор: карта в ЛКМ в начале каждого забега (выбирается у Наставника в хабе).</summary>
+        public readonly StartKit Kit = new();
+        /// <summary>Сколько ещё можно перебросить награды пятачка (ArenaTuning.rerollsPerDrop за выдачу).</summary>
+        public int RerollsLeft { get; private set; }
+        int pedestalTrinketLevel;
+        float healLeft; // Поглощение: сколько ещё можно вылечить до следующей награды
         public bool FormsMode { get; private set; }
         public readonly FormSlot[] Forms = { new(), new(), new(), new() };
         public readonly List<SkillCard> Offers = new();
@@ -114,6 +123,7 @@ namespace Arena.Sim
         {
             foreach (var s in Forms) { s.Active.Clear(); s.Holding = false; s.Burst = 0; }
             fDashing = false; fShotSlow = 0f; formShooting = false;
+            healLeft = FormCfg.siphonRoomCap * PlayerCfg.hp;
         }
 
         /// <summary>Включает режим форм и начинает забег заново: снаряд в ЛКМ, рывок в Space.</summary>
@@ -126,9 +136,10 @@ namespace Arena.Sim
         void ResetForms()
         {
             foreach (var s in Forms) { s.Card = null; s.Reset(); }
-            Forms[0].Card = new SkillCard(FormKind.Shot);
+            Forms[0].Card = Kit.Card();
             Forms[DashSlot].Card = new SkillCard(FormKind.Dash);
             fDashing = false; fShotSlow = 0f; Rewards = 0;
+            healLeft = FormCfg.siphonRoomCap * PlayerCfg.hp;
             RewardPending = false; Offers.Clear();
             ClearLoot();
             ResetTrinkets();
@@ -173,7 +184,35 @@ namespace Arena.Sim
             Pedestal = true;
             PedestalPos = at;
             LootReadyAt = Time + ArenaCfg.lootAppear;
+            RerollsLeft = ArenaCfg.rerollsPerDrop;
+            pedestalTrinketLevel = items[0].Trinket != null ? trinketLevel : 0;
+            healLeft = FormCfg.siphonRoomCap * PlayerCfg.hp; // лимит Поглощения — до следующей награды
             Events.Add(new SimEvent { Kind = EventKind.LootDropped, Pos = at });
+        }
+
+        /// <summary>Можно перебросить: Смерть у пятачка, карточки выросли, выбор не открыт, перебросы остались.
+        /// Цена — ArenaTuning.rerollCost золота (пока золота нет — бесплатно).</summary>
+        public bool CanReroll => RerollsLeft > 0 && LootNear != null;
+
+        /// <summary>Перебросить все награды пятачка: старые сгорают, на их местах вырастают новые того же вида (карты или тринкеты
+        /// того же уровня) по тем же правилам выпадения. Не больше ArenaTuning.rerollsPerDrop раз за выдачу.</summary>
+        public bool RerollLoot()
+        {
+            if (!CanReroll) return false;
+            RerollsLeft--;
+            for (int i = 0; i < Loot.Count; i++) Events.Add(new SimEvent { Kind = EventKind.LootBurned, Pos = Loot[i].Pos, Value = i });
+            var items = new List<GroundCard>();
+            if (pedestalTrinketLevel > 0)
+                foreach (var t in RollTrinketOffers(Loot.Count, pedestalTrinketLevel)) items.Add(new GroundCard { Trinket = t });
+            if (items.Count == 0)
+                for (int i = 0; i < Loot.Count; i++) items.Add(new GroundCard { Card = RandomLootCard(items) });
+            for (int i = 0; i < items.Count; i++) items[i].Pos = Loot[Mathf.Min(i, Loot.Count - 1)].Pos;
+            Loot.Clear();
+            Loot.AddRange(items);
+            LootReadyAt = Time + ArenaCfg.lootAppear;
+            Events.Add(new SimEvent { Kind = EventKind.LootRerolled, Pos = PedestalPos });
+            Events.Add(new SimEvent { Kind = EventKind.LootDropped, Pos = PedestalPos });
+            return true;
         }
 
         /// <summary>Одна случайная карта по тем же правилам, что на пятачке (веса тринкетов, редкость) — для магазина и проверок.</summary>
@@ -187,7 +226,7 @@ namespace Arena.Sim
         {
             var formW = new float[FormDropWeights.Length];
             for (int i = 0; i < formW.Length; i++) formW[i] = FormDropWeights[i] * TrinketBook.FormWeight((FormKind)i, TrinketSlots, TrinketCfg);
-            var traitW = new float[15];
+            var traitW = new float[Traits.Count];
             for (int i = 0; i < traitW.Length; i++)
                 traitW[i] = already.Exists(g => g.Card?.Own == (Trait)i) ? 0f : TrinketBook.TraitWeight((Trait)i, TrinketSlots, TrinketCfg);
             var card = new SkillCard((FormKind)WeightedPick(formW), (Trait)WeightedPick(traitW));
@@ -215,6 +254,7 @@ namespace Arena.Sim
             Pedestal = false;
             lootOpen = null;
             TrinketOffer = null;
+            RerollsLeft = 0;
         }
 
         /// <summary>Ближайшая к Смерти карточка пятачка не дальше lootReach. Null — нет такой, карточки ещё вырастают
@@ -253,6 +293,22 @@ namespace Arena.Sim
             return true;
         }
 
+        /// <summary>Номер открытой в выборе награды на пятачке (−1 — выбор закрыт).</summary>
+        public int LootOpenIndex => RewardPending && lootOpen != null ? Loot.IndexOf(lootOpen) : -1;
+
+        /// <summary>Перелистнуть выбор на соседнюю награду пятачка (dir −1 / +1, по кругу): сгорят потом остальные — не взятая.</summary>
+        public bool CycleLoot(int dir)
+        {
+            if (!RewardPending || lootOpen == null || Loot.Count < 2 || dir == 0) return false;
+            int i = (Loot.IndexOf(lootOpen) + (dir > 0 ? 1 : -1) + Loot.Count) % Loot.Count;
+            lootOpen = Loot[i];
+            Offers.Clear();
+            TrinketOffer = null;
+            if (lootOpen.Trinket != null) TrinketOffer = lootOpen.Trinket;
+            else Offers.Add(lootOpen.Card);
+            return true;
+        }
+
         /// <summary>Закрыть выбор, не применяя: награды остаются на пятачке, до выхода из комнаты можно взять любую.</summary>
         public void LeaveLoot()
         {
@@ -268,7 +324,7 @@ namespace Arena.Sim
 
         /// <summary>Влить душу карточки (её свойство) в карту слота: форма остаётся от карты слота.</summary>
         public bool CanFuse(int offer, int slot) =>
-            RewardPending && offer >= 0 && offer < Offers.Count && slot >= 0 && slot < 4 && Forms[slot].Card != null && Forms[slot].Card.CanFuse;
+            RewardPending && offer >= 0 && offer < Offers.Count && slot >= 0 && slot < 4 && Forms[slot].Card != null && Forms[slot].Card.Souls.Count < SoulCellsOf(Forms[slot].Card);
 
         public void TakeOffer(int offer, int slot)
         {
@@ -313,14 +369,22 @@ namespace Arena.Sim
             for (int i = 0; i < 4; i++)
             {
                 var s = Forms[i];
-                s.Haste -= dt; s.ReapLock -= dt;
+                s.Haste -= dt; s.ReapLock -= dt; s.TriggerLock -= dt;
                 s.Active.RemoveAll(f => f.Done);
-                if (s.Card == null) { s.Holding = false; continue; }
+                if (s.Card == null || (s.Card.Form == FormKind.Barrier && TrinketBook.BarrierSealed(TrinketSlots))) { s.Holding = false; continue; }
                 // зона и барьер: новая — только когда прежняя исчезла (ActiveProjectileCap 1)
                 if (s.Card.Form is FormKind.Zone or FormKind.Barrier)
                 {
-                    float left = 0f;
-                    foreach (var f in s.Active) if (f.Kind is EffectKind.FormZone or EffectKind.FormBarrier) left = Mathf.Max(left, f.Life + (f.Kind == EffectKind.FormZone && f.Card.Has(Trait.Return) ? 0.5f : 0f));
+                    float left = 0f, first = float.MaxValue;
+                    int zones = 0;
+                    foreach (var f in s.Active)
+                    {
+                        if (f.Kind is not (EffectKind.FormZone or EffectKind.FormBarrier)) continue;
+                        float l = f.Life + (f.Kind == EffectKind.FormZone && f.Card.Has(Trait.Return) ? 0.5f : 0f);
+                        left = Mathf.Max(left, l);
+                        if (f.Kind == EffectKind.FormZone) { zones++; first = Mathf.Min(first, l); }
+                    }
+                    if (s.Card.Form == FormKind.Zone && TrinketIII(TrinketKind.Compass)) left = zones >= 2 ? first : 0f; // Компас III: две зоны
                     if (left > 0f) { float extra = s.Card.Form == FormKind.Zone ? c.zoneCooldown : c.barrierCooldown; s.Cd = Mathf.Max(s.Cd, left + extra); s.CdTotal = Mathf.Max(s.CdTotal, s.Cd); }
                 }
                 s.Cd -= dt;
@@ -338,7 +402,7 @@ namespace Arena.Sim
                 if (input.IsHeld(i) || fDashing) continue;
                 bool boosted = InChargeWindow(s);
                 s.Holding = false;
-                ReleaseForm(s, i, input, boosted ? 1f : 0f);
+                ReleaseForm(s, i, input, boosted ? (TrinketIII(TrinketKind.Hourglass) ? TrinketCfg.hourglassBoost : 1f) : 0f); // Песочные часы III: ×2.5
             }
 
             p.Moving = false;
@@ -348,6 +412,8 @@ namespace Arena.Sim
             if (p.Lock != null && (!p.Lock.Alive || (input.Held == 0 && !shooting))) p.Lock = null;
             p.Aim = shooting ? p.Face : ComputeAimPreview(input);
             CollideCircle(ref p.Pos, PlayerCfg.radius, before);
+            float moved = (p.Pos - before).magnitude; // Разгон снаряда: пробег с прошлого выстрела, рывок тоже считается
+            foreach (var s in Forms) s.Run = Mathf.Min(s.Run + moved, c.kineticRunDist * 2f);
         }
 
         /// <summary>Отпустил кнопку: применение формы с зарядом k (0 — обычное), «идеальный» выпуск — ×1.167 урона.
@@ -365,6 +431,7 @@ namespace Arena.Sim
                     var dir = AimAssist(c.shotLockRange, c.shotLockArc, c.shotLockWithMouse, input);
                     Player.Face = dir;
                     float mul = pm;
+                    if (TrinketIII(TrinketKind.Quiver) && ++s.Shots % 4 == 0) k = Mathf.Max(k, 1f); // Колчан III: 4-й выстрел — сразу очередь
                     FireShot(s, i, dir, mul);
                     s.Burst = Mathf.RoundToInt(c.shotVolley * k);
                     s.BurstT = c.shotVolleyInterval;
@@ -401,6 +468,9 @@ namespace Arena.Sim
             var c = FormCfg;
             var card = s.Card;
             var origin = Player.Pos + dir * 0.4f;
+            int kinetic = card.Level(Trait.Kinetic);
+            if (kinetic > 0) mul *= 1f + c.kineticRunUp * kinetic * Mathf.Min(1f, s.Run / c.kineticRunDist); // разбег
+            s.Run = 0f;
             SpreadShots(s, card, origin, dir, mul, false);
             int echo = card.Level(Trait.Echo);
             if (echo > 0)
@@ -412,9 +482,10 @@ namespace Arena.Sim
         void SpreadShots(FormSlot s, SkillCard card, Vector2 origin, Vector2 dir, float mul, bool echoed)
         {
             int n = 1 + card.Level(Trait.Split);
+            bool orbit = card.Has(Trait.Orbit);
             for (int k = 0; k < n; k++)
             {
-                float a = (k - (n - 1) * 0.5f) * FormCfg.splitAngle * Mathf.Deg2Rad;
+                float a = orbit ? k * Mathf.PI * 2f / n : (k - (n - 1) * 0.5f) * FormCfg.splitAngle * Mathf.Deg2Rad;
                 SpawnShot(s, card, origin, Rotate(dir, a), mul, echoed);
             }
         }
@@ -430,11 +501,157 @@ namespace Arena.Sim
         {
             var c = FormCfg;
             if (ActiveShots(s) >= c.maxShotsPerSkill) return null;
-            return Add(new Effect
+            var f = Add(new Effect
             {
                 Kind = EffectKind.FormShot, Pos = pos, Dir = dir, Speed = c.shotSpeed, Life = c.shotFuse, R = c.shotRadius,
                 Card = card, FSlot = s, As = FormKind.Shot, Mul = mul, Echoed = echoed, Bounces = c.ricochetBounces * card.Level(Trait.Ricochet),
             });
+            int orbit = card.Level(Trait.Orbit);
+            if (orbit > 0) MakeOrbit(f, dir, c.orbitLife + (orbit - 1));
+            return f;
+        }
+
+        // ---------- Орбита ----------
+
+        /// <summary>Снаряд на орбите вокруг Смерти (Phase 3): кружит orbitSpeed, бьёт касанием, того же врага — не чаще orbitRehit.
+        /// Жернова (Орбита + Пронзание): круг шире, бьёт вдвое чаще.</summary>
+        void MakeOrbit(Effect f, Vector2 dir, float life)
+        {
+            var c = FormCfg;
+            f.Phase = 3;
+            f.Angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+            f.Back = c.orbitRadius * (Bonds.Has(f.Card, Bond.Millstone) ? c.bondMillstone : 1f);
+            f.Life = life;
+            f.Pos = Player.Pos + dir * f.Back;
+        }
+
+        /// <summary>Осколки на орбите (рывок, барьер): n штук поровну по кругу, урон orbitShardDamage, свойства — по форме as.</summary>
+        void SpawnShards(FormSlot s, SkillCard card, FormKind form, int n, float life)
+        {
+            var c = FormCfg;
+            for (int k = 0; k < n; k++)
+            {
+                var dir = Rotate(Player.Face, k * Mathf.PI * 2f / n);
+                var f = Add(new Effect
+                {
+                    Kind = EffectKind.FormShot, Pos = Player.Pos, Dir = dir, R = c.shotRadius, Card = card, FSlot = s, As = form,
+                    Damage = c.orbitShardDamage, Payload = true,
+                });
+                MakeOrbit(f, dir, life);
+            }
+        }
+
+        void UpdateOrbit(Effect f, float dt)
+        {
+            var c = FormCfg;
+            f.Life -= dt;
+            if (f.Life <= 0f) { f.Done = true; return; }
+            f.Angle += c.orbitSpeed * dt;
+            float a = f.Angle * Mathf.Deg2Rad;
+            var r = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+            f.Pos = Player.Pos + r * f.Back;
+            f.Dir = new Vector2(-r.y, r.x); // по касательной
+            f.Hold += dt;
+            if (f.Hold >= c.orbitRehit / (Bonds.Has(f.Card, Bond.Millstone) ? 2f : 1f)) { f.Hold = 0f; f.Hit.Clear(); }
+            HitRoomObjects(f.Pos, f.R);
+            foreach (var e in Enemies)
+            {
+                if (!e.Alive || f.Hit.Contains(e) || (e.Pos - f.Pos).magnitude > f.R * f.Grow + e.R) continue;
+                f.Hit.Add(e);
+                ShotHit(f, e);
+            }
+            // как мечи и Orbital в Nova Drift: орбита сбивает вражеские снаряды
+            foreach (var b in Effects)
+                if (b.Kind == EffectKind.EnemyBolt && !b.Done && (b.Pos - f.Pos).magnitude <= f.R * f.Grow + b.R)
+                {
+                    b.Done = true;
+                    Events.Add(new SimEvent { Kind = EventKind.PlayerBlocked, Pos = b.Pos });
+                }
+        }
+
+        // ---------- Наведение ----------
+
+        /// <summary>Наведение: доворачивает снаряд к ближайшему ещё не задетому врагу в homingRange — не круче homingTurn × уровень.</summary>
+        void Steer(Effect f, int lvl, float dt)
+        {
+            if (lvl <= 0) return;
+            var t = NearestEnemy(f.Pos, FormCfg.homingRange, null, f.Hit);
+            if (t == null) return;
+            var want = (t.Pos - f.Pos).normalized;
+            float max = FormCfg.homingTurn * lvl * dt;
+            f.Dir = Rotate(f.Dir, Mathf.Clamp(Vector2.SignedAngle(f.Dir, want), -max, max) * Mathf.Deg2Rad);
+        }
+
+        /// <summary>Ближайший враг в range и в ± arc градусах от dir.</summary>
+        Enemy NearestInArc(Vector2 from, Vector2 dir, float range, float arc)
+        {
+            Enemy best = null;
+            float bd = range;
+            foreach (var e in Enemies)
+            {
+                if (!e.Alive) continue;
+                var d = e.Pos - from;
+                float m = d.magnitude;
+                if (m < bd && m > 0.01f && Vector2.Angle(dir, d) <= arc) { bd = m; best = e; }
+            }
+            return best;
+        }
+
+        // ---------- Спуск ----------
+
+        /// <summary>Спуск (Trigger из Noita): карта слота s применяет карту следующего непустого слота (ЛКМ → ПКМ → Q → Space → ЛКМ)
+        /// в точке at с силой triggerFraction × уровень (до 100%), не чаще triggerLockout. Применённое Спуском дальше не спускает.
+        /// Снаряд — выстрел в ближайшего врага, рывок — тень-рывок к нему, зона — зона (вдвое короче), призыв — эхо-дух на 4 с,
+        /// барьер — стена-копия на 2 с, держит снаряды.</summary>
+        void FireTrigger(FormSlot s, SkillCard card, Vector2 at, Vector2 dir, Enemy except = null)
+        {
+            int lvl = card.Level(Trait.Trigger);
+            if (lvl <= 0 || s == null || s.TriggerLock > 0f) return;
+            int i = System.Array.IndexOf(Forms, s);
+            if (i < 0) return;
+            FormSlot next = null;
+            for (int k = 1; k < Forms.Length; k++)
+            {
+                var o = Forms[(i + k) % Forms.Length];
+                if (o.Card != null) { next = o; break; }
+            }
+            if (next == null) return;
+            var c = FormCfg;
+            s.TriggerLock = c.triggerLockout;
+            float mul = Mathf.Min(1f, c.triggerFraction * lvl);
+            var pc = next.Card;
+            var target = NearestEnemy(at, 8f, except);
+            var aim = target != null ? (target.Pos - at).normalized : dir.sqrMagnitude > 0.0001f ? dir.normalized : Player.Face;
+            switch (pc.Form)
+            {
+                case FormKind.Shot:
+                {
+                    var f = SpawnShot(next, pc, at, aim, mul, true);
+                    if (f != null) { f.Payload = true; if (except != null) f.Hit.Add(except); }
+                    break;
+                }
+                case FormKind.Dash:
+                    Add(new Effect { Kind = EffectKind.FormShade, Pos = at, To = TravelTarget(at, aim, c.dashRange), Life = c.dashTime, Card = pc, FSlot = next, As = FormKind.Dash, Mul = mul, Echoed = true, Payload = true });
+                    break;
+                case FormKind.Zone:
+                {
+                    var z = SpawnZone(next, pc, at, mul, true, 0);
+                    z.Payload = true;
+                    next.Active.Remove(z); // перезарядку своей зоны не трогает
+                    break;
+                }
+                case FormKind.Summon:
+                {
+                    var f = SpawnSpirit(next, pc, 1f, mul, true);
+                    f.Pos = at; f.Payload = true;
+                    next.Active.Remove(f);
+                    break;
+                }
+                default:
+                    next.Active.Add(Add(new Effect { Kind = EffectKind.FormWall, Pos = at, Life = 2f, R = c.barrierRadius * 1.3f, Card = pc, FSlot = next, Payload = true }));
+                    break;
+            }
+            Events.Add(new SimEvent { Kind = EventKind.Zap, Pos = at, To = at + aim * 0.8f, Color = 1 });
         }
 
         // ---------- активация зоны, призыва, барьера ----------
@@ -458,7 +675,7 @@ namespace Arena.Sim
                         CollideCircle(ref mirror, 0.3f);
                         SpawnZone(s, card, mirror, pm, false, card.Level(Trait.Ricochet), wide);
                     }
-                    s.Cd = s.CdTotal = c.zoneLife + c.zoneCooldown;
+                    s.Cd = s.CdTotal = TrinketIII(TrinketKind.Compass) ? c.zoneCooldown + 0.3f : c.zoneLife + c.zoneCooldown;
                     break;
                 }
                 case FormKind.Summon:
@@ -517,11 +734,14 @@ namespace Arena.Sim
         {
             var c = FormCfg;
             var p = Player;
+            if (!card.Has(Trait.Orbit)) mul *= SnipeMul(card.Level(Trait.Snipe), (at - p.Pos).magnitude); // Дальнобой: чем дальше, тем сильнее
             var z = new Effect
             {
                 Kind = EffectKind.FormZone, Pos = at, R = c.zoneRadius * wide, Life = c.zoneLife * (echoed ? 0.5f : 1f), Tick = 0f,
                 Card = card, FSlot = s, As = FormKind.Zone, Mul = mul, Echoed = echoed, Bounces = bounces,
             };
+            int orbit = card.Level(Trait.Orbit);
+            if (orbit > 0 && !card.Has(Trait.Pierce)) { z.Pos = p.Pos; z.R *= 1f + 0.2f * (orbit - 1); } // аура: всегда вокруг Смерти
             if (card.Has(Trait.Pierce))
             {
                 // разлом: полоса от героя до точки
@@ -536,7 +756,7 @@ namespace Arena.Sim
             if (push > 0)
             {
                 foreach (var e in Enemies)
-                    if (e.Alive && ZoneContains(z, e)) Shove(e, e.Pos - z.Pos, c.pushSpeed * (1f + 0.3f * (push - 1)), c.pushCollide * mul);
+                    if (e.Alive && ZoneContains(z, e)) Shove(e, e.Pos - z.Pos, c.pushSpeed * (1f + 0.3f * (push - 1)), c.pushCollide * mul * Icebreak(card, e));
                 Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = z.Pos, Radius = z.R, Color = 1 });
             }
             return z;
@@ -549,7 +769,7 @@ namespace Arena.Sim
             var f = Add(new Effect
             {
                 Kind = EffectKind.FormSpirit, Pos = p.Pos + Rotate(-p.Face, side * 0.9f) * c.summonOffset, Life = echo ? 4f : c.summonLife,
-                Card = card, FSlot = s, As = FormKind.Summon, Mul = mul, Echoed = echo, Back = side, T = 0.3f,
+                Card = card, FSlot = s, As = FormKind.Summon, Mul = mul, Echoed = echo, Back = side, T = 0.3f, Angle = side * 90f,
             });
             s.Active.Add(f);
             return f;
@@ -575,7 +795,7 @@ namespace Arena.Sim
             int push = card.Level(Trait.Push);
             if (push > 0)
             {
-                foreach (var e in Enemies) if (e.Alive && (e.Pos - p.Pos).magnitude <= 2.5f + e.R) Shove(e, e.Pos - p.Pos, c.pushSpeed * (1f + 0.3f * (push - 1)), c.pushCollide);
+                foreach (var e in Enemies) if (e.Alive && (e.Pos - p.Pos).magnitude <= 2.5f + e.R) Shove(e, e.Pos - p.Pos, c.pushSpeed * (1f + 0.3f * (push - 1)), c.pushCollide * Icebreak(card, e));
                 Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = p.Pos, Radius = 2.5f, Color = 1 });
             }
             int pull = card.Level(Trait.Pull);
@@ -589,6 +809,8 @@ namespace Arena.Sim
             }
             if (card.Has(Trait.Split))
                 s.Active.Add(Add(new Effect { Kind = EffectKind.FormWall, Pos = p.Pos, Life = life, R = c.barrierRadius * 1.3f, Card = card, FSlot = s }));
+            int orbit = card.Level(Trait.Orbit);
+            if (orbit > 0) SpawnShards(s, card, FormKind.Barrier, 2 * orbit, life);
             return b;
         }
 
@@ -600,6 +822,9 @@ namespace Arena.Sim
             var p = Player;
             var dir = input.Move.sqrMagnitude > 0.0001f ? input.Move.normalized : p.Face;
             if (input.UseMouse && input.HasCursor && PlayerCfg.dashAtCursor > 0f && (input.Cursor - p.Pos).sqrMagnitude > 0.01f) dir = (input.Cursor - p.Pos).normalized;
+            int homing = s.Card.Level(Trait.Homing);
+            if (homing > 0 && NearestInArc(p.Pos, dir, FormCfg.dashRange * 1.5f, FormCfg.homingDashArc + 15f * (homing - 1)) is Enemy t)
+                dir = (t.Pos - p.Pos).normalized; // Наведение: рывок доворачивает к врагу впереди
             BeginDash(s, dir, false, null, 1f + FormCfg.dashChargeRange * k);
             fDashMul = mul;
             fDashLeap |= k > 0f;
@@ -660,13 +885,14 @@ namespace Arena.Sim
             fDashT += dt;
             float k = Mathf.Clamp01(fDashT / fDashDur);
             p.Pos = Vector2.Lerp(fDashFrom, fDashTo, k);
+            HitRoomObjects(p.Pos, c.dashTouch); // рывок сквозь урну разбивает её, задетый куб загорается
             int grow = card.Level(Trait.Grow);
             foreach (var e in Enemies)
             {
                 if (!e.Alive || fDashHit.Contains(e) || (e.Pos - p.Pos).magnitude > c.dashTouch + e.R) continue;
                 fDashHit.Add(e);
                 fDashTouched = true;
-                if (DashTouch(e, card, s, p.Pos, fDashDir, fDashMul, null)) fDashKilled = true;
+                if (DashTouch(e, card, s, p.Pos, fDashDir, fDashMul, null, (p.Pos - fDashFrom).magnitude)) fDashKilled = true;
                 if (grow > 0 && !fDashReturn)
                 {
                     // Рост: каждый задетый враг удлиняет рывок
@@ -681,6 +907,17 @@ namespace Arena.Sim
             fDashing = false;
             DashEndHooks(card, s, fDashFrom, fDashTo, fDashMul);
             if (fDashReturn) return;
+            int orbit = card.Level(Trait.Orbit);
+            if (orbit > 0) SpawnShards(s, card, FormKind.Dash, 1 + orbit, c.orbitDashTime);
+            SnipeBolt(card, s, FormKind.Dash, fDashTo, c.shotDamage * 0.5f);
+            if (TrinketIII(TrinketKind.Feather))
+            {
+                // Перо III: конец рывка оставляет зону-след со свойствами рывка
+                var z = SpawnZone(s, card, fDashTo, 1f, true, 0);
+                z.Life = TrinketCfg.featherZoneLife; z.Payload = true;
+                s.Active.Remove(z);
+            }
+            FireTrigger(s, card, fDashTo, fDashDir);
             s.Cd = s.CdTotal = c.dashCooldown;
             // Рикошет: упёрся в стену или задел врага — второй рывок бесплатно (один раз подряд)
             if (card.Has(Trait.Ricochet) && !s.FreeDash && (fDashWall || fDashTouched)) { s.Cd = 0f; s.FreeDash = true; }
@@ -688,13 +925,70 @@ namespace Arena.Sim
             if (fDashKilled && card.Has(Trait.Reap)) s.Cd = 0f;
         }
 
-        /// <summary>Касание рывка (героя или тени): урон только с Пронзанием, остальное — свойства. true — враг убит.</summary>
-        bool DashTouch(Enemy e, SkillCard card, FormSlot s, Vector2 from, Vector2 dir, float mul, Effect src)
+        /// <summary>Касание рывка (героя или тени): урон — с Пронзанием и Разгоном (по пройденному пути traveled), остальное —
+        /// свойства; Поглощение лечит за каждого задетого. true — враг убит.</summary>
+        bool DashTouch(Enemy e, SkillCard card, FormSlot s, Vector2 from, Vector2 dir, float mul, Effect src, float traveled)
         {
             var c = FormCfg;
-            int pierce = card.Level(Trait.Pierce);
-            FormStrike(e, pierce > 0 ? c.dashPierceDamage * pierce * mul : 0f, pierce > 0 ? c.dashPierceStun : 0f, card, s, FormKind.Dash, from, e.Pos - from, mul, src);
+            int pierce = card.Level(Trait.Pierce), kinetic = card.Level(Trait.Kinetic);
+            float dmg = (pierce > 0 ? c.dashPierceDamage * pierce : 0f) + (kinetic > 0 ? c.kineticRam * kinetic * traveled : 0f);
+            FormStrike(e, dmg * mul, pierce > 0 || kinetic > 0 ? c.dashPierceStun : 0f, card, s, FormKind.Dash, from, e.Pos - from, mul, src);
+            HealPlayer(c.siphonDash * card.Level(Trait.Siphon));
             return e.Dead;
+        }
+
+        // ---------- Разгон, Дальнобой, Поглощение ----------
+
+        /// <summary>Доля скорости бега Смерти, 0…1 (в рывке — 1).</summary>
+        float RunFactor => fDashing ? 1f : Mathf.Clamp01(Player.Vel.magnitude / Mathf.Max(0.01f, PlayerCfg.speed));
+
+        /// <summary>Разгон зоны и духа: пока Смерть бежит, до +kineticMove за уровень.</summary>
+        float KineticMul(SkillCard card) => 1f + FormCfg.kineticMove * card.Level(Trait.Kinetic) * RunFactor;
+
+        /// <summary>Дальнобой: +snipePerUnit за ю расстояния за уровень, не дальше snipeMaxDist.</summary>
+        float SnipeMul(int lvl, float dist) => lvl > 0 ? 1f + FormCfg.snipePerUnit * lvl * Mathf.Min(dist, FormCfg.snipeMaxDist) : 1f;
+
+        Enemy FarthestEnemy(Vector2 from, float range)
+        {
+            Enemy best = null;
+            float bd = -1f;
+            foreach (var e in Enemies)
+            {
+                if (!e.Alive) continue;
+                float d = (e.Pos - from).magnitude;
+                if (d <= range && d > bd) { bd = d; best = e; }
+            }
+            return best;
+        }
+
+        /// <summary>Дальнобой рывка и барьера: выстрел в самого дальнего врага в snipeRange, догоняет цель, урон растёт с расстоянием.</summary>
+        void SnipeBolt(SkillCard card, FormSlot s, FormKind form, Vector2 from, float dmg)
+        {
+            int lvl = card.Level(Trait.Snipe);
+            if (lvl <= 0) return;
+            var c = FormCfg;
+            var t = FarthestEnemy(from, c.snipeRange);
+            if (t == null) return;
+            var d = t.Pos - from;
+            float dist = d.magnitude;
+            var dir = dist > 0.01f ? d / dist : Player.Face;
+            Add(new Effect
+            {
+                Kind = EffectKind.FormBolt, Pos = from + dir * 0.5f, Dir = dir, Speed = c.shotSpeed, Life = dist / c.shotSpeed + 0.6f, R = 0.22f,
+                Card = card, FSlot = s, As = form, Damage = dmg * SnipeMul(lvl, dist), Target = t, Phase = 2,
+            });
+        }
+
+        /// <summary>Поглощение: лечит долю здоровья Смерти, но до следующей награды — не больше siphonRoomCap.</summary>
+        void HealPlayer(float frac)
+        {
+            var p = Player;
+            if (frac <= 0f || p.Hp <= 0f || GameOver) return;
+            float amount = Mathf.Min(frac * PlayerCfg.hp, Mathf.Min(healLeft, PlayerCfg.hp - p.Hp));
+            if (amount <= 0f) return;
+            p.Hp += amount;
+            healLeft -= amount;
+            Events.Add(new SimEvent { Kind = EventKind.PlayerHealed, Pos = p.Pos, Value = amount });
         }
 
         /// <summary>Конец рывка (героя или тени): огненный и ледяной след, разряд по линии, притяжение к финишу, взрыв.</summary>
@@ -708,7 +1002,7 @@ namespace Arena.Sim
             if (lightning > 0)
             {
                 foreach (var e in Enemies)
-                    if (e.Alive && DistToSegment(e.Pos, from, to) <= 0.5f + e.R) FormStrike(e, c.chainMin * 2f * lightning * mul, 0.2f, card, s, FormKind.Dash, from, to - from, mul, null, true);
+                    if (e.Alive && DistToSegment(e.Pos, from, to) <= 0.5f + e.R) LightningStrike(e, c.chainMin * 2f * lightning * mul, 0.2f, card, s, FormKind.Dash, from, to - from, mul, null);
                 Events.Add(new SimEvent { Kind = EventKind.Zap, Pos = from, To = to });
             }
             int pull = card.Level(Trait.Pull);
@@ -736,25 +1030,57 @@ namespace Arena.Sim
         {
             if (!e.Alive) return;
             var c = FormCfg;
-            if (!secondary) dmg *= TrinketBook.SoulDamageMul(card, TrinketSlots, TrinketCfg); // Сосуд душ; молния берёт уже усиленный
+            if (!secondary) dmg *= TrinketBook.SoulDamageMul(card, TrinketSlots, TrinketCfg) * TrinketBook.DamageMul(form, TrinketSlots, TrinketCfg); // Сосуд душ и проклятия; молния берёт уже усиленный
             if (dmg > 0f) Damage(e, dmg, false); else e.Flash = 0.08f;
-            if (e.Dead) { OnFormKill(card, s, form, src); return; }
+            if (e.Dead) { OnFormKill(card, s, form, src, e); return; }
             if (stun > 0f) ApplyCc(e, CcKind.Stun, stun);
             if (secondary) return;
             int lvl;
             if ((lvl = card.Level(Trait.Fire)) > 0 && form is FormKind.Shot or FormKind.Zone or FormKind.Summon) AddBurn(e, c.burn * lvl * mul);
             if ((lvl = card.Level(Trait.Frost)) > 0 && form is FormKind.Shot or FormKind.Zone) AddFrost(e, lvl);
             if ((lvl = card.Level(Trait.Rot)) > 0 && form != FormKind.Barrier) AddRot(e, lvl);
-            if ((lvl = card.Level(Trait.Doom)) > 0 && form is FormKind.Shot or FormKind.Dash or FormKind.Summon) AddDoom(e, lvl, form == FormKind.Summon ? src?.Parent ?? src : null);
+            if ((lvl = card.Level(Trait.Doom)) > 0 && form is FormKind.Shot or FormKind.Dash or FormKind.Summon) AddDoom(e, lvl, form == FormKind.Summon ? src?.Parent ?? src : null, card);
             if ((lvl = card.Level(Trait.Push)) > 0 && form is FormKind.Shot or FormKind.Dash or FormKind.Summon)
-                Shove(e, form == FormKind.Dash ? e.Pos - Player.Pos : dir, c.pushSpeed * (1f + 0.3f * (lvl - 1)), c.pushCollide * mul);
-            if ((lvl = card.Level(Trait.Lightning)) > 0 && form == FormKind.Shot) Chain(e, Mathf.Max(c.chainMin, dmg * c.chainFraction), c.chainTargets * lvl, card, s, form, src);
+                Shove(e, form == FormKind.Dash ? e.Pos - Player.Pos : dir, c.pushSpeed * (1f + 0.3f * (lvl - 1)), c.pushCollide * mul * Icebreak(card, e));
+            if (Bonds.Has(card, Bond.ThermalShock) && e.Frozen > 0f && e.Burn > 0f)
+            {
+                // Тепловой удар: лёд раскалывается — весь запас горения сразу
+                float burn = e.Burn;
+                e.Burn = 0f;
+                Damage(e, burn, false, true, DotKind.Burn);
+                Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = e.Pos, Radius = 1f, Color = 3 });
+                if (e.Dead) { OnFormKill(card, s, form, src, e); return; }
+            }
+            if ((lvl = card.Level(Trait.Lightning)) > 0 && form == FormKind.Shot)
+                Chain(e, Mathf.Max(c.chainMin, dmg * (TrinketIII(TrinketKind.LightningRod) ? 1f : c.chainFraction)), c.chainTargets * lvl, card, s, form, src); // Громоотвод III: без потери
+        }
+
+        /// <summary>Ледокол (Иней + Отталкивание): заиндевевший или замёрзший бьётся об стену или врага сильнее.</summary>
+        float Icebreak(SkillCard card, Enemy e) => Bonds.Has(card, Bond.Icebreaker) && (e.Frost > 0 || e.Frozen > 0f) ? FormCfg.bondIcebreaker : 1f;
+
+        /// <summary>Вторичный удар молнии карты. Сверхпроводник (Иней + Молния) — ×2 по заиндевевшему или замёрзшему,
+        /// Зараза (Молния + Гниль) — молния заражает.</summary>
+        void LightningStrike(Enemy e, float dmg, float stun, SkillCard card, FormSlot s, FormKind form, Vector2 from, Vector2 dir, float mul, Effect src)
+        {
+            if (Bonds.Has(card, Bond.Superconductor) && (e.Frost > 0 || e.Frozen > 0f)) dmg *= FormCfg.bondSuperconductor;
+            FormStrike(e, dmg, stun, card, s, form, from, dir, mul, src, true);
+            if (e.Alive && Bonds.Has(card, Bond.Contagion)) AddRot(e, card.Level(Trait.Rot));
         }
 
         /// <summary>Добивание формой: Жатва и Рост духа.</summary>
-        void OnFormKill(SkillCard card, FormSlot s, FormKind form, Effect src)
+        void OnFormKill(SkillCard card, FormSlot s, FormKind form, Effect src, Enemy victim = null)
         {
             var c = FormCfg;
+            // Цепная детонация (Жатва + Взрыв): добитый взрывается чуть позже — так цепочка идёт волной
+            if (victim != null && Bonds.Has(card, Bond.ChainDetonation))
+                Add(new Effect { Kind = EffectKind.FormDetonation, Pos = victim.Pos, T = 0.12f, Card = card, FSlot = s, As = form });
+            int siphon = card.Level(Trait.Siphon);
+            if (siphon > 0)
+            {
+                if (form == FormKind.Shot) HealPlayer(c.siphonKill * siphon);
+                else if (form == FormKind.Summon) HealPlayer(c.siphonSummon * siphon);
+                if (victim != null && victim.Burn > 0f && Bonds.Has(card, Bond.Purification)) HealPlayer(c.bondPurification * siphon); // Очищение
+            }
             if (form == FormKind.Summon && src != null)
             {
                 var spirit = src.Kind == EffectKind.FormSpirit ? src : src.Parent;
@@ -775,9 +1101,20 @@ namespace Arena.Sim
 
         void FormBlast(SkillCard card, FormSlot s, FormKind form, Vector2 at, float radius, float dmg, Effect src)
         {
-            dmg *= TrinketBook.SoulDamageMul(card, TrinketSlots, TrinketCfg); // Сосуд душ
-            foreach (var e in Enemies) if (e.Alive && (e.Pos - at).magnitude <= radius + e.R) FormStrike(e, dmg, 0.2f, card, s, form, at, e.Pos - at, 1f, src, true);
-            Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = at, Radius = radius, Color = 3 });
+            dmg *= TrinketBook.SoulDamageMul(card, TrinketSlots, TrinketCfg) * TrinketBook.DamageMul(form, TrinketSlots, TrinketCfg); // Сосуд душ и проклятия
+            var c = FormCfg;
+            bool napalm = Bonds.Has(card, Bond.Napalm) || TrinketIII(TrinketKind.PowderHorn), implode = Bonds.Has(card, Bond.Implosion); // Пороховница III — как Напалм
+            if (implode) radius *= c.bondImplosion;
+            HitRoomObjects(at, radius);
+            foreach (var e in Enemies)
+            {
+                if (!e.Alive || (e.Pos - at).magnitude > radius + e.R) continue;
+                FormStrike(e, dmg, 0.2f, card, s, form, at, e.Pos - at, 1f, src, true);
+                if (!e.Alive) continue;
+                if (napalm) AddBurn(e, c.burn * Mathf.Max(1, card.Level(Trait.Fire))); // Напалм: взрыв поджигает
+                if (implode) { e.Pull = 0.3f; e.PullTo = at; e.PullSpeed = 8f; } // Схлопывание: выживших тянет к центру
+            }
+            Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = at, Radius = radius, Color = implode ? 5 : 3 });
         }
 
         /// <summary>Молния: от врага к ближайшему, ещё не задетому, и дальше — до count раз.</summary>
@@ -800,7 +1137,7 @@ namespace Arena.Sim
                 hit.Add(best);
                 Events.Add(new SimEvent { Kind = EventKind.Zap, Pos = cur, To = best.Pos });
                 cur = best.Pos;
-                FormStrike(best, dmg, 0.15f, card, s, form, cur, best.Pos - cur, 1f, src, true);
+                LightningStrike(best, dmg, 0.15f, card, s, form, cur, best.Pos - cur, 1f, src);
             }
         }
 
@@ -818,7 +1155,7 @@ namespace Arena.Sim
             var c = FormCfg;
             e.Frost += stacks;
             e.FrostT = c.frostTime;
-            if (e.Frost < c.frostToFreeze) return;
+            if (e.Frost < c.frostToFreeze - (TrinketIII(TrinketKind.IceShard) ? 1 : 0)) return; // Осколок льда III: с 2 стаков
             e.Frost = 0;
             e.Frozen = c.freezeTime;
             ApplyCc(e, CcKind.Stun, c.freezeTime);
@@ -831,13 +1168,14 @@ namespace Arena.Sim
             e.RotLvl = Mathf.Max(e.RotLvl, lvl);
         }
 
-        void AddDoom(Enemy e, int lvl, Effect spirit = null)
+        void AddDoom(Enemy e, int lvl, Effect spirit = null, SkillCard card = null)
         {
             if (e.DoomT > 0f) return; // уже приговорён — новая метка не ставится
             e.DoomT = FormCfg.doomTime;
             e.DoomAcc = 0f;
             e.DoomFrac = FormCfg.doomFraction * lvl;
             e.DoomBy = spirit;
+            e.DoomCard = card;
         }
 
         void DoomBurst(Enemy e)
@@ -846,7 +1184,11 @@ namespace Arena.Sim
             e.DoomBy = null;
             float dmg = e.DoomAcc * e.DoomFrac;
             e.DoomAcc = 0f;
+            var card = e.DoomCard;
+            e.DoomCard = null;
             if (dmg <= 0f || e.Dead) return;
+            // Двойной приговор (Приговор + Эхо): через echoDelay ещё раз, долей первого
+            if (Bonds.Has(card, Bond.DoubleDoom)) { e.DoomEchoT = FormCfg.echoDelay; e.DoomEchoDmg = dmg * FormCfg.bondDoubleDoom; }
             doomBursting = true;
             Damage(e, dmg, true, true, DotKind.Hex);
             doomBursting = false;
@@ -884,7 +1226,28 @@ namespace Arena.Sim
             else e.BurnTick = 0f;
             e.FrostT -= dt; if (e.FrostT <= 0f) e.Frost = 0;
             e.Frozen -= dt; e.RotT -= dt; e.LinkT -= dt; e.ZoneSlowT -= dt;
+            if (e.RotT > 0f && TrinketIII(TrinketKind.RotBone))
+            {
+                // Гнилая кость III: заражённые получают урон гнили
+                e.RotTick -= dt;
+                if (e.RotTick <= 0f)
+                {
+                    e.RotTick += 0.5f;
+                    Damage(e, TrinketCfg.rotBoneDps * 0.5f, false, true, DotKind.Poison);
+                    if (e.Dead) return 1f;
+                }
+            }
             if (e.DoomT > 0f) { e.DoomT -= dt; if (e.DoomT <= 0f) DoomBurst(e); }
+            if (e.DoomEchoT > 0f && (e.DoomEchoT -= dt) <= 0f && e.DoomEchoDmg > 0f && !e.Dead)
+            {
+                float d = e.DoomEchoDmg;
+                e.DoomEchoDmg = 0f;
+                doomBursting = true;
+                Damage(e, d, true, true, DotKind.Hex);
+                doomBursting = false;
+                Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = e.Pos, Radius = 0.9f, Color = 5 });
+                if (e.Dead) return 1f;
+            }
             float mul = 1f;
             if (e.Frost > 0) mul *= 1f - c.frostSlowPerStack * e.Frost;
             if (e.ZoneSlowT > 0f) mul *= c.zoneSlow;
@@ -914,8 +1277,17 @@ namespace Arena.Sim
         }
 
         /// <summary>Добивание любым ударом, пока стоит барьер с Жатвой: +1 прочность.</summary>
-        void OnKillForms()
+        void OnKillForms(Enemy dead)
         {
+            if (dead.Burn > 0f && TrinketIII(TrinketKind.Ember))
+            {
+                // Уголёк III: умерший с горением поджигает соседей
+                float r = TrinketCfg.ember3Radius;
+                foreach (var o in Enemies) if (o != dead && o.Alive && (o.Pos - dead.Pos).magnitude <= r + o.R) AddBurn(o, FormCfg.burn);
+                Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = dead.Pos, Radius = r, Color = 3 });
+            }
+            if (TrinketIII(TrinketKind.TimeSand))
+                foreach (var s in Forms) if (s.Cd > 0f && s.Cd < 90f) s.Cd = Mathf.Max(0f, s.Cd - TrinketCfg.timeSandKill); // Песок времени III
             foreach (var s in Forms)
             {
                 if (s.Card == null || s.Card.Form != FormKind.Barrier) continue;
@@ -955,7 +1327,7 @@ namespace Arena.Sim
                 if ((lvl = card.Level(Trait.Fire)) > 0) AddBurn(attacker, c.burn * lvl);
                 if ((lvl = card.Level(Trait.Frost)) > 0) AddFrost(attacker, c.frostToFreeze);
                 if ((lvl = card.Level(Trait.Rot)) > 0) AddRot(attacker, lvl);
-                if ((lvl = card.Level(Trait.Doom)) > 0) AddDoom(attacker, lvl);
+                if ((lvl = card.Level(Trait.Doom)) > 0) AddDoom(attacker, lvl, null, card);
             }
             if ((lvl = card.Level(Trait.Lightning)) > 0)
             {
@@ -965,14 +1337,15 @@ namespace Arena.Sim
                 for (int k = 0; k < Mathf.Min(near.Count, c.chainTargets * lvl); k++)
                 {
                     Events.Add(new SimEvent { Kind = EventKind.Zap, Pos = Player.Pos, To = near[k].Pos });
-                    FormStrike(near[k], c.chainMin * 3f * lvl, 0.2f, card, s, FormKind.Barrier, Player.Pos, near[k].Pos - Player.Pos, 1f, b, true);
+                    LightningStrike(near[k], c.chainMin * 3f * lvl, 0.2f, card, s, FormKind.Barrier, Player.Pos, near[k].Pos - Player.Pos, 1f, b);
                 }
             }
             if ((lvl = card.Level(Trait.Grow)) > 0) { b.Life += c.growBarrierTime * lvl; b.Grow = Mathf.Min(c.growMax, b.Grow + 0.15f * lvl); }
             if (bolt != null)
             {
-                // Рикошет и Гниль: снаряд летит обратно во врагов (с гнилью и прочими статусами барьера); Возврат — позже
-                if (card.Has(Trait.Ricochet) || card.Has(Trait.Rot))
+                // Рикошет, Гниль и Наведение: снаряд летит обратно во врагов (с гнилью и прочими статусами барьера); Возврат — позже.
+                // С Наведением — догоняет цель (Phase 2)
+                if (card.Has(Trait.Ricochet) || card.Has(Trait.Rot) || card.Has(Trait.Homing))
                 {
                     var target = NearestEnemy(Player.Pos, 9f);
                     var dir = target != null ? (target.Pos - Player.Pos).normalized : -bolt.Dir;
@@ -980,11 +1353,21 @@ namespace Arena.Sim
                     {
                         Kind = EffectKind.FormBolt, Pos = Player.Pos + dir * 0.6f, Dir = dir, Speed = c.shotSpeed, Life = 1.2f, R = 0.22f,
                         Card = card, FSlot = s, As = FormKind.Shot, Damage = c.shotDamage * 0.5f * Mathf.Max(1, card.Level(Trait.Ricochet)), Target = target,
+                        Phase = card.Has(Trait.Homing) && target != null ? 2 : 0,
                     });
                 }
                 if (card.Has(Trait.Return) && bolt.Target != null) b.Marks.Add(bolt.Target);
             }
             Events.Add(new SimEvent { Kind = EventKind.PlayerBlocked, Pos = Player.Pos });
+            HealPlayer(c.siphonBarrier * card.Level(Trait.Siphon));
+            SnipeBolt(card, s, FormKind.Barrier, Player.Pos, c.shotDamage * 0.5f);
+            if (attacker != null && attacker.Alive && TrinketIII(TrinketKind.Ward))
+            {
+                // Щит-оберег III: поглощённый удар отражается в ударившего
+                var d = (attacker.Pos - Player.Pos).normalized;
+                Add(new Effect { Kind = EffectKind.FormBolt, Pos = Player.Pos + d * 0.6f, Dir = d, Speed = c.shotSpeed, Life = 2f, R = 0.22f, Card = card, FSlot = s, As = FormKind.Barrier, Damage = c.shotDamage, Target = attacker, Phase = 2 });
+            }
+            FireTrigger(s, card, Player.Pos, attacker != null ? attacker.Pos - Player.Pos : Player.Face);
             if (b.Charges <= 0) BarrierEnd(b);
             return true;
         }
@@ -1066,6 +1449,8 @@ namespace Arena.Sim
                     if (f.T > 0f) break;
                     f.Done = true;
                     SpreadShots(f.FSlot, f.Card, f.Pos, f.Dir, f.Mul, true);
+                    if (f.Gen == 0 && TrinketIII(TrinketKind.TuningFork)) // Камертон III: эхо повторяется
+                        Add(new Effect { Kind = EffectKind.FormEchoShot, Pos = f.Pos, Dir = f.Dir, T = FormCfg.echoDelay, Card = f.Card, FSlot = f.FSlot, Mul = f.Mul * 0.5f, Gen = 1 });
                     break;
                 case EffectKind.FormDashReturn:
                     f.T -= dt;
@@ -1082,6 +1467,12 @@ namespace Arena.Sim
                     f.Life -= dt;
                     if (f.Life <= 0f) f.Done = true;
                     break;
+                case EffectKind.FormDetonation:
+                    f.T -= dt;
+                    if (f.T > 0f) break;
+                    f.Done = true;
+                    FormBlast(f.Card, f.FSlot, f.As, f.Pos, FormCfg.blastRadius, FormCfg.blastDamage * f.Card.Level(Trait.Blast) * FormCfg.bondChainDetonation, null);
+                    break;
             }
         }
 
@@ -1089,6 +1480,7 @@ namespace Arena.Sim
         {
             var c = FormCfg;
             var card = f.Card;
+            if (f.Phase == 3) { UpdateOrbit(f, dt); return; }
             float step;
             if (f.Phase == 1)
             {
@@ -1105,16 +1497,20 @@ namespace Arena.Sim
                 f.Speed = Mathf.Max(1.5f, f.Speed + c.shotAccel * dt);
                 f.Life -= dt;
                 step = f.Speed * dt;
+                Steer(f, card.Level(Trait.Homing), dt);
+                f.Length += step * (Bonds.Has(card, Bond.Hunter) ? 2f : 1f); // путь для Дальнобоя (Охотник — вдвое)
             }
             var prev = f.Pos;
             f.Pos += f.Dir * step;
+            HitRoomObjects(f.Pos, f.R); // снаряд поджигает фитили взрывных кубов и разбивает урны по пути
             if (f.Phase == 0 && (!InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R * 0.5f)))
             {
                 if (f.Bounces > 0)
                 {
                     f.Pos = prev;
-                    f.Dir = Reflect(prev, f.Dir, step);
+                    f.Dir = BounceDir(f, prev, step);
                     f.Bounces--; f.Life += c.shotBounceFuse;
+                    Bounced(f, null);
                 }
                 else { EndShot(f, prev); return; }
             }
@@ -1131,6 +1527,7 @@ namespace Arena.Sim
                     var next = NearestEnemy(e.Pos, 5f, e, f.Hit);
                     f.Dir = next != null ? (next.Pos - f.Pos).normalized : Reflect(prev, f.Dir, step);
                     f.Bounces--; f.Life += c.shotBounceFuse; f.Speed = Mathf.Max(f.Speed, c.shotSpeed * 0.8f);
+                    Bounced(f, e);
                     break;
                 }
                 EndShot(f, e.Pos);
@@ -1143,7 +1540,14 @@ namespace Arena.Sim
         {
             var c = FormCfg;
             var card = f.Card;
-            FormStrike(e, c.shotDamage * f.Mul * f.Grow, c.shotStun, card, f.FSlot, FormKind.Shot, f.Pos, f.Dir, f.Mul, f);
+            if (f.As != FormKind.Shot)
+            {
+                // осколок орбиты рывка или барьера: урон и свойства своей формы
+                FormStrike(e, f.Damage * f.Mul, 0.1f, card, f.FSlot, f.As, f.Pos, f.Dir, f.Mul, f);
+                return;
+            }
+            FormStrike(e, c.shotDamage * f.Mul * f.Grow * SnipeMul(card.Level(Trait.Snipe), f.Length), c.shotStun, card, f.FSlot, FormKind.Shot, f.Pos, f.Dir, f.Mul, f);
+            if (!f.Payload && !f.Triggered && card.Has(Trait.Trigger)) { f.Triggered = true; FireTrigger(f.FSlot, card, e.Pos, f.Dir, e); }
             int blast = card.Level(Trait.Blast);
             if (blast > 0) FormBlast(card, f.FSlot, FormKind.Shot, e.Pos, c.blastRadius * Mathf.Sqrt(f.Grow), c.blastDamage * blast * f.Mul, f);
             int grow = card.Level(Trait.Grow);
@@ -1162,6 +1566,35 @@ namespace Arena.Sim
                 return;
             }
             f.Done = true;
+        }
+
+        /// <summary>Отскок от стены. Умный рикошет (Наведение + Рикошет) — в ближайшего врага, иначе — отражение.</summary>
+        Vector2 BounceDir(Effect f, Vector2 at, float step) =>
+            Bonds.Has(f.Card, Bond.SmartRicochet) && NearestEnemy(at, 8f, null, f.Hit) is Enemy t ? (t.Pos - at).normalized : Reflect(at, f.Dir, step);
+
+        /// <summary>После отскока: Зеркальце III — +20% урона за отскок; Шрапнель — осколок.</summary>
+        void Bounced(Effect f, Enemy hit)
+        {
+            if (TrinketIII(TrinketKind.Mirror)) f.Mul *= 1f + TrinketCfg.mirrorBounce;
+            Shrapnel(f, hit);
+        }
+
+        /// <summary>Шрапнель (Рикошет + Раздвоение): отскок выпускает осколок под 30° — без отскоков, долей bondShrapnel.</summary>
+        void Shrapnel(Effect f, Enemy hit)
+        {
+            if (!Bonds.Has(f.Card, Bond.Shrapnel)) return;
+            var c = FormCfg;
+            var dir = Rotate(f.Dir, (rng.Next(2) == 0 ? -30f : 30f) * Mathf.Deg2Rad);
+            var o = f.Kind == EffectKind.FormShot
+                ? SpawnShot(f.FSlot, f.Card, f.Pos, dir, f.Mul * c.bondShrapnel, true)
+                : Add(new Effect
+                {
+                    Kind = EffectKind.FormBolt, Pos = f.Pos, Dir = dir, Speed = f.Speed, Life = 0.6f, R = f.R, Card = f.Card, FSlot = f.FSlot, As = f.As,
+                    Damage = f.Damage, Mul = f.Mul * c.bondShrapnel, Parent = f.Parent, Payload = f.Payload,
+                });
+            if (o == null) return;
+            o.Bounces = 0;
+            if (hit != null) o.Hit.Add(hit);
         }
 
         /// <summary>Отражение от препятствия: пробуем развернуть по горизонтали, по вертикали, иначе назад.</summary>
@@ -1186,6 +1619,7 @@ namespace Arena.Sim
             var c = FormCfg;
             var card = f.Card;
             if (f.Phase == 2 && f.Target != null && f.Target.Alive) f.Dir = (f.Target.Pos - f.Pos).normalized;
+            if (f.Phase == 0 && f.As == FormKind.Summon) Steer(f, card.Level(Trait.Homing), dt);
             if (f.Phase == 1)
             {
                 // Возврат: снаряд духа летит обратно к духу
@@ -1198,9 +1632,10 @@ namespace Arena.Sim
             var prev = f.Pos;
             float step = f.Speed * dt;
             f.Pos += f.Dir * step;
+            HitRoomObjects(f.Pos, f.R); // выстрел духа — тоже
             if (f.Phase != 1 && (!InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R * 0.5f)))
             {
-                if (f.Bounces > 0) { f.Pos = prev; f.Dir = Reflect(prev, f.Dir, step); f.Bounces--; f.Life += 0.3f; }
+                if (f.Bounces > 0) { f.Pos = prev; f.Dir = BounceDir(f, prev, step); f.Bounces--; f.Life += 0.3f; Bounced(f, null); }
                 else { EndBolt(f); return; }
             }
             foreach (var e in Enemies)
@@ -1208,12 +1643,14 @@ namespace Arena.Sim
                 if (!e.Alive || f.Hit.Contains(e) || (e.Pos - f.Pos).magnitude > f.R + e.R) continue;
                 f.Hit.Add(e);
                 FormStrike(e, f.Damage * f.Mul, 0.15f, card, f.FSlot, f.As, f.Pos, f.Dir, f.Mul, f);
+                if (f.As == FormKind.Summon && !f.Payload) FireTrigger(f.FSlot, card, e.Pos, f.Dir, e);
                 if (f.Phase == 1) continue;
                 if (f.Bounces > 0)
                 {
                     var next = NearestEnemy(e.Pos, 5f, e, f.Hit);
                     f.Dir = next != null ? (next.Pos - f.Pos).normalized : -f.Dir;
                     f.Bounces--; f.Life += 0.3f;
+                    Bounced(f, e);
                     break;
                 }
                 EndBolt(f);
@@ -1256,6 +1693,13 @@ namespace Arena.Sim
                 if (d <= step + 0.2f) z.Done = true;
                 return;
             }
+            if (z.Phase == 0)
+            {
+                if (card.Has(Trait.Orbit)) z.Pos = Player.Pos; // Орбита: аура вокруг Смерти
+                else if (card.Level(Trait.Homing) is int homing and > 0 && NearestEnemy(z.Pos, c.homingRange + z.R) is Enemy t)
+                    z.Pos = Vector2.MoveTowards(z.Pos, t.Pos, c.homingZoneSpeed * homing * dt); // Наведение: ползёт к врагу
+            }
+            HitRoomObjects(z.Pos, z.R * z.Grow); // зона накрыла куб или урну
             int pull = card.Level(Trait.Pull), doom = card.Level(Trait.Doom);
             foreach (var e in Enemies)
             {
@@ -1268,13 +1712,16 @@ namespace Arena.Sim
             if (z.Tick <= 0f)
             {
                 z.Tick += c.zoneTick;
-                int grow = card.Level(Trait.Grow);
+                int grow = card.Level(Trait.Grow), inside = 0;
+                float kinetic = KineticMul(card);
                 foreach (var e in Enemies)
                 {
                     if (!e.Alive || !ZoneContains(z, e)) continue;
+                    inside++;
                     if (z.Hit.Add(e) && grow > 0) z.Grow = Mathf.Min(1.6f, z.Grow + 0.08f * grow);
-                    FormStrike(e, c.zoneDamage * z.Mul, 0f, card, s, FormKind.Zone, z.Pos, e.Pos - z.Pos, z.Mul, z);
+                    FormStrike(e, c.zoneDamage * z.Mul * kinetic, 0f, card, s, FormKind.Zone, z.Pos, e.Pos - z.Pos, z.Mul, z);
                 }
+                HealPlayer(c.siphonZone * c.zoneTick * card.Level(Trait.Siphon) * inside); // вытягивает жизнь
                 int lightning = card.Level(Trait.Lightning);
                 if (lightning > 0)
                 {
@@ -1285,7 +1732,7 @@ namespace Arena.Sim
                         if (n >= lightning || !e.Alive || ZoneContains(z, e) || (e.Pos - z.Pos).magnitude > z.R * z.Grow + 3f) continue;
                         n++;
                         Events.Add(new SimEvent { Kind = EventKind.Zap, Pos = z.Pos, To = e.Pos });
-                        FormStrike(e, c.chainMin * 2f * z.Mul, 0.2f, card, s, FormKind.Zone, z.Pos, e.Pos - z.Pos, z.Mul, z, true);
+                        LightningStrike(e, c.chainMin * 2f * z.Mul, 0.2f, card, s, FormKind.Zone, z.Pos, e.Pos - z.Pos, z.Mul, z);
                     }
                 }
             }
@@ -1294,7 +1741,9 @@ namespace Arena.Sim
             // конец: взрыв, эхо, рикошет к ближайшей группе, возврат к герою
             int blast = card.Level(Trait.Blast);
             if (blast > 0) FormBlast(card, s, FormKind.Zone, z.Pos, z.Phase == 1 ? c.blastRadius : z.R * z.Grow, c.blastDamage * blast * z.Mul, z);
-            if (card.Has(Trait.Echo) && !z.Echoed) SpawnZoneChild(z, z.Pos, Mathf.Min(1f, c.echoFraction * card.Level(Trait.Echo)), true, 0);
+            if (card.Has(Trait.Echo) && !z.Echoed) SpawnZoneChild(z, z.Pos, Mathf.Min(1f, c.echoFraction * card.Level(Trait.Echo)), true, 0).Gen = 1;
+            else if (z.Gen == 1 && TrinketIII(TrinketKind.TuningFork)) SpawnZoneChild(z, z.Pos, z.Mul * 0.5f, true, 0).Gen = 2; // Камертон III
+            if (!z.Payload) FireTrigger(s, card, z.Pos, Player.Face);
             if (z.Bounces > 0)
             {
                 Enemy target = null;
@@ -1307,10 +1756,12 @@ namespace Arena.Sim
             z.Done = true;
         }
 
-        void SpawnZoneChild(Effect parent, Vector2 at, float mul, bool echoed, int bounces)
+        Effect SpawnZoneChild(Effect parent, Vector2 at, float mul, bool echoed, int bounces)
         {
             var z = SpawnZone(parent.FSlot, parent.Card, at, mul, echoed, bounces);
             if (parent.Phase == 1) { z.Start = parent.Start + (at - parent.Pos); z.To = parent.To + (at - parent.Pos); z.Pos = at; }
+            if (parent.Payload) { z.Payload = true; parent.FSlot.Active.Remove(z); }
+            return z;
         }
 
         void UpdateSpirit(Effect f, float dt)
@@ -1349,6 +1800,22 @@ namespace Arena.Sim
                     }
                 if (to.magnitude <= step) f.Phase = 0;
             }
+            else if (card.Level(Trait.Orbit) is int orbit and > 0)
+            {
+                // Орбита: дух кружит вокруг Смерти и таранит касанием
+                f.Angle += c.orbitSpeed * 0.8f * dt;
+                float a = f.Angle * Mathf.Deg2Rad;
+                var home = p.Pos + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * (c.orbitRadius + 0.4f);
+                f.Pos = Vector2.MoveTowards(f.Pos, home, Mathf.Max(12f, (home - f.Pos).magnitude * 8f) * dt);
+                f.Hold += dt;
+                if (f.Hold >= c.orbitRehit) { f.Hold = 0f; f.Hit.Clear(); }
+                foreach (var e in Enemies)
+                    if (e.Alive && !f.Hit.Contains(e) && (e.Pos - f.Pos).magnitude <= 0.5f + e.R)
+                    {
+                        f.Hit.Add(e);
+                        FormStrike(e, c.orbitSpiritRam * orbit * mul, 0.1f, card, s, FormKind.Summon, f.Pos, e.Pos - f.Pos, f.Mul, f);
+                    }
+            }
             else
             {
                 var home = p.Pos + Rotate(-p.Face, f.Back * 0.9f) * c.summonOffset;
@@ -1367,12 +1834,14 @@ namespace Arena.Sim
                     f.Tick += 0.3f;
                     foreach (var e in Enemies)
                         if (e.Alive && DistToSegment(e.Pos, p.Pos, f.Pos) <= 0.35f + e.R)
-                            FormStrike(e, 8f * HadesScale.Hp * lightning * mul, 0.1f, card, s, FormKind.Summon, f.Pos, e.Pos - f.Pos, f.Mul, f, true);
+                            LightningStrike(e, 8f * HadesScale.Hp * lightning * mul, 0.1f, card, s, FormKind.Summon, f.Pos, e.Pos - f.Pos, f.Mul, f);
                 }
             }
             f.T -= dt;
             if (f.T > 0f || f.Phase == 4) return;
-            var target = NearestEnemy(f.Pos, c.summonRange);
+            int snipe = card.Level(Trait.Snipe);
+            float range = c.summonRange * (snipe > 0 ? c.snipeSummonRange : 1f);
+            var target = NearestEnemy(f.Pos, range);
             if (target == null) return;
             int pierce = card.Level(Trait.Pierce);
             if (pierce > 0)
@@ -1387,8 +1856,10 @@ namespace Arena.Sim
             var dir = (target.Pos - f.Pos).normalized;
             Add(new Effect
             {
-                Kind = EffectKind.FormBolt, Pos = f.Pos + dir * 0.3f, Dir = dir, Speed = c.shotSpeed, Life = c.summonRange / c.shotSpeed + 0.2f, R = 0.2f,
-                Card = card, FSlot = s, As = FormKind.Summon, Damage = c.summonDamage, Mul = mul, Parent = f, Bounces = c.ricochetBounces * card.Level(Trait.Ricochet),
+                Kind = EffectKind.FormBolt, Pos = f.Pos + dir * 0.3f, Dir = dir, Speed = c.shotSpeed, Life = range / c.shotSpeed + 0.2f, R = 0.2f,
+                Card = card, FSlot = s, As = FormKind.Summon, Damage = c.summonDamage * SnipeMul(snipe, (target.Pos - f.Pos).magnitude),
+                Mul = mul * KineticMul(card), Parent = f, Bounces = c.ricochetBounces * card.Level(Trait.Ricochet),
+                Payload = f.Payload,
             });
             f.T = c.summonFireInterval;
         }
@@ -1406,6 +1877,13 @@ namespace Arena.Sim
                 Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = f.Pos, Radius = 2f + 0.3f * frost, Color = 2 });
             }
             foreach (var e in Enemies) if (e.Alive && e.DoomBy == f && e.DoomT > 0f) DoomBurst(e);
+            if (TrinketIII(TrinketKind.Bell))
+            {
+                // Колокольчик III: дух, исчезая, взрывается со свойствами призыва
+                float r = c.blastRadius;
+                FormBlast(card, f.FSlot, FormKind.Summon, f.Pos, r, c.blastDamage * f.Mul, f);
+                foreach (var e in Enemies) if (e.Alive && (e.Pos - f.Pos).magnitude <= r + e.R) FormStrike(e, 0f, 0f, card, f.FSlot, FormKind.Summon, f.Pos, e.Pos - f.Pos, f.Mul, f);
+            }
             if (card.Has(Trait.Echo) && !f.Echoed) SpawnSpirit(f.FSlot, card, f.Back, f.Mul * Mathf.Min(1f, c.echoFraction * card.Level(Trait.Echo)), true);
             Events.Add(new SimEvent { Kind = EventKind.Teleport, Pos = f.Pos, To = f.Pos, Color = 5 });
         }
@@ -1424,6 +1902,19 @@ namespace Arena.Sim
                     b.Tick += 0.5f;
                     foreach (var e in Enemies) if (e.Alive && (e.Pos - b.Pos).magnitude <= b.R * b.Grow + 0.6f + e.R) AddBurn(e, c.burn * 0.5f * fire);
                 }
+            }
+            int kinetic = card.Level(Trait.Kinetic);
+            if (kinetic > 0 && RunFactor > 0.2f)
+            {
+                // Разгон: на бегу щит таранит касанием, того же врага — не чаще kineticBarrierRehit
+                b.Hold += dt;
+                if (b.Hold >= c.kineticBarrierRehit) { b.Hold = 0f; b.Hit.Clear(); }
+                foreach (var e in Enemies)
+                    if (e.Alive && !b.Hit.Contains(e) && (e.Pos - b.Pos).magnitude <= b.R * b.Grow + 0.3f + e.R)
+                    {
+                        b.Hit.Add(e);
+                        FormStrike(e, c.kineticBarrierRam * kinetic * RunFactor, 0.2f, card, b.FSlot, FormKind.Barrier, b.Pos, e.Pos - b.Pos, 1f, b);
+                    }
             }
             b.Life -= dt;
             if (b.Life <= 0f) BarrierEnd(b);
@@ -1460,7 +1951,7 @@ namespace Arena.Sim
                 if (e.Alive && !f.Hit.Contains(e) && (e.Pos - f.Pos).magnitude <= c.dashTouch + e.R)
                 {
                     f.Hit.Add(e);
-                    DashTouch(e, f.Card, f.FSlot, f.Pos, f.To - f.Start, f.Mul, f);
+                    DashTouch(e, f.Card, f.FSlot, f.Pos, f.To - f.Start, f.Mul, f, (f.Pos - f.Start).magnitude);
                 }
             if (k < 1f) return;
             f.Done = true;

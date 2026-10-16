@@ -32,6 +32,8 @@ namespace Arena.Sim
         FloorEnter, FloorRoomEnter, FloorRoomLocked, FloorRoomCleared, // этаж Enter the Gungeon: новый этаж, вход в комнату, двери заперты, комната пройдена
         HubGate, HubTalk, // хаб: шаг во врата (начать забег), реплика персонажа
         RunEnd,           // забег окончен: Value 1 — пройден, 0 — Смерть повержена
+        PlayerHealed,     // режим форм: Поглощение вылечило Смерть на Value
+        LootRerolled,     // режим форм: награды пятачка переброшены (Pos — середина пятачка)
     }
 
     /// <summary>Стоп-кадр Hades (HitSimSlowParameters): замедление всей игры после удара.</summary>
@@ -269,6 +271,9 @@ namespace Arena.Sim
         public float RotT; public int RotLvl; // гниль: уязвимость, при смерти заражает соседей
         public float DoomT, DoomAcc, DoomFrac; // приговор: копит урон и через DoomT отдаёт его долю
         public Effect DoomBy;                 // метка духа — сработает, когда дух исчезнет
+        public SkillCard DoomCard;            // чья метка — для связки «Двойной приговор»
+        public float DoomEchoT, DoomEchoDmg;  // второй приговор: через сколько и сколько
+        public float RotTick;                 // Гнилая кость III: тики урона гнили
         public float LinkT;                   // Hitch: часть урона уходит другим связанным
         public float ZoneSlowT;
         public float PullSpeed;               // скорость притяжения (0 — 2.4, как Black Hole)
@@ -285,6 +290,7 @@ namespace Arena.Sim
         StaffWedge, StaffBall, CastCircle, // посох: хитбокс удара, снаряд спецатаки, круг каста
         // режим форм (ArenaSim.Forms)
         FormShot, FormBolt, FormZone, FormSpirit, FormBarrier, FormWall, FormTrail, FormShade, FormEchoShot, FormDashReturn, FormVortex,
+        FormDetonation, // связка «Цепная детонация»: взрыв добитого врага с короткой задержкой
     }
 
     /// <summary>Чем нанесён удар: главная карта, её улучшение и собственный эффект.</summary>
@@ -331,6 +337,10 @@ namespace Arena.Sim
         public bool Echoed;
         public Effect Parent;
         public readonly List<Enemy> Marks = new();
+        public float Angle;               // Орбита: угол на круге вокруг Смерти, градусы
+        public bool Payload;              // применено Спуском — дальше не спускает
+        public bool Triggered;            // снаряд уже спустил карту следующего слота
+        public int Gen;                   // поколение эха (Камертон III: эхо эха)
     }
 
     /// <summary>Препятствие комнаты: многоугольник и описанная окружность (быстрая проверка).</summary>

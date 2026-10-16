@@ -6,8 +6,8 @@ using UnityEngine;
 namespace Arena.View
 {
     /// <summary>Полис вокруг боя: кварталы (дома, храмы, кипарисы из RoomDef.city), стены и крыши залов. Всё, что заслоняет
-    /// Смерть от камеры (дома, высокие объекты арен, стены залов), становится полупрозрачным; крыша зала пропадает,
-    /// пока Смерть в этом зале.</summary>
+    /// от камеры Смерть или живого врага рядом с ней (дома, высокие объекты арен, стены залов и комнат), становится
+    /// полупрозрачным; крыша зала пропадает, пока Смерть в этом зале.</summary>
     public sealed class CityView
     {
         public readonly Transform Root;
@@ -39,15 +39,7 @@ namespace Arena.View
                 foreach (var r in sim.Floor.Rooms)
                 {
                     if (!r.Indoor || r.Arena == null) continue;
-                    var doors = new List<Vector2>();
-                    foreach (var d in r.Doors)
-                    {
-                        // середина клеток выхода арены (там мост встаёт к краю её пола)
-                        var sum = Vector2.zero;
-                        var cells = r.Room.exits[d.Exit].cells;
-                        foreach (var c in cells) sum += new Vector2(r.Pos.x + c.x + 0.5f, r.Pos.y + c.y + 0.5f);
-                        doors.Add(sum / cells.Length);
-                    }
+                    var doors = ArenaFloorBuilder.DoorPoints(r);
                     var off = r.ArenaOffset;
                     foreach (var f in r.Arena.Def.floor)
                     {
@@ -69,15 +61,23 @@ namespace Arena.View
             fades.Add(f);
         }
 
+        readonly List<(Vector3 head, Vector3 feet, float depth)> targets = new();
+
         public void Sync(ArenaSim sim, Camera cam, float dt)
         {
             if (cam == null) return;
-            var p3 = Art.W(sim.Player.Pos, 1f);
-            var head = cam.WorldToViewportPoint(p3 + Vector3.up * 0.9f);
-            var feet = cam.WorldToViewportPoint(p3 - Vector3.up * 0.8f);
             var camPos = cam.transform.position;
             var fwd = cam.transform.forward;
-            float playerDepth = Vector3.Dot(p3 - camPos, fwd);
+            var p3 = Art.W(sim.Player.Pos, 1f);
+            // кого не должно быть видно сквозь: Смерть и живые враги рядом с ней
+            targets.Clear();
+            void Target(Vector3 w, float h)
+            {
+                targets.Add((cam.WorldToViewportPoint(w + Vector3.up * h), cam.WorldToViewportPoint(w + Vector3.up * 0.2f), Vector3.Dot(w - camPos, fwd)));
+            }
+            Target(Art.W(sim.Player.Pos), 1.9f);
+            foreach (var e in sim.Enemies)
+                if (e.Alive && (e.Pos - sim.Player.Pos).sqrMagnitude < Near * Near) Target(Art.W(e.Pos), 1.8f);
             var cell = new Vector2Int(Mathf.FloorToInt(sim.Player.Pos.x), Mathf.FloorToInt(sim.Player.Pos.y));
             foreach (var f in fades)
             {
@@ -87,9 +87,18 @@ namespace Arena.View
                 else
                 {
                     var c = f.B.center;
-                    if (Mathf.Abs(c.x - p3.x) < Near + f.B.extents.x && Mathf.Abs(c.z - p3.z) < Near + f.B.extents.z
-                        && Vector3.Dot(f.B.center - camPos, fwd) < playerDepth && Covers(cam, f.B, head, feet))
-                        target = SeeThroughAlpha;
+                    if (Mathf.Abs(c.x - p3.x) < Near + f.B.extents.x && Mathf.Abs(c.z - p3.z) < Near + f.B.extents.z)
+                    {
+                        float depth = Vector3.Dot(c - camPos, fwd);
+                        Rect rect = default;
+                        bool hasRect = false;
+                        foreach (var (head, feet, d) in targets)
+                        {
+                            if (depth >= d) continue; // объект не ближе к камере, чем тот, кого он мог бы закрыть
+                            if (!hasRect) { rect = ScreenRect(cam, f.B); hasRect = true; }
+                            if (rect.Contains(head) || rect.Contains(feet)) { target = SeeThroughAlpha; break; }
+                        }
+                    }
                 }
                 if (f.A == target) continue;
                 f.A = Mathf.MoveTowards(f.A, target, FadeSpeed * dt);
@@ -97,8 +106,8 @@ namespace Arena.View
             }
         }
 
-        /// <summary>Прямоугольник объекта на экране накрывает Смерть (голову или ноги).</summary>
-        static bool Covers(Camera cam, Bounds b, Vector3 head, Vector3 feet)
+        /// <summary>Прямоугольник объекта на экране (во viewport).</summary>
+        static Rect ScreenRect(Camera cam, Bounds b)
         {
             float x0 = float.MaxValue, x1 = float.MinValue, y0 = float.MaxValue, y1 = float.MinValue;
             var mn = b.min;
@@ -108,8 +117,7 @@ namespace Arena.View
                 var v = cam.WorldToViewportPoint(new Vector3((i & 1) == 0 ? mn.x : mx.x, (i & 2) == 0 ? mn.y : mx.y, (i & 4) == 0 ? mn.z : mx.z));
                 x0 = Mathf.Min(x0, v.x); x1 = Mathf.Max(x1, v.x); y0 = Mathf.Min(y0, v.y); y1 = Mathf.Max(y1, v.y);
             }
-            bool In(Vector3 q) => q.x > x0 && q.x < x1 && q.y > y0 && q.y < y1;
-            return In(head) || In(feet);
+            return Rect.MinMaxRect(x0, y0, x1, y1);
         }
 
         void Apply(Fade f)

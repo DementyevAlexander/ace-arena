@@ -29,7 +29,7 @@ namespace Arena.Core
         public bool[] ExitUsed;
         /// <summary>Этаж из арен Hades: арена этой комнаты (null — комната Enter the Gungeon).</summary>
         public ArenaTemplate Arena;
-        /// <summary>Этаж из арен: хабы без боя (бой — только обычные комнаты и босс).</summary>
+        /// <summary>Этаж из арен: этот хаб без боя (стартовый — ближайший ко входу; остальные хабы — с боем, ArenaFloorBuilder).</summary>
         public bool PeacefulHubs;
         /// <summary>Этаж из арен: 1 — мини-босс, 2 — босс (красный враг с увеличенным здоровьем).</summary>
         public int Elite;

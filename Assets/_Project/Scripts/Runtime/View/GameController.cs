@@ -43,6 +43,7 @@ namespace Arena.View
         Hud hud;
         RewardScreen reward; // выбор карточки и просмотр скиллов; прежняя колода (DeckScreen) из интерфейса убрана
         TrinketScreen trinkets; // выбор тринкета с пятачка мини-босса
+        KitScreen kit;          // стартовый набор у Наставника в хабе
         RunEndScreen runEnd;    // итоги забега → хаб
         HubView hubView;        // врата и персонажи хаба
         CityView cityView;      // полис: кварталы, залы, прозрачность заслоняющего
@@ -83,6 +84,7 @@ namespace Arena.View
             hud = new Hud();
             reward = new RewardScreen(Sim);
             trinkets = new TrinketScreen(Sim);
+            kit = new KitScreen(Sim);
             runEnd = new RunEndScreen(() => toHubPending = true);
             pause = new PauseScreen(
                 resume: () => pauseMenu = false,
@@ -257,11 +259,11 @@ namespace Arena.View
             else
             {
                 bool backUsed = pauseMenu && pause.Navigate(input); // меню паузы: пункты, B закрывает «Управление»
-                if (input.DeckPressed && !Sim.GameOver && !Sim.RewardPending && !pauseMenu) viewSkills = !viewSkills;
+                if (input.DeckPressed && !Sim.GameOver && !Sim.RewardPending && !Sim.KitOpen && !pauseMenu) viewSkills = !viewSkills;
                 else if (input.PausePressed)
                 {
                     if (viewSkills) viewSkills = false;
-                    else if (!Sim.RewardPending) pauseMenu = !pauseMenu;
+                    else if (!Sim.RewardPending && !Sim.KitOpen) pauseMenu = !pauseMenu;
                 }
                 else if (viewSkills && input.NavBack) viewSkills = false;          // B — закрыть просмотр
                 else if (pauseMenu && input.NavBack && !backUsed) pauseMenu = false; // B — продолжить
@@ -269,12 +271,13 @@ namespace Arena.View
                 if (!runEnd.Visible && (input.RestartPressed || (pauseMenu && input.NavAlt) || (Sim.GameOver && wasGameOver && input.PausePressed))) Restart();
                 // E / RB: подобрать карточку с пятачка, в хабе — врата или разговор
                 if (!Paused && input.InteractPressed) Sim.Interact();
+                if (!Paused && input.RerollPressed) Sim.RerollLoot(); // F / LB у пятачка — переброс наград
             }
             bool wasPaused = Paused;
-            if (!title.Visible) { reward.Sync(viewSkills, input); trinkets.Sync(input); runEnd.Sync(input); }
+            if (!title.Visible) { reward.Sync(viewSkills, input); trinkets.Sync(input); kit.Sync(input); runEnd.Sync(input); }
             if (pauseMenu) pause.Show(); else pause.Hide();
             pause.Sync(Sim, runTime, input);
-            bool choosing = reward.Visible || trinkets.Visible || runEnd.Visible;
+            bool choosing = reward.Visible || trinkets.Visible || kit.Visible || runEnd.Visible;
             hud.SetVisible(!title.Visible && !pauseMenu && !choosing); // как в Hades: в паузе и выборе HUD скрыт
             Paused = title.Visible || pauseMenu || choosing;
             if (wasPaused && !Paused) input.Flush(); // клик по карточке не должен стать выстрелом
@@ -424,6 +427,12 @@ namespace Arena.View
                         break;
                     case EventKind.Shake:
                         pendingShakes.Add(new Vector3(ev.To.x, ev.Value, ev.Radius));
+                        break;
+                    case EventKind.PlayerHealed: // Поглощение: зелёная цифра, мелкие тики зоны — без цифры
+                        if (ev.Value >= 1f) hud.Number(ev.Pos, ev.Value, false, new Color(0.45f, 1f, 0.55f));
+                        break;
+                    case EventKind.LootRerolled:
+                        effects.Ring(ev.Pos, 2.2f, new Color(0.75f, 0.7f, 1f, 0.9f), 0.4f);
                         break;
                     case EventKind.PlayerBlocked:
                         effects.Ring(ev.Pos, 1f, new Color(1f, 0.9f, 0.4f, 0.9f));

@@ -230,7 +230,7 @@ namespace Arena.Sim
             if (e.MarkBleed > 0f) SpreadDeath(e, UpgradeKind.DeathBleed);
             if (e.MarkPoison > 0f) SpreadDeath(e, UpgradeKind.DeathPoison);
             if (e.RotT > 0f) SpreadRot(e);
-            if (FormsMode) OnKillForms();
+            if (FormsMode) OnKillForms(e);
         }
 
         void SpreadDeath(Enemy dead, UpgradeKind kind)
@@ -269,6 +269,7 @@ namespace Arena.Sim
                 BreakShield();
                 return false;
             }
+            if (FormsMode) dmg *= TrinketBook.TakenMul(TrinketSlots, TrinketCfg); // Стеклянное сердце
             p.Hp -= dmg;
             p.RecentDamage.RemoveAll(d => Time - d.x > PlayerCfg.iFrameWindow);
             p.RecentDamage.Add(new Vector2(Time, dmg));
