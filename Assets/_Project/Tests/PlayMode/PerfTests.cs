@@ -20,6 +20,10 @@ namespace Arena.Tests
     /// (симуляция, вид, HUD, отрисовка, аллокации, вызовы отрисовки, число объектов и материалов) в ARENA_PERF_FILE.</summary>
     public class PerfTests
     {
+        /// <summary>Эти тесты — про отдельные комнаты Hades: забег по этажам из арен (по умолчанию в игре) выключен.</summary>
+        [SetUp]
+        public void SingleRooms() => GameController.ArenaFloors = false;
+
         sealed class Phase
         {
             public string Name;

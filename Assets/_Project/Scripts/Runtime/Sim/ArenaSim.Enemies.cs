@@ -29,6 +29,7 @@ namespace Arena.Sim
             e.Rooted -= dt;
             float slow = UpdateFormStatuses(e, dt); // свойства режима форм: иней и зона замедляют ходьбу
             if (e.Dead) return;
+            if (e.Dummy) { e.Pos = e.Home; e.Vel = e.ExtVel = Vector2.zero; e.Tele = null; return; } // мишень хаба: статусы — да, ИИ — нет
 
             // внешняя скорость (отбрасывание Hades) гасится сцеплением Grip
             if (e.ExtVel.sqrMagnitude > 0f)

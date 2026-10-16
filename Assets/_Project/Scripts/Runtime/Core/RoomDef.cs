@@ -29,6 +29,8 @@ namespace Arena.Core
         public Prop[] breakables = Array.Empty<Prop>();
         /// <summary>Крупные детали оформления без столкновений (для вида).</summary>
         public Prop[] decor = Array.Empty<Prop>();
+        /// <summary>Полис: дома, храмы и кипарисы вокруг проходимого — только вид, без столкновений (PolisDressing).</summary>
+        public Poly[] city = Array.Empty<Poly>();
         public Encounter encounter;
 
         [Serializable]
@@ -164,9 +166,9 @@ namespace Arena.Core
 
         [NonSerialized] public bool Flipped;
 
-        static readonly Dictionary<string, string> BiomeNames = new()
+        public static readonly Dictionary<string, string> BiomeNames = new()
         {
-            ["Tartarus"] = "Тартар", ["Asphodel"] = "Асфодель", ["Elysium"] = "Элизиум", ["Styx"] = "Стикс",
+            ["Tartarus"] = "Тартар", ["Asphodel"] = "Асфодель", ["Elysium"] = "Элизиум", ["Styx"] = "Стикс", ["Polis"] = "Полис",
         };
 
         /// <summary>Подпись комнаты для HUD и паузы: биом по-русски и имя карты Hades.</summary>

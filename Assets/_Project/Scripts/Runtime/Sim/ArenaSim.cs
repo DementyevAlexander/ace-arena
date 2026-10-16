@@ -91,12 +91,15 @@ namespace Arena.Sim
         /// <summary>Сменить комнату и начать заново.</summary>
         public void LoadRoom(RoomDef room)
         {
+            FloorRun = false; Floor = null; // отдельная комната Hades — не этаж
+            HubMode = false; HubSpots.Clear(); hubDummies.Clear();
+            RoomStates = System.Array.Empty<FloorRoomState>(); ActiveRoom = -1; CurrentRoom = -1;
             baseRoom = room ?? RoomDef.Box(10f, 7f);
             Restart();
         }
 
         /// <summary>Hades отражает комнату по горизонтали при каждом входе — половину раз.</summary>
-        void PickVariant() => Room = MirrorRooms && rng.Next(2) == 1 ? baseRoom.Mirrored(ScreenRight) : baseRoom;
+        void PickVariant() => Room = MirrorRooms && !HubMode && rng.Next(2) == 1 ? baseRoom.Mirrored(ScreenRight) : baseRoom;
 
         /// <summary>Взгляд героя при входе в комнату (heroAngle: к центру комнаты).</summary>
         Vector2 StartFace()
@@ -121,9 +124,11 @@ namespace Arena.Sim
             BuildRoom();
             Wave = 0; Kills = 0; GameOver = false; Time = 0f;
             DoorsOpen = false; doorTimer = 0f;
-            Loot = null;
+            ClearLoot();
             if (FormsMode) ResetForms();
             ResetEncounter();
+            if (HubMode) SpawnHubDummies();
+            if (FloorRun) { FloorLap = 0; RunRoomsCleared = 0; LoadFloor(NewFloor(FloorOrder[0], rng.Next()), 0); }
         }
 
         /// <summary>Шаг в открытую дверь: следующая комната из подключённых (сейчас та же, в новом варианте),
@@ -142,7 +147,7 @@ namespace Arena.Sim
             if (FormsMode) ResetFormRoom();
             BuildRoom();
             DoorsOpen = false;
-            Loot = null; // не взятая карточка остаётся в прошлой комнате
+            ClearLoot(); // не взятые карточки остаются в прошлой комнате
             StartGeneratedEncounter(Depth + 1);
             Events.Add(new SimEvent { Kind = EventKind.RoomEnter, Value = RoomsCleared });
         }
@@ -150,6 +155,7 @@ namespace Arena.Sim
         void BuildRoom()
         {
             Obstacles.Clear(); Traps.Clear(); Hazards.Clear(); Breakables.Clear(); doorStand.Clear(); doorTimer = 0f;
+            InvalidateObstacleIndex();
             foreach (var w in Room.walls)
             {
                 if (w.p == null || w.p.Length < 3) continue;
@@ -187,7 +193,8 @@ namespace Arena.Sim
             Enemies.RemoveAll(e => e.Dead && e.DeathT <= 0f);
             Effects.RemoveAll(f => f.Done);
             Bolts.RemoveAll(b => b.Done);
-            if (WavesEnabled) UpdateEncounter(dt);
+            if (FloorMode) UpdateFloor(dt);
+            else if (WavesEnabled) UpdateEncounter(dt);
         }
 
         // ---------- Слоты ----------
@@ -307,7 +314,7 @@ namespace Arena.Sim
         void MovePlayer(float dt, SimInput input)
         {
             var p = Player;
-            float mul = MoveMultiplier() * StaffSpeedMul * (p.Slow > 0f ? CasketCfg.slow : 1f) * (FormsMode && fShotSlow > 0f ? FormCfg.shotMoveSlow : 1f) * (FormsMode && fCharging ? FormCfg.chargeMoveSlow : 1f);
+            float mul = MoveMultiplier() * StaffSpeedMul * (p.Slow > 0f ? CasketCfg.slow : 1f) * (FormsMode && fShotSlow > 0f ? FormCfg.shotMoveSlow : 1f) * (FormsMode ? fChargeMove : 1f); // заряд: атакующие формы — стоит, защитные — ходит
             if (p.Stun > 0f || StaffBlocksMove(input) || S.Move is StaffMove.Blink or StaffMove.Sprint) mul = 0f;
             var target = Vector2.zero;
             if (input.Move.sqrMagnitude > 0.0001f && mul > 0f)
@@ -504,7 +511,8 @@ namespace Arena.Sim
 
         public void CollideCircle(ref Vector2 pos, float r)
         {
-            foreach (var o in Obstacles)
+            if (GridCollision) GridPush(ref pos, r);
+            foreach (var o in ObstaclesNear(pos, r + 0.05f))
             {
                 if ((pos - o.Pos).sqrMagnitude > (o.R + r) * (o.R + r)) continue;
                 if (o.Round)
@@ -515,7 +523,7 @@ namespace Arena.Sim
                 }
                 else Geo.PushOut(o.Poly, ref pos, r);
             }
-            KeepOnFloor(ref pos, r);
+            if (!GridCollision) KeepOnFloor(ref pos, r);
         }
 
         /// <summary>То же, но если круг остался зажат в щели уже своего диаметра (выталкивания двух препятствий спорят),
@@ -532,7 +540,7 @@ namespace Arena.Sim
             var floor = Room.floor;
             if (floor.Length == 0) return;
             RoomDef.Poly home = null;
-            foreach (var f in floor)
+            foreach (var f in FloorsAt(pos))
                 if (Geo.InPoly(f.p, pos)) { home = f; break; }
             if (home != null)
             {
@@ -559,8 +567,9 @@ namespace Arena.Sim
 
         bool OnFloor(Vector2 p)
         {
+            if (GridCollision) return GridWalkable(p);
             if (Room.floor.Length == 0) return true;
-            foreach (var f in Room.floor)
+            foreach (var f in FloorsAt(p))
                 if (Geo.InPoly(f.p, p)) return true;
             return false;
         }
@@ -570,7 +579,8 @@ namespace Arena.Sim
         /// <summary>Снаряд упирается в препятствие. Над водой и обрывами (StopsProjectiles = false) пролетает.</summary>
         bool BlocksShot(Vector2 p, float r)
         {
-            foreach (var o in Obstacles)
+            if (GridCollision && GridOverlaps(p, r, true)) return true;
+            foreach (var o in ObstaclesNear(p, r))
             {
                 if (!o.Shots || (p - o.Pos).sqrMagnitude >= (o.R + r) * (o.R + r)) continue;
                 if (o.Round || Geo.Overlaps(o.Poly, p, r)) return true;
@@ -580,7 +590,8 @@ namespace Arena.Sim
 
         public bool HitsObstacle(Vector2 p, float r)
         {
-            foreach (var o in Obstacles)
+            if (GridCollision && GridOverlaps(p, r, false)) return true;
+            foreach (var o in ObstaclesNear(p, r))
             {
                 if ((p - o.Pos).sqrMagnitude >= (o.R + r) * (o.R + r)) continue;
                 if (o.Round || Geo.Overlaps(o.Poly, p, r)) return true;
@@ -591,7 +602,8 @@ namespace Arena.Sim
         /// <summary>Видит ли a точку b: отрезок не пересекает препятствия (AIRequireProjectileLineOfSight).</summary>
         public bool LineOfSight(Vector2 a, Vector2 b, float buffer = 0f)
         {
-            foreach (var o in Obstacles)
+            if (GridCollision && !GridLineOfSight(a, b, buffer)) return false;
+            foreach (var o in ObstaclesNear(Vector2.Min(a, b) - new Vector2(buffer, buffer), Vector2.Max(a, b) + new Vector2(buffer, buffer)))
             {
                 float d = (Geo.ClosestOnSegment(a, b, o.Pos) - o.Pos).magnitude;
                 if (d > o.R + buffer) continue;

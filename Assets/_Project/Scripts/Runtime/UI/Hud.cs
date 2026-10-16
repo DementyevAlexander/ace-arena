@@ -17,9 +17,14 @@ namespace Arena.UI
         readonly Canvas canvas;
         readonly Image hpFill;
         readonly Text hpText, roomText, waveText, infoText, banner, buffText, hint;
-        readonly RectTransform prompt;   // «E — взять» над карточкой на земле
+        readonly Minimap minimap;
+        readonly RectTransform prompt;   // «E Взять» над ближайшей карточкой пятачка
         readonly Image promptKey;
         readonly Text promptKeyText, promptText;
+        readonly List<Text> lootLabels = new();
+        readonly List<Text> hubLabels = new(); // хаб: имена персонажей и врат
+        Text speech;                           // хаб: реплика персонажа над ним // над каждой карточкой пятачка — «Форма · Свойство ◆◆»
+        readonly RectTransform lootLayer;
         readonly SlotWidget[] slots = new SlotWidget[4];
         readonly FormSlotWidget[] formSlots = new FormSlotWidget[4];
         readonly RectTransform numbersLayer;
@@ -58,7 +63,13 @@ namespace Arena.UI
             hint = UiKit.Label(t, "", 19, Pal.Faint, new Vector2(0f, 0f), new Vector2(48f, 36f), new Vector2(900f, 30f), TextAnchor.LowerLeft, FontStyle.Normal);
             hint.rectTransform.pivot = new Vector2(0f, 0f);
             banner = UiKit.Label(t, "", 64, new Color(1f, 0.88f, 0.4f), new Vector2(0.5f, 0.68f), Vector2.zero, new Vector2(1400f, 160f));
+            minimap = new Minimap(t);
             // подсказка подбора, как «{I} Принять» над даром в Hades
+            lootLayer = UiKit.Stretch(t, "LootLabels");
+            speech = UiKit.Label(lootLayer, "", 24, Color.white, Vector2.zero, Vector2.zero, new Vector2(620f, 90f), TextAnchor.LowerCenter, FontStyle.Normal);
+            speech.rectTransform.pivot = new Vector2(0.5f, 0f);
+            speech.horizontalOverflow = HorizontalWrapMode.Wrap;
+            speech.gameObject.SetActive(false);
             prompt = UiKit.Rect(t, "LootPrompt", Vector2.zero, Vector2.zero, new Vector2(600f, 40f), new Vector2(0.5f, 0.5f));
             promptKey = UiKit.Image(prompt, "Key", Pal.Gold, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(44f, 36f), new Vector2(1f, 0.5f));
             promptKeyText = UiKit.Label(promptKey.transform, "", 21, Pal.Ink, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(80f, 36f));
@@ -69,15 +80,10 @@ namespace Arena.UI
             prompt.gameObject.SetActive(false);
 
             for (int i = 0; i < 4; i++) slots[i] = new SlotWidget(t, new Vector2(-330f + i * 220f, 30f));
-            // слоты форм — справа снизу, как в Hades II: ЛКМ, ПКМ, Q и меньший слот рывка (Space)
-            float right = -40f;
-            for (int i = 3; i >= 0; i--)
-            {
-                bool dash = i == ArenaSim.DashSlot;
-                var size = dash ? new Vector2(150f, 184f) : new Vector2(170f, 224f);
-                formSlots[i] = new FormSlotWidget(t, new Vector2(right, 36f), size);
-                right -= size.x + 24f;
-            }
+            // слоты форм — справа снизу: ЛКМ, ПКМ, Q, Space — небольшие квадраты со значком формы
+            const float SlotSize = 96f, SlotGap = 18f;
+            for (int i = 0; i < 4; i++)
+                formSlots[i] = new FormSlotWidget(t, new Vector2(-40f - (3 - i) * (SlotSize + SlotGap), 36f), new Vector2(SlotSize, SlotSize));
         }
 
         public void ShowBanner(string text, float time = 1.6f) { banner.text = text; bannerT = time; }
@@ -94,7 +100,11 @@ namespace Arena.UI
             if (numbers.Count >= MaxNumbers) { Release(numbers[0].Text); numbers.RemoveAt(0); }
             Text txt;
             if (freeNumbers.Count > 0) { txt = freeNumbers.Pop(); txt.gameObject.SetActive(true); }
-            else txt = UiKit.Label(numbersLayer, "", 26, color, Vector2.zero, Vector2.zero, new Vector2(160f, 50f));
+            else
+            {
+                txt = UiKit.Label(numbersLayer, "", 26, color, Vector2.zero, Vector2.zero, new Vector2(160f, 50f));
+                txt.rectTransform.pivot = new Vector2(0.5f, 0.5f); // цифра — ровно над точкой удара
+            }
             txt.text = Mathf.RoundToInt(value).ToString();
             txt.fontSize = crit ? 36 : 26;
             txt.color = color;
@@ -108,14 +118,30 @@ namespace Arena.UI
             hpFill.rectTransform.sizeDelta = new Vector2(HpW * k, HpH);
             int hp = Mathf.CeilToInt(p.Hp);
             if (hp != lastHp) { lastHp = hp; hpText.text = $"{hp} / {sim.PlayerCfg.hp:0}"; }
-            string room = sim.Room.Title;
+            string room = sim.LocationTitle;
             if (room != lastRoom) { lastRoom = room; roomText.text = room; }
-            if (sim.Wave != lastWave || sim.Kills != lastKills || sim.Rewards != lastRewards)
+            if (sim.HubMode)
+            {
+                if (lastWave != -2) { lastWave = -2; waveText.text = Arena.Core.HubBuilder.Name; infoText.text = "Врата наверху — новый забег"; }
+            }
+            else if (sim.FloorMode)
+            {
+                var (cleared, total) = sim.FloorProgress;
+                int key = sim.FloorIndex * 100000 + cleared * 1000 + sim.Kills;
+                if (key != lastWave)
+                {
+                    lastWave = key;
+                    waveText.text = $"Этаж {sim.FloorIndex + 1}";
+                    infoText.text = $"Комнаты {cleared}/{total}   ·   Убито {sim.Kills}";
+                }
+            }
+            else if (sim.Wave != lastWave || sim.Kills != lastKills || sim.Rewards != lastRewards)
             {
                 lastWave = sim.Wave; lastKills = sim.Kills; lastRewards = sim.Rewards;
                 waveText.text = $"Волна {Mathf.Max(1, sim.Wave)}";
                 infoText.text = $"Убито {sim.Kills}";
             }
+            minimap.Sync(sim);
             if (!sim.FormsMode)
             {
                 var buffs = new List<string>();
@@ -158,21 +184,93 @@ namespace Arena.UI
                 n.Text.color = n.Text.color.WithAlpha(Mathf.Clamp01((0.8f - n.T) * 3f));
             }
 
-            bool near = sim.LootInReach && cam != null && !paused;
+            // над каждой карточкой — «Форма · Свойство» одной строкой, у ближайшей под ним «E Взять»
+            var nearCard = cam != null && !paused ? sim.LootNear : null;
+            bool labels = sim.Loot.Count > 0 && sim.Time >= sim.LootReadyAt && !sim.RewardPending && cam != null && !paused;
+            while (lootLabels.Count < sim.Loot.Count)
+            {
+                var l = UiKit.Label(lootLayer, "", 24, Color.white, Vector2.zero, Vector2.zero, new Vector2(420f, 34f));
+                l.rectTransform.pivot = new Vector2(0.5f, 0f);
+                l.supportRichText = true;
+                lootLabels.Add(l);
+            }
+            const float Gap = 12f, PromptH = 36f;
+            for (int i = 0; i < lootLabels.Count; i++)
+            {
+                var l = lootLabels[i];
+                bool show = labels && i < sim.Loot.Count;
+                if (l.gameObject.activeSelf != show) l.gameObject.SetActive(show);
+                if (!show) continue;
+                var g = sim.Loot[i];
+                if (g.Trinket != null) l.text = TrinketLabel(g.Trinket);
+                else
+                {
+                    var c = g.Card;
+                    // после названия — ромбики по числу вливаний, цветом редкости
+                    string pips = $" <color=#{ColorUtility.ToHtmlStringRGB(Art.RarityColor(c.Rarity))}>{new string('◆', c.SoulCells)}</color>";
+                    l.text = (c.Own.HasValue
+                        ? $"{FormText.Name(c.Form)} · <color=#{ColorUtility.ToHtmlStringRGB(Art.CardTint(c))}>{FormText.Name(c.Own.Value)}</color>"
+                        : FormText.Name(c.Form)) + pips;
+                }
+                var vp = cam.WorldToViewportPoint(Art.W(g.Pos, LootView.CardTop));
+                float y = vp.y * size.y + Gap + (g == nearCard ? PromptH + 4f : 0f);
+                l.rectTransform.anchoredPosition = new Vector2(vp.x * size.x, y);
+            }
+
+            // хаб: имена над вратами и персонажами, реплика над тем, кто говорит
+            var hubNear = cam != null && !paused ? sim.HubNear : null;
+            while (hubLabels.Count < sim.HubSpots.Count)
+            {
+                var l = UiKit.Label(lootLayer, "", 24, Color.white, Vector2.zero, Vector2.zero, new Vector2(320f, 34f));
+                l.rectTransform.pivot = new Vector2(0.5f, 0f);
+                hubLabels.Add(l);
+            }
+            for (int i = 0; i < hubLabels.Count; i++)
+            {
+                var l = hubLabels[i];
+                bool show = i < sim.HubSpots.Count && cam != null && !paused;
+                if (l.gameObject.activeSelf != show) l.gameObject.SetActive(show);
+                if (!show) continue;
+                var spot = sim.HubSpots[i];
+                l.text = spot.Name;
+                l.color = Color.Lerp(spot.Color, Color.white, 0.4f);
+                var vp = cam.WorldToViewportPoint(Art.W(spot.Pos, HubLabelY(spot)));
+                l.rectTransform.anchoredPosition = new Vector2(vp.x * size.x, vp.y * size.y + Gap + (spot == hubNear ? PromptH + 4f : 0f));
+            }
+            bool talking = sim.HubMode && sim.SpeechSpot != null && sim.Time - sim.SpeechAt < 4.5f && cam != null && !paused;
+            if (speech.gameObject.activeSelf != talking) speech.gameObject.SetActive(talking);
+            if (talking)
+            {
+                speech.text = sim.SpeechText;
+                var vp = cam.WorldToViewportPoint(Art.W(sim.SpeechSpot.Pos, HubLabelY(sim.SpeechSpot)));
+                speech.rectTransform.anchoredPosition = new Vector2(vp.x * size.x, vp.y * size.y + Gap + PromptH + 44f);
+            }
+
+            bool near = nearCard != null || hubNear != null;
             if (prompt.gameObject.activeSelf != near) prompt.gameObject.SetActive(near);
             if (near)
             {
-                var vp = cam.WorldToViewportPoint(Art.W(sim.LootPos, 1.9f));
-                prompt.anchoredPosition = new Vector2(vp.x * size.x, vp.y * size.y);
+                var vp = cam.WorldToViewportPoint(nearCard != null ? Art.W(nearCard.Pos, LootView.CardTop) : Art.W(hubNear.Pos, HubLabelY(hubNear)));
                 string key = useMouse ? "E" : "RB";
                 if (promptKeyText.text != key)
                 {
                     promptKeyText.text = key;
-                    promptKey.rectTransform.sizeDelta = new Vector2(promptKeyText.preferredWidth + 20f, 36f);
+                    promptKey.rectTransform.sizeDelta = new Vector2(promptKeyText.preferredWidth + 20f, PromptH);
                 }
-                promptText.text = $"Взять <color=#{ColorUtility.ToHtmlStringRGB(Art.CardTint(sim.Loot))}>{sim.Loot.Name}</color>";
+                promptText.text = nearCard != null ? "Взять" : hubNear.Kind == Arena.Core.HubSpotKind.Gate ? "Начать забег" : "Говорить";
+                // ключ и слово — по центру под названием
+                float keyW = promptKey.rectTransform.sizeDelta.x;
+                float w = keyW + 10f + promptText.preferredWidth;
+                prompt.anchoredPosition = new Vector2(vp.x * size.x - w * 0.5f + keyW, vp.y * size.y + Gap + PromptH * 0.5f);
             }
         }
+
+        /// <summary>Над чем в хабе пишется имя: над вратами — выше перемычки, над персонажем — над головой.</summary>
+        static float HubLabelY(Arena.Core.HubSpot s) => s.Kind == Arena.Core.HubSpotKind.Gate ? 3.8f : 2.1f;
+
+        /// <summary>«Уголёк · Пламя I»: имя, категория цветом тринкета, уровень.</summary>
+        static string TrinketLabel(Trinket t) =>
+            $"{TrinketBook.Name(t.Kind)} · <color=#{ColorUtility.ToHtmlStringRGB(Art.TrinketColor(t.Kind))}>{TrinketBook.Category(t.Kind)} {TrinketBook.Roman(t.Level)}</color>";
 
         public void SetVisible(bool v) => canvas.enabled = v;
 
@@ -252,17 +350,17 @@ namespace Arena.UI
             }
         }
 
-        /// <summary>Слот режима форм — вертикальная карта, как в Hades II: клавиша на плашке, ячейки душ справа сверху,
-        /// значок формы, имя, свойства с уровнями; перезарядка — затемнение сверху и число.</summary>
+        /// <summary>Слот режима форм в бою — небольшой квадрат: клавиша на плашке, значок формы одним цветом, перезарядка —
+        /// затемнение сверху и число, заряд — шкала над слотом. Свойства и души здесь не показываются — они в окне
+        /// замены и вливания (RewardScreen) и в паузе.</summary>
         sealed class FormSlotWidget
         {
+            static readonly Color Icon = new(0.91f, 0.87f, 0.78f);
             readonly float W, H;
             readonly RectTransform root;
             readonly Image frame, bg, cdOverlay, highlight, chargeBg, chargeFill;
-            readonly Text glyph, title, traits, cdText, keyText, empty;
-            readonly Image[] cells = new Image[SkillCard.SoulCells];
-            SkillCard shownCard;
-            int shownSouls = -1;
+            readonly Text glyph, cdText, keyText;
+            FormKind? shownForm;
             string shownKey;
             int shownCd = -1;
 
@@ -270,27 +368,19 @@ namespace Arena.UI
             {
                 W = size.x; H = size.y;
                 root = UiKit.Rect(parent, "FormSlot", new Vector2(1f, 0f), pos, size, new Vector2(1f, 0f));
-                highlight = UiKit.Image(root, "Highlight", new Color(1f, 1f, 1f, 0.8f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W + 10f, H + 10f));
-                frame = UiKit.Image(root, "Frame", Color.white, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W, H));
+                highlight = UiKit.Image(root, "Highlight", new Color(1f, 1f, 1f, 0.8f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W + 8f, H + 8f));
+                frame = UiKit.Image(root, "Frame", Pal.GoldDim, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W, H));
                 bg = UiKit.Image(root, "Bg", Pal.Card, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W - 4f, H - 4f));
-                glyph = UiKit.Label(root, "", Mathf.RoundToInt(H * 0.28f), Color.white, new Vector2(0.5f, 1f), new Vector2(0f, -H * 0.3f), new Vector2(W, H * 0.34f));
+                glyph = UiKit.Label(root, "", Mathf.RoundToInt(H * 0.5f), Icon, new Vector2(0.5f, 0.5f), new Vector2(0f, -2f), new Vector2(W, H));
                 glyph.rectTransform.pivot = new Vector2(0.5f, 0.5f);
-                title = UiKit.Label(root, "", 22, Color.white, new Vector2(0.5f, 1f), new Vector2(0f, -H * 0.6f), new Vector2(W - 12f, 30f), TextAnchor.MiddleCenter, FontStyle.Normal);
-                title.rectTransform.pivot = new Vector2(0.5f, 0.5f);
-                traits = UiKit.Label(root, "", 17, Pal.TextDim, new Vector2(0.5f, 1f), new Vector2(0f, -H * 0.6f - 18f), new Vector2(W - 12f, H * 0.4f), TextAnchor.UpperCenter, FontStyle.Normal);
-                traits.rectTransform.pivot = new Vector2(0.5f, 1f);
-                traits.supportRichText = true;
-                for (int k = 0; k < cells.Length; k++)
-                    cells[k] = UiKit.Image(root, "Cell", Color.white, new Vector2(1f, 1f), new Vector2(-16f - k * 20f, -16f), new Vector2(13f, 13f));
-                empty = UiKit.Label(root, "пусто", 21, Pal.Faint, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W, 40f), TextAnchor.MiddleCenter, FontStyle.Normal);
                 cdOverlay = UiKit.Image(root, "Cd", new Color(0.02f, 0f, 0.05f, 0.72f), new Vector2(0.5f, 1f), new Vector2(0f, -2f), new Vector2(W - 4f, 0f), new Vector2(0.5f, 1f));
-                cdText = UiKit.Label(root, "", 44, Color.white, new Vector2(0.5f, 1f), new Vector2(0f, -H * 0.3f), new Vector2(W, 60f));
+                cdText = UiKit.Label(root, "", 30, Color.white, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(W, H));
                 cdText.rectTransform.pivot = new Vector2(0.5f, 0.5f);
-                // шкала заряда над картой: золотая — копится, белая вспышка — окно «идеального» выпуска
-                chargeBg = UiKit.Image(root, "ChargeBg", new Color(0f, 0f, 0f, 0.6f), new Vector2(0.5f, 1f), new Vector2(0f, 12f), new Vector2(W, 10f), new Vector2(0.5f, 0f));
-                chargeFill = UiKit.Image(chargeBg.transform, "Charge", Pal.Gold, new Vector2(0f, 0.5f), Vector2.zero, new Vector2(0f, 10f), new Vector2(0f, 0.5f));
-                var badge = UiKit.Image(root, "Key", Pal.Gold, new Vector2(0f, 1f), new Vector2(-12f, 14f), new Vector2(84f, 32f), new Vector2(0f, 1f));
-                keyText = UiKit.Label(badge.transform, "", 18, Pal.Ink, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(84f, 32f));
+                // шкала заряда над слотом: золотая — копится, белая — окно «идеального» выпуска
+                chargeBg = UiKit.Image(root, "ChargeBg", new Color(0f, 0f, 0f, 0.6f), new Vector2(0.5f, 1f), new Vector2(0f, 20f), new Vector2(W, 8f), new Vector2(0.5f, 0f));
+                chargeFill = UiKit.Image(chargeBg.transform, "Charge", Pal.Gold, new Vector2(0f, 0.5f), Vector2.zero, new Vector2(0f, 8f), new Vector2(0f, 0.5f));
+                var badge = UiKit.Image(root, "Key", Pal.Gold, new Vector2(0f, 1f), new Vector2(-8f, 10f), new Vector2(56f, 24f), new Vector2(0f, 1f));
+                keyText = UiKit.Label(badge.transform, "", 14, Pal.Ink, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(56f, 24f));
                 keyText.GetComponent<Shadow>().enabled = false;
             }
 
@@ -303,37 +393,20 @@ namespace Arena.UI
                 var card = s.Card;
                 if (key != shownKey) { shownKey = key; keyText.text = key; }
                 bool has = card != null;
-                glyph.enabled = title.enabled = traits.enabled = has;
-                empty.enabled = !has;
-                foreach (var c in cells) c.enabled = has;
-                var col = Art.CardTint(card);
-                frame.color = has ? col * 0.8f + new Color(0f, 0f, 0f, 0.2f) : new Color(1f, 1f, 1f, 0.12f);
-                bg.color = has ? Pal.Card : Pal.Card.WithAlpha(0.8f);
+                glyph.enabled = has;
+                frame.color = has ? Pal.GoldDim : new Color(1f, 1f, 1f, 0.12f);
+                bg.color = has ? Pal.Card : Pal.Card.WithAlpha(0.6f);
+                if (has && card.Form != shownForm) { shownForm = card.Form; glyph.text = FormText.Glyph(card.Form); }
                 highlight.enabled = has && s.Holding;
                 chargeBg.enabled = chargeFill.enabled = has && s.Holding;
                 if (has && s.Holding)
                 {
+                    // до порога — золотая растёт, в окне — белая, окно пропущено — тусклая
                     float k = sim.ChargeOf(s);
-                    bool perfect = sim.PerfectOf(s);
-                    chargeFill.rectTransform.sizeDelta = new Vector2(W * k, 10f);
-                    chargeFill.color = perfect ? Color.white : k >= 1f ? Pal.GoldDim : Pal.Gold;
-                    highlight.color = perfect ? Color.white : new Color(1f, 1f, 1f, 0.35f + 0.45f * k);
-                }
-                if (has && (card != shownCard || card.Souls.Count != shownSouls))
-                {
-                    shownCard = card; shownSouls = card.Souls.Count;
-                    glyph.text = FormText.Glyph(card.Form);
-                    glyph.color = col;
-                    title.text = FormText.Name(card.Form);
-                    var sb = new System.Text.StringBuilder();
-                    foreach (var t in card.Traits)
-                    {
-                        int lvl = card.Level(t);
-                        if (sb.Length > 0) sb.Append('\n');
-                        sb.Append($"<color=#{ColorUtility.ToHtmlStringRGB(Art.TraitColor(t))}>{FormText.Name(t)}{(lvl > 1 ? $" ×{lvl}" : "")}</color>");
-                    }
-                    traits.text = sb.Length > 0 ? sb.ToString() : "<color=#8a809a>без свойств</color>";
-                    for (int k = 0; k < cells.Length; k++) cells[k].color = k < card.Souls.Count ? Art.TraitColor(card.Souls[k]) : new Color(1f, 1f, 1f, 0.18f);
+                    bool window = sim.InChargeWindow(s), missed = sim.ChargeMissed(s);
+                    chargeFill.rectTransform.sizeDelta = new Vector2(W * k, 8f);
+                    chargeFill.color = window ? Color.white : missed ? new Color(0.45f, 0.42f, 0.5f) : Pal.Gold;
+                    highlight.color = window ? Color.white : missed ? new Color(1f, 1f, 1f, 0.15f) : new Color(1f, 1f, 1f, 0.35f + 0.45f * k);
                 }
                 bool cooling = has && s.Cd > 0f && s.CdTotal > 0f;
                 float frac = cooling ? Mathf.Clamp01(s.Cd / s.CdTotal) : 0f;

@@ -19,6 +19,8 @@ namespace Arena.UI
         readonly RectTransform summary, controls;
         readonly Text room, wave, kills, time;
         readonly Text[] slotKeys = new Text[4], slotNames = new Text[4];
+        readonly Text[] trinketLines = new Text[TrinketBook.Slots];
+        GameObject trinketCaption;
         readonly HintBar hints;
 
         public bool Visible => canvas.enabled;
@@ -58,6 +60,16 @@ namespace Arena.UI
                 slotNames[i] = UiKit.Label(summary, "", 24, Pal.Text, new Vector2(0f, 1f), new Vector2(140f, y), new Vector2(980f, 50f), TextAnchor.MiddleLeft, FontStyle.Normal);
                 slotNames[i].rectTransform.pivot = new Vector2(0f, 0.5f);
                 slotNames[i].supportRichText = true;
+            }
+
+            var tc = UiKit.Label(summary, "Тринкеты", 22, Pal.Muted, new Vector2(0f, 1f), new Vector2(0f, -500f), new Vector2(600f, 30f), TextAnchor.MiddleLeft, FontStyle.Normal);
+            tc.rectTransform.pivot = new Vector2(0f, 1f);
+            trinketCaption = tc.gameObject;
+            for (int i = 0; i < trinketLines.Length; i++)
+            {
+                trinketLines[i] = UiKit.Label(summary, "", 22, Pal.Text, new Vector2(0f, 1f), new Vector2(0f, -556f - i * 50f), new Vector2(1120f, 44f), TextAnchor.MiddleLeft, FontStyle.Normal);
+                trinketLines[i].rectTransform.pivot = new Vector2(0f, 0.5f);
+                trinketLines[i].supportRichText = true;
             }
 
             controls = ControlsPanel.Build(t, new Vector2(0f, 1f), new Vector2(720f, -80f), new Vector2(1100f, 560f));
@@ -118,7 +130,7 @@ namespace Arena.UI
             if (!canvas.enabled) return;
             menu.Sync();
 
-            room.text = sim.Room.Title;
+            room.text = sim.LocationTitle;
             wave.text = sim.Wave.ToString();
             kills.text = sim.Kills.ToString();
             int sec = Mathf.FloorToInt(runTime);
@@ -128,6 +140,16 @@ namespace Arena.UI
             {
                 slotKeys[i].text = keys[i];
                 slotNames[i].text = SlotLine(sim, i);
+            }
+            trinketCaption.SetActive(sim.FormsMode);
+            for (int i = 0; i < trinketLines.Length; i++)
+            {
+                trinketLines[i].gameObject.SetActive(sim.FormsMode);
+                var t = sim.TrinketSlots[i];
+                trinketLines[i].text = t == null
+                    ? "<color=#6f6688>пусто</color>"
+                    : $"{TrinketBook.Name(t.Kind)} <color=#{ColorUtility.ToHtmlStringRGB(Art.TrinketColor(t.Kind))}>{TrinketBook.Roman(t.Level)}</color>" +
+                      $"  <color=#{ColorUtility.ToHtmlStringRGB(Pal.TextDim)}>— {TrinketBook.Bonus(t.Kind, t.Level, sim.TrinketCfg)}</color>";
             }
             if (input.UseMouse) hints.Set("ЛКМ", "или Enter — выбрать", "!Esc", "— продолжить", "!R", "— заново");
             else hints.Set("A", "выбрать", "!Menu / B", "продолжить", "!Y", "заново");
@@ -147,6 +169,10 @@ namespace Arena.UI
                 sb.Append(k == 0 ? " · " : " + ");
                 sb.Append($"<color=#{ColorUtility.ToHtmlStringRGB(Art.TraitColor(tr))}>{FormText.Name(tr)}{(lvl > 1 ? $" ×{lvl}" : "")}</color>");
             }
+            // вливания: занятые ячейки — ярко, свободные — тускло, цветом редкости
+            var rar = Art.RarityColor(card.Rarity);
+            sb.Append($"  <color=#{ColorUtility.ToHtmlStringRGB(rar)}>{new string('◆', card.Souls.Count)}</color>");
+            sb.Append($"<color=#{ColorUtility.ToHtmlStringRGBA(rar.WithAlpha(0.3f))}>{new string('◆', card.SoulCells - card.Souls.Count)}</color>");
             return sb.ToString();
         }
     }

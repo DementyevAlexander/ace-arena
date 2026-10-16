@@ -150,14 +150,15 @@ def convert(src, name, enabled_intro):
         for h in w.get('holes') or []:
             if lava_fraction(h, lava) >= 0.5:
                 continue
-            out['walls'].append({'p': xf.poly(h), 'type': 'Hole', 'h': 0})
+            out['walls'].append({'p': xf.poly(h), 'type': 'Hole', 'h': 0, 'shots': False})  # провал: снаряды пролетают
     # магма проходима (урон каждые 0.19 с): её треугольники — тоже пол, острова Асфоделя связаны через неё
     for l in lava:
         out['floor'].append({'p': xf.poly(l), 'type': 'Lava', 'h': 0})
     for o in src['obstacles']:
         if not (o.get('solid') and o.get('blocksUnits') and o.get('active', True)) or not o.get('polygon'):
             continue
-        out['walls'].append({'p': xf.poly(o['polygon']), 'type': o['type'], 'h': wall_height(o)})
+        # StopsProjectiles из Hades: невидимые *UnitsOnly, факелы, столы, низкие основания — снаряды пролетают
+        out['walls'].append({'p': xf.poly(o['polygon']), 'type': o['type'], 'h': wall_height(o), 'shots': bool(o.get('blocksProjectiles', True))})
     for h in src['hazards']:
         if h.get('polygon') and in_box(h['polygon']):
             out['hazards'].append({'type': 'Lava' if h['type'] == 'lava' else h['type'], 'p': xf.poly(h['polygon']), 'damage': round(LAVA_PER_TICK, 3)})

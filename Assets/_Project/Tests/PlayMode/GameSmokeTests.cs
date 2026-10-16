@@ -14,6 +14,10 @@ namespace Arena.Tests
     /// переменная окружения ARENA_CAPTURE_DIR.</summary>
     public class GameSmokeTests
     {
+        /// <summary>Эти тесты — про отдельные комнаты Hades: забег по этажам из арен (по умолчанию в игре) выключен.</summary>
+        [SetUp]
+        public void SingleRooms() => GameController.ArenaFloors = false;
+
         [UnityTest]
         public IEnumerator SceneRunsAndShowsTelegraphs()
         {
@@ -28,6 +32,7 @@ namespace Arena.Tests
             Assert.IsNotNull(gc);
             // режим форм: бой в первой комнате Тартара начинается сразу, карточка — в конце комнаты
             Assert.IsTrue(gc.Sim.FormsMode);
+            Assert.IsFalse(gc.Sim.FloorMode, "этажи ETG выключены");
             Assert.IsFalse(gc.Sim.RewardPending);
             Assert.AreEqual("A_Combat01", gc.Sim.Room.name);
             yield return new WaitForSeconds(2.6f);
@@ -165,16 +170,17 @@ namespace Arena.Tests
             sim.Forms[0].Card = new SkillCard(FormKind.Shot, Trait.Fire);
             sim.Forms[0].Card.Souls.Add(Trait.Ricochet);
             sim.Forms[1].Card = new SkillCard(FormKind.Zone);
-            for (int i = 0; i < 6000 && sim.Loot == null; i++)
+            for (int i = 0; i < 6000 && sim.Loot.Count == 0; i++)
             {
                 foreach (var e in sim.Enemies) if (e.Alive) sim.Damage(e, 99999f, false);
                 yield return null;
             }
-            Assert.IsNotNull(sim.Loot, "в конце комнаты — карточка на земле");
+            Assert.AreEqual(2, sim.Loot.Count, "в конце комнаты — пятачок с двумя карточками");
             Assert.IsFalse(gc.Paused);
-            sim.Loot = new SkillCard(FormKind.Summon, Trait.Fire);
-            sim.Player.Pos = sim.LootPos + new Vector2(0.5f, -0.4f);
-            for (int i = 0; i < 30; i++) yield return null;
+            sim.Loot[0].Card = new SkillCard(FormKind.Summon, Trait.Fire);
+            sim.Loot[1].Card = new SkillCard(FormKind.Zone, Trait.Frost);
+            sim.Player.Pos = sim.Loot[0].Pos - ArenaSim.ScreenRight * 0.3f + new Vector2(-0.6f, -0.6f); // перед карточкой
+            for (int i = 0; i < 600 && sim.Time < sim.LootReadyAt + 0.3f; i++) yield return null;
             Assert.IsTrue(sim.LootInReach);
             yield return CaptureUi("12_loot_on_ground");
 
@@ -185,14 +191,205 @@ namespace Arena.Tests
             sim.LeaveLoot();
             yield return null;
             Assert.IsFalse(gc.Paused);
-            Assert.IsNotNull(sim.Loot, "оставленная карточка на земле");
+            Assert.AreEqual(2, sim.Loot.Count, "оставленные карточки на пятачке");
             Assert.IsTrue(sim.PickUpLoot());
             yield return null;
             sim.FuseOffer(0, 0);
             for (int i = 0; i < 3; i++) yield return null;
             Assert.IsFalse(gc.Paused);
-            Assert.IsNull(sim.Loot);
+            Assert.AreEqual(0, sim.Loot.Count, "вторая сгорела");
             Assert.AreEqual(2, sim.Forms[0].Card.Level(Trait.Fire), "Пламя ×2");
+        }
+
+        /// <summary>Этаж из арен Hades (в игре по умолчанию): старт у входа; вход на арену запирает её решётками (решётка —
+        /// препятствие); у мини-боссов и босса — красный враг с увеличенным здоровьем; зачистка открывает и даёт пятачок
+        /// (у мини-босса — тринкеты); пройдя все бои и войдя в выход — второй этаж, тоже из арен, скиллы те же.
+        /// Кадры: начало этажа, бой на арене, второй этаж.</summary>
+        [UnityTest, Timeout(600000)]
+        public IEnumerator ArenaFloorPlaysThroughToNextFloor()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            GameController.SkipTitle = true;
+            GameController.ArenaFloors = true;
+            SceneManager.LoadScene("Game");
+            yield return null;
+            GameController.ArenaFloors = false; // остальные тесты — комнаты Hades
+            var gc = Object.FindAnyObjectByType<GameController>();
+            var sim = gc.Sim;
+            Assert.IsTrue(sim.HubMode, "игра начинается в хабе");
+            yield return EnterGate(sim);
+            Assert.IsTrue(sim.FloorMode && sim.Floor.Polygonal, "врата — забег по этажам из арен");
+            Assert.AreEqual(sim.Floor.Entrance, sim.Floor.RoomAt(Mathf.FloorToInt(sim.Player.Pos.x), Mathf.FloorToInt(sim.Player.Pos.y)), "старт у входа");
+            var shot = sim.Forms[0].Card;
+            for (int i = 0; i < 30; i++) yield return null;
+            yield return CaptureUi("23_arena_floor_start");
+            sim.Player.BuffInvuln = 9999f;
+
+            bool firstShot = false, sawMiniLoot = false;
+            int elites = 0;
+            for (int r = 0; r < sim.Floor.Rooms.Count; r++)
+            {
+                var room = sim.Floor.Rooms[r];
+                if (!room.Combat) continue;
+                string name = room.Arena?.Name ?? room.Room.name;
+                // встать на пол комнаты: у арены — её точка появления врагов
+                Vector2 at = default;
+                bool found = false;
+                if (room.ArenaSpawns != null)
+                    foreach (var sp in room.ArenaSpawns)
+                        if (sim.InsideRoom(sp.pos, 0.4f) && sim.Floor.RoomAt(Mathf.FloorToInt(sp.pos.x), Mathf.FloorToInt(sp.pos.y)) == r) { at = sp.pos; found = true; break; }
+                if (!found) { var c = EtgFloorGenerator.FloorCellNear(sim.Floor, room.Center).Value; at = new Vector2(c.x + 0.5f, c.y + 0.5f); }
+                sim.Player.Pos = at;
+                for (int i = 0; i < 30 && sim.ActiveRoom != r; i++) yield return null;
+                Assert.AreEqual(r, sim.ActiveRoom, name + ": вход запирает комнату");
+                foreach (var d in room.Doors)
+                    Assert.IsTrue(sim.HitsObstacle(new Vector2(d.Cells[0].x + 0.5f, d.Cells[0].y + 0.5f), 0.1f), name + ": решётка в двери");
+                for (int i = 0; i < 400 && sim.Enemies.Count == 0; i++) yield return null;
+                Assert.Greater(sim.Enemies.Count, 0, name + ": враги");
+                if (room.Elite > 0)
+                {
+                    var elite = sim.Enemies.Find(e => e.Elite);
+                    Assert.IsNotNull(elite, name + ": красный враг");
+                    elites++;
+                }
+                if (!firstShot) { firstShot = true; for (int i = 0; i < 90; i++) yield return null; sim.Player.BuffInvuln = 0f; yield return CaptureUi("24_arena_fight"); sim.Player.BuffInvuln = 9999f; }
+                for (int i = 0; i < 6000 && sim.ActiveRoom == r; i++)
+                {
+                    foreach (var e in sim.Enemies) if (e.Alive) sim.Damage(e, 99999f, false);
+                    if (sim.RewardPending) sim.LeaveLoot();
+                    yield return null;
+                }
+                Assert.AreEqual(ArenaSim.FloorRoomState.Cleared, sim.RoomStates[r], name + ": пройдена");
+                Assert.IsFalse(sim.HitsObstacle(new Vector2(room.Doors[0].Cells[0].x + 0.5f, room.Doors[0].Cells[0].y + 0.5f), 0.1f), name + ": решётки подняты");
+                Assert.IsTrue(sim.Pedestal, name + ": награда после боя");
+                if (room.Elite == 1) { Assert.IsTrue(sim.Loot.TrueForAll(g => g.Trinket != null), name + ": у мини-босса — тринкеты"); sawMiniLoot = true; }
+            }
+            Assert.AreEqual(3, elites, "два мини-босса и босс");
+            Assert.IsTrue(sawMiniLoot);
+            var (cleared, total) = sim.FloorProgress;
+            Assert.AreEqual(total, cleared);
+            Assert.GreaterOrEqual(sim.Floor.Exit, 0, "у этажа есть выход");
+            sim.Player.Pos = sim.Floor.Rooms[sim.Floor.Exit].Center;
+            for (int i = 0; i < 30 && sim.FloorIndex == 0; i++) yield return null;
+            Assert.AreEqual(1, sim.FloorIndex, "выход ведёт на второй этаж");
+            Assert.IsTrue(sim.Floor.Polygonal, "второй этаж — тоже из арен");
+            Assert.AreSame(shot, sim.Forms[0].Card, "скиллы переходят на следующий этаж");
+            sim.Player.BuffInvuln = 0f;
+            for (int i = 0; i < 30; i++) yield return null;
+            yield return CaptureUi("25_arena_floor2");
+        }
+
+        /// <summary>Встать во врата хаба и нажать «взаимодействие» — забег начинается после шага.</summary>
+        static IEnumerator EnterGate(ArenaSim sim)
+        {
+            var gate = sim.HubSpots.Find(x => x.Kind == HubSpotKind.Gate);
+            Assert.IsNotNull(gate, "в хабе есть врата");
+            sim.Player.Pos = gate.Pos;
+            Assert.IsTrue(sim.Interact(), "врата отвечают на E");
+            for (int i = 0; i < 10 && sim.HubMode; i++) yield return null;
+        }
+
+        /// <summary>Хаб (в игре — старт): персонажи говорят, мишени не умирают; врата — забег; смерть — итоги; «В хаб» —
+        /// снова хаб, билд с нуля. Кадры: хаб, итоги.</summary>
+        [UnityTest]
+        public IEnumerator HubLeadsToRunAndBack()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            GameController.SkipTitle = true;
+            GameController.ArenaFloors = true;
+            SceneManager.LoadScene("Game");
+            yield return null;
+            GameController.ArenaFloors = false;
+            var gc = Object.FindAnyObjectByType<GameController>();
+            var sim = gc.Sim;
+            Assert.IsTrue(sim.HubMode);
+            Assert.AreEqual(4, sim.HubSpots.FindAll(x => x.Kind == HubSpotKind.Npc).Count, "четыре места под персонажей");
+            Assert.AreEqual(3, sim.Enemies.FindAll(e => e.Dummy).Count, "три мишени");
+            for (int i = 0; i < 30; i++) yield return null;
+            // мишень не умирает и не ходит
+            var dummy = sim.Enemies.Find(e => e.Dummy);
+            var home = dummy.Pos;
+            sim.Damage(dummy, 1e6f, false);
+            for (int i = 0; i < 30; i++) yield return null;
+            Assert.IsFalse(dummy.Dead, "мишень не умирает");
+            Assert.Less((dummy.Pos - home).magnitude, 0.01f, "мишень стоит");
+            // персонаж отвечает репликой
+            var npc = sim.HubSpots.Find(x => x.Kind == HubSpotKind.Npc);
+            sim.Player.Pos = npc.Pos + (sim.Room.heroStart - npc.Pos).normalized * 1.2f;
+            Assert.IsTrue(sim.Interact());
+            Assert.AreSame(npc, sim.SpeechSpot);
+            Assert.IsFalse(string.IsNullOrEmpty(sim.SpeechText));
+            for (int i = 0; i < 20; i++) yield return null;
+            yield return CaptureUi("26_hub");
+
+            // врата → забег; карта забега меняется — в хабе снова старт
+            yield return EnterGate(sim);
+            Assert.IsTrue(sim.FloorMode && !sim.HubMode, "врата — забег");
+            sim.Forms[1].Card = new SkillCard(FormKind.Zone, Trait.Fire);
+            sim.Player.BuffInvuln = 0f; sim.Player.HitInvuln = 0f;
+            sim.HurtPlayer(99999f, sim.Player.Pos + Vector2.right);
+            for (int i = 0; i < 10 && !gc.RunEndVisible; i++) yield return null;
+            Assert.IsTrue(sim.GameOver);
+            Assert.IsTrue(gc.RunEndVisible, "смерть — итоги забега");
+            yield return CaptureUi("27_run_end");
+            gc.ConfirmRunEnd();
+            yield return null;
+            Assert.IsTrue(sim.HubMode, "итоги — снова хаб");
+            Assert.IsFalse(sim.GameOver);
+            Assert.IsNull(sim.Forms[1].Card, "билд с нуля");
+        }
+
+        /// <summary>Этаж Enter the Gungeon (в игре выключен, тест включает его на время загрузки сцены): старт у входа; вход в боевую комнату запирает двери и даёт волны; зачистка открывает;
+        /// пройдя все боевые комнаты и войдя в выход — следующий этаж. Кадры: начало этажа, запертая комната, второй этаж.</summary>
+        [UnityTest]
+        public IEnumerator FloorPlaysThroughToNextFloor()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            GameController.SkipTitle = true;
+            GameController.EtgFloors = true;
+            SceneManager.LoadScene("Game");
+            yield return null;
+            GameController.EtgFloors = false; // остальные тесты — комнаты Hades
+            var gc = Object.FindAnyObjectByType<GameController>();
+            var sim = gc.Sim;
+            Assert.IsTrue(sim.FloorMode, "забег — этажи");
+            Assert.AreEqual(0, sim.FloorIndex);
+            Assert.AreEqual(sim.Floor.Entrance, sim.Floor.RoomAt(Mathf.FloorToInt(sim.Player.Pos.x), Mathf.FloorToInt(sim.Player.Pos.y)), "старт у входа");
+            for (int i = 0; i < 30; i++) yield return null;
+            yield return CaptureUi("20_floor_start"); // до бессмертия: в нём модель мигает и может не попасть в кадр
+            sim.Player.BuffInvuln = 9999f;
+
+            bool firstShot = false;
+            for (int r = 0; r < sim.Floor.Rooms.Count; r++)
+            {
+                var room = sim.Floor.Rooms[r];
+                if (!room.Combat) continue;
+                var cell = EtgFloorGenerator.FloorCellNear(sim.Floor, room.Center).Value;
+                sim.Player.Pos = new Vector2(cell.x + 0.5f, cell.y + 0.5f);
+                for (int i = 0; i < 20 && sim.ActiveRoom != r; i++) yield return null;
+                Assert.AreEqual(r, sim.ActiveRoom, room.Room.name + ": вход запирает комнату");
+                for (int i = 0; i < 400 && sim.Enemies.Count == 0; i++) yield return null;
+                Assert.Greater(sim.Enemies.Count, 0, room.Room.name + ": волна");
+                if (!firstShot) { firstShot = true; for (int i = 0; i < 90; i++) yield return null; sim.Player.BuffInvuln = 0f; yield return CaptureUi("21_room_locked"); sim.Player.BuffInvuln = 9999f; }
+                for (int i = 0; i < 6000 && sim.ActiveRoom == r; i++)
+                {
+                    foreach (var e in sim.Enemies) if (e.Alive) sim.Damage(e, 99999f, false);
+                    if (sim.RewardPending) sim.LeaveLoot();
+                    yield return null;
+                }
+                Assert.AreEqual(ArenaSim.FloorRoomState.Cleared, sim.RoomStates[r], room.Room.name + ": пройдена");
+                Assert.AreEqual(-1, sim.ActiveRoom, "двери открыты");
+            }
+            var (cleared, total) = sim.FloorProgress;
+            Assert.AreEqual(total, cleared);
+            Assert.GreaterOrEqual(sim.Floor.Exit, 0, "у первого этажа есть выход");
+            var ex = sim.Floor.Rooms[sim.Floor.Exit].Center;
+            sim.Player.Pos = ex;
+            for (int i = 0; i < 30 && sim.FloorIndex == 0; i++) yield return null;
+            Assert.AreEqual(1, sim.FloorIndex, "выход ведёт на второй этаж");
+            sim.Player.BuffInvuln = 0f;
+            for (int i = 0; i < 30; i++) yield return null;
+            yield return CaptureUi("22_floor2");
         }
 
         /// <summary>Кадр вместе с интерфейсом: экранные холсты на время снимка переводятся на камеру.</summary>

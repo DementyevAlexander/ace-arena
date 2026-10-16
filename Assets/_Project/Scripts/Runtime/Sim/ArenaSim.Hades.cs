@@ -218,6 +218,23 @@ namespace Arena.Sim
         /// <summary>Точка за ближайшим препятствием относительно Ace. Без препятствий — остаётся на месте.</summary>
         Vector2 FindCover(Enemy e)
         {
+            if (GridCollision)
+            {
+                // этаж: укрытие — колонна или стенка внутри комнаты
+                var bestC = (pos: e.Pos, r: -1f);
+                float bd = Hades.U(1500f);
+                foreach (var c in Covers)
+                {
+                    float d = (c.pos - e.Pos).magnitude - c.r;
+                    if (d < bd) { bd = d; bestC = c; }
+                }
+                if (bestC.r < 0f) return e.Pos;
+                var aw = bestC.pos - Player.Pos;
+                aw = aw.sqrMagnitude > 0.0001f ? aw.normalized : Vector2.up;
+                var cp = bestC.pos + aw * (bestC.r + WitchCfg.coverHug + e.R);
+                CollideCircle(ref cp, e.R);
+                return cp;
+            }
             Obstacle best = null;
             float bestD = Hades.U(1500f);
             foreach (var o in Obstacles)
@@ -265,10 +282,21 @@ namespace Arena.Sim
 
         // ---------- Опасный пол ----------
 
-        /// <summary>Точка в лаве (опасный пол типа Lava).</summary>
+        /// <summary>Точка в лаве: внутри зоны лавы и не на твёрдой земле. Зоны лавы из карт Hades местами накрывают
+        /// землю островов — земля (пол не типа Lava) поверх лавы не жжёт.</summary>
         public bool OnLava(Vector2 p)
         {
-            foreach (var h in Hazards) if (h.Type == "Lava" && Geo.InPoly(h.Poly, p)) return true;
+            foreach (var h in Hazards) if (h.Type == "Lava" && Geo.InPoly(h.Poly, p)) return !OnGround(p);
+            return false;
+        }
+
+        /// <summary>Опасная зона действует в точке: лава — только не на земле, остальное — везде внутри зоны.</summary>
+        bool InHazard(HazardZone h, Vector2 p) => Geo.InPoly(h.Poly, p) && (h.Type != "Lava" || !OnGround(p));
+
+        bool OnGround(Vector2 p)
+        {
+            foreach (var f in Room.floor)
+                if (f.type != "Lava" && f.p != null && f.p.Length >= 3 && Geo.InPoly(f.p, p)) return true;
             return false;
         }
 
@@ -288,9 +316,9 @@ namespace Arena.Sim
                 if (h.Tick > 0f) continue;
                 h.Tick = 0.5f;
                 var p = Player;
-                if (p.Hidden <= 0f && !p.Dashing && Geo.InPoly(h.Poly, p.Pos)) HurtPlayer(h.Damage * Hades.EnemyDamageScale, p.Pos, HitStop.None, 0f);
+                if (p.Hidden <= 0f && !p.Dashing && InHazard(h, p.Pos)) HurtPlayer(h.Damage * Hades.EnemyDamageScale, p.Pos, HitStop.None, 0f);
                 foreach (var e in Enemies)
-                    if (e.Alive && Geo.InPoly(h.Poly, e.Pos)) Damage(e, h.Damage * Hades.EnemyHpScale, false, true, DotKind.Lava);
+                    if (e.Alive && InHazard(h, e.Pos)) Damage(e, h.Damage * Hades.EnemyHpScale, false, true, DotKind.Lava);
             }
         }
     }

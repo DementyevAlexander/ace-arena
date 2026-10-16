@@ -20,6 +20,12 @@ namespace Arena.View
         public bool Paused { get; private set; }
         /// <summary>Тесты и проверка билда: начать сразу с боя, без стартового экрана.</summary>
         public static bool SkipTitle;
+        /// <summary>Забег по этажам Enter the Gungeon (ArenaSim.Floor, FloorView, мини-карта). Выключен: по ощущениям не подошло,
+        /// забег снова по комнатам Hades; код оставлен на будущее, тест прохода этажа включает его сам.</summary>
+        public static bool EtgFloors;
+        /// <summary>Забег по этажам из арен Hades: схема Enter the Gungeon, арены Тартара, мосты над бездной (ArenaSim.Floor,
+        /// ArenaFloorBuilder). Включён по умолчанию; тесты отдельных комнат его выключают. EtgFloors важнее.</summary>
+        public static bool ArenaFloors = true;
         /// <summary>Тесты: подменяет ввод игрока (null — клавиатура, мышь, геймпад).</summary>
         public System.Func<SimInput> TestInput;
         /// <summary>Время частей прошлого кадра, мс — для нагрузочного теста (то же видно в Profiler по маркерам Arena.*).</summary>
@@ -36,12 +42,18 @@ namespace Arena.View
         LootView loot;
         Hud hud;
         RewardScreen reward; // выбор карточки и просмотр скиллов; прежняя колода (DeckScreen) из интерфейса убрана
+        TrinketScreen trinkets; // выбор тринкета с пятачка мини-босса
+        RunEndScreen runEnd;    // итоги забега → хаб
+        HubView hubView;        // врата и персонажи хаба
+        CityView cityView;      // полис: кварталы, залы, прозрачность заслоняющего
+        bool startRunPending, toHubPending; // врата / «В хаб»: перестроить мир после шага симуляции
         StartScreen title;
         PauseScreen pause;
         bool viewSkills, pauseMenu;
         float runTime; // время забега без пауз — для сводки в паузе
         readonly HitStopPlayer hitStop = new(); // стоп-кадры Hades по виду удара (HitStop события)
         TrapViews traps;
+        FloorView floorView;
         RoomProps props;
         Volume volume;
         Transform world, lockMarker, roomRoot, trapRoot;
@@ -58,6 +70,8 @@ namespace Arena.View
             // подключённые комнаты — Resources/Rooms/index.json (enabled): первая — старт, дверь ведёт в следующую
             Sim = new ArenaSim(System.Environment.TickCount);
             Sim.EnableForms(); // скиллы — формы со свойствами; посох и карты DandyAce остаются в коде, но не предлагаются
+            if (EtgFloors) Sim.StartFloors(System.Environment.TickCount);
+            else if (ArenaFloors) Sim.EnterHub(); // игра начинается в хабе, забег — через врата
             world = new GameObject("World").transform;
             SetupCamera();
             BuildRoom();
@@ -68,11 +82,13 @@ namespace Arena.View
             lockMarker = Art.Decal(world, MeshKit.FloorQuad(), lm, 0.06f).transform;
             hud = new Hud();
             reward = new RewardScreen(Sim);
+            trinkets = new TrinketScreen(Sim);
+            runEnd = new RunEndScreen(() => toHubPending = true);
             pause = new PauseScreen(
                 resume: () => pauseMenu = false,
                 skills: () => { pauseMenu = false; viewSkills = true; },
                 restart: Restart,
-                toTitle: () => { Restart(); title.Show(); });
+                toTitle: () => { if (ArenaFloors && !EtgFloors) ReturnToHub(); else Restart(); title.Show(); });
             title = new StartScreen(StartRun, Quit);
             Rig.Snap(Art.W(Sim.Player.Pos));
             if (SkipTitle || System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-arenaShot") >= 0) ShowRoomTitle();
@@ -104,7 +120,7 @@ namespace Arena.View
 
         void ShowRoomTitle()
         {
-            hud.ShowBanner(Sim.Room.Title, 2f);
+            hud.ShowBanner(Sim.LocationTitle, 2f);
         }
 
         /// <summary>Комната, ловушки, свет и постобработка — день биома Hades.
@@ -113,7 +129,15 @@ namespace Arena.View
         {
             if (roomRoot != null) Destroy(roomRoot.gameObject);
             if (trapRoot != null) Destroy(trapRoot.gameObject);
-            roomRoot = RoomView.Build(Sim);
+            // этаж ETG — клетками (FloorView); этаж из арен — многоугольниками, как комната Hades, от FloorView — решётки и выход
+            bool cells = Sim.GridCollision;
+            floorView = Sim.FloorMode ? new FloorView(Sim, cells) : null;
+            roomRoot = cells ? floorView.Root : RoomView.Build(Sim);
+            if (floorView != null && !cells) floorView.Root.SetParent(roomRoot, false);
+            hubView = Sim.HubMode ? new HubView(Sim) : null; // уничтожается вместе с roomRoot
+            if (hubView != null) hubView.Root.SetParent(roomRoot, false);
+            cityView = Sim.Room.biome == PolisDressing.Biome ? new CityView(Sim, RoomView.Fadeables) : null;
+            if (cityView != null) cityView.Root.SetParent(roomRoot, false);
             roomRoot.SetParent(world, false);
             trapRoot = new GameObject("Traps").transform;
             trapRoot.SetParent(world, false);
@@ -241,17 +265,18 @@ namespace Arena.View
                 }
                 else if (viewSkills && input.NavBack) viewSkills = false;          // B — закрыть просмотр
                 else if (pauseMenu && input.NavBack && !backUsed) pauseMenu = false; // B — продолжить
-                // заново: R; с геймпада — Y в паузе, Menu после смерти
-                if (input.RestartPressed || (pauseMenu && input.NavAlt) || (Sim.GameOver && wasGameOver && input.PausePressed)) Restart();
-                // подобрать карточку с земли: E / RB рядом с ней — откроется выбор
-                if (!Paused && input.InteractPressed) Sim.PickUpLoot();
+                // заново: R; с геймпада — Y в паузе, Menu после смерти (в забеге из арен после смерти — итоги и хаб)
+                if (!runEnd.Visible && (input.RestartPressed || (pauseMenu && input.NavAlt) || (Sim.GameOver && wasGameOver && input.PausePressed))) Restart();
+                // E / RB: подобрать карточку с пятачка, в хабе — врата или разговор
+                if (!Paused && input.InteractPressed) Sim.Interact();
             }
             bool wasPaused = Paused;
-            if (!title.Visible) reward.Sync(viewSkills, input);
+            if (!title.Visible) { reward.Sync(viewSkills, input); trinkets.Sync(input); runEnd.Sync(input); }
             if (pauseMenu) pause.Show(); else pause.Hide();
             pause.Sync(Sim, runTime, input);
-            hud.SetVisible(!title.Visible && !pauseMenu && !reward.Visible); // как в Hades: в паузе и выборе HUD скрыт
-            Paused = title.Visible || pauseMenu || reward.Visible;
+            bool choosing = reward.Visible || trinkets.Visible || runEnd.Visible;
+            hud.SetVisible(!title.Visible && !pauseMenu && !choosing); // как в Hades: в паузе и выборе HUD скрыт
+            Paused = title.Visible || pauseMenu || choosing;
             if (wasPaused && !Paused) input.Flush(); // клик по карточке не должен стать выстрелом
 
             if (!Paused)
@@ -275,9 +300,16 @@ namespace Arena.View
                         HandleEvents();
                     }
                 SimMs = (float)watch.Elapsed.TotalMilliseconds;
-                if (Sim.GameOver && !wasGameOver) hud.ShowBanner(input.UseMouse ? "Смерть повержена — R, чтобы начать заново" : "Смерть повержена — Menu, чтобы начать заново", 999f);
+                if (Sim.GameOver && !wasGameOver)
+                {
+                    if (Sim.ArenaFloorsOn || Sim.RunWon) runEnd.Show(Sim, runTime); // забег из арен: итоги, потом хаб
+                    else hud.ShowBanner(input.UseMouse ? "Смерть повержена — R, чтобы начать заново" : "Смерть повержена — Menu, чтобы начать заново", 999f);
+                }
                 wasGameOver = Sim.GameOver;
             }
+            // врата и «В хаб» перестраивают мир — после шага симуляции (итоги открыты на паузе)
+            if (startRunPending || Sim.RunRequested) StartRunFromHub();
+            if (toHubPending) ReturnToHub();
 
             UpdateCameraFeel(Paused ? 0f : dt);
             watch.Restart();
@@ -288,9 +320,40 @@ namespace Arena.View
             HudMs = (float)watch.Elapsed.TotalMilliseconds;
         }
 
+        /// <summary>Врата хаба: новый забег по этажам из арен.</summary>
+        public void StartRunFromHub()
+        {
+            startRunPending = false;
+            Sim.StartRun();
+            ResetViews();
+            ShowRoomTitle();
+        }
+
+        /// <summary>«В хаб» на итогах (и выход в меню из забега): снова хаб, билд — как в начале.</summary>
+        public void ReturnToHub()
+        {
+            toHubPending = false;
+            runEnd.Hide();
+            Sim.EnterHub();
+            ResetViews();
+            ShowRoomTitle();
+        }
+
+        /// <summary>Итоги забега открыты (тесты).</summary>
+        public bool RunEndVisible => runEnd.Visible;
+
+        /// <summary>«В хаб» на итогах (тесты; в игре — A, Enter или клик).</summary>
+        public void ConfirmRunEnd() { if (runEnd.Visible) ReturnToHub(); }
+
         void Restart()
         {
             Sim.Restart();
+            ResetViews();
+        }
+
+        /// <summary>Мир перестроен в симуляции (заново, хаб, забег): виды врагов и эффектов — с нуля, комната — заново.</summary>
+        void ResetViews()
+        {
             foreach (var v in enemyViews.Values) v.Destroy();
             enemyViews.Clear();
             effects.Clear();
@@ -301,6 +364,7 @@ namespace Arena.View
             Paused = false; wasGameOver = false;
             viewSkills = false; pauseMenu = false;
             runTime = 0f;
+            Rig.Snap(Art.W(Sim.Player.Pos));
         }
 
         void SyncViews(float dt)
@@ -318,6 +382,9 @@ namespace Arena.View
             loot.Sync(Sim, time);
             traps.Sync(time);
             props.Sync(time);
+            floorView?.Sync(time);
+            hubView?.Sync(Sim, time);
+            cityView?.Sync(Sim, Rig.Cam, dt);
 
             var l = Sim.Player.Lock;
             lockMarker.gameObject.SetActive(l != null && l.Alive);
@@ -384,18 +451,36 @@ namespace Arena.View
                         hud.ShowBanner("Арена пройдена", ev.Value);
                         break;
                     case EventKind.ChargeRelease:
-                        // заряженный выпуск: кольцо от героя, «идеальный» — белое и шире
-                        effects.Ring(ev.Pos, ev.Crit ? 1.8f : 1f + 0.6f * ev.Value, ev.Crit ? new Color(1f, 1f, 1f, 0.95f) : new Color(1f, 0.85f, 0.45f, 0.8f));
-                        if (ev.Crit) hitStop.Play(HitStop.Quick);
+                        // отпущено в окне — усиление: белое кольцо и короткий стоп-кадр
+                        effects.Ring(ev.Pos, 1.8f, new Color(1f, 1f, 1f, 0.95f));
+                        hitStop.Play(HitStop.Quick);
                         break;
-                    case EventKind.LootDropped:
-                        effects.Ring(ev.Pos, 1.4f, new Color(1f, 0.85f, 0.45f, 0.9f));
-                        effects.Puff(ev.Pos, 1f, new Color(1f, 0.9f, 0.6f), 0.3f);
+                    case EventKind.HubGate: // врата хаба: забег начнётся после шага (мир перестраивается)
+                        startRunPending = true;
+                        break;
+                    case EventKind.LootDropped: // карточки вырастают из пола
+                        foreach (var g in Sim.Loot)
+                        {
+                            var col = g.Trinket != null ? Art.TrinketColor(g.Trinket.Kind) : Art.CardTint(g.Card);
+                            effects.Ring(g.Pos, 1.2f, col.WithAlpha(0.9f), 0.45f);
+                            effects.Puff(g.Pos, 0.9f, col, 0.35f, 0.2f);
+                        }
+                        break;
+                    case EventKind.LootBurned: // взята другая карточка — эта сгорает
+                        effects.Puff(ev.Pos, 1.1f, new Color(1f, 0.55f, 0.15f), 0.45f, 1.2f);
+                        effects.Puff(ev.Pos, 0.7f, new Color(0.25f, 0.2f, 0.25f), 0.7f, 1.4f);
+                        effects.Ring(ev.Pos, 0.9f, new Color(1f, 0.5f, 0.15f, 0.8f));
                         break;
 
                     case EventKind.RoomEnter:
+                    case EventKind.FloorEnter:
                         EnterRoomViews();
                         break;
+                    case EventKind.FloorRoomLocked:
+                        Rig.Shake(Sim.PlayerCfg.hitShake * 0.6f, 0.1f); // двери захлопнулись
+                        break;
+                    case EventKind.FloorRoomCleared:
+                        break; // замедление последнего убийства — по RoomClear
                     case EventKind.PropBroken:
                         effects.Puff(ev.Pos, 0.8f, new Color(0.8f, 0.6f, 0.45f), 0.25f, 0.3f);
                         break;

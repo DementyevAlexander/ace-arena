@@ -234,6 +234,19 @@ namespace Arena.View
         };
 
         /// <summary>Цвет карты: её первого свойства, без свойств — холодная душа.</summary>
+        /// <summary>Цвет тринкета: тринкет свойства — цвет свойства, формы — золото, механики — цвет души.</summary>
+        public static Color TrinketColor(Arena.Core.TrinketKind k) =>
+            Arena.Core.TrinketBook.TraitOf(k) is Arena.Core.Trait t ? TraitColor(t)
+            : Arena.Core.TrinketBook.FormOf(k) != null ? new Color(1f, 0.8f, 0.4f) : Soul;
+
+        /// <summary>Цвет редкости: редкая — синяя, эпическая — фиолетовая, легендарная — золотая.</summary>
+        public static Color RarityColor(Arena.Core.Rarity r) => r switch
+        {
+            Arena.Core.Rarity.Rare => new Color(0.4f, 0.68f, 1f),
+            Arena.Core.Rarity.Epic => new Color(0.74f, 0.45f, 1f),
+            _ => new Color(1f, 0.76f, 0.25f),
+        };
+
         public static Color CardTint(Arena.Core.SkillCard c) => c == null ? Soul : c.Own.HasValue ? TraitColor(c.Own.Value) : c.Souls.Count > 0 ? TraitColor(c.Souls[0]) : Soul;
     }
 }

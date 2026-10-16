@@ -14,16 +14,48 @@ namespace Arena.Core
         Pull, Push, Blast, Reap, Grow,             // сила
     }
 
-    /// <summary>Карта скилла: форма, своё свойство и до двух влитых душ. Одинаковые свойства складываются в уровень.</summary>
+    /// <summary>Редкость карты. Одна и та же карта бывает разной редкости и отличается только числом вливаний
+    /// (ячеек душ): редкая — 2, эпическая — 3, легендарная — 4.</summary>
+    public enum Rarity { Rare, Epic, Legendary }
+
+    public static class Rarities
+    {
+        public static int Cells(Rarity r) => r switch { Rarity.Rare => 2, Rarity.Epic => 3, _ => 4 };
+
+        public static string Name(Rarity r) => r switch { Rarity.Rare => "Редкая", Rarity.Epic => "Эпическая", _ => "Легендарная" };
+
+        /// <summary>Редкость по весам (по порядку Rare, Epic, Legendary); веса не обязаны давать в сумме 100.</summary>
+        public static Rarity Roll(Random rng, float[] weights)
+        {
+            float sum = 0f;
+            foreach (var w in weights) sum += Math.Max(0f, w);
+            if (sum <= 0f) return Rarity.Rare;
+            double x = rng.NextDouble() * sum;
+            for (int i = 0; i < weights.Length && i <= (int)Rarity.Legendary; i++)
+            {
+                x -= Math.Max(0f, weights[i]);
+                if (x < 0) return (Rarity)i;
+            }
+            return Rarity.Rare;
+        }
+    }
+
+    /// <summary>Карта скилла: форма, своё свойство, редкость и влитые души — столько, сколько ячеек даёт редкость.
+    /// Каждая душа занимает ячейку, одинаковые свойства складываются в уровень.</summary>
     public sealed class SkillCard
     {
-        public const int SoulCells = 2;
+        /// <summary>Больше ячеек не бывает (легендарная) — под столько размечен интерфейс.</summary>
+        public const int MaxSoulCells = 4;
 
         public FormKind Form;
         public Trait? Own;
+        public Rarity Rarity;
         public readonly List<Trait> Souls = new();
 
-        public SkillCard(FormKind form, Trait? own = null) { Form = form; Own = own; }
+        public SkillCard(FormKind form, Trait? own = null, Rarity rarity = Rarity.Rare) { Form = form; Own = own; Rarity = rarity; }
+
+        /// <summary>Сколько душ можно влить: зависит от редкости.</summary>
+        public int SoulCells => Rarities.Cells(Rarity);
 
         public int Level(Trait t)
         {
@@ -58,6 +90,9 @@ namespace Arena.Core
     [Serializable]
     public sealed class FormTuning
     {
+        /// <summary>Копия — под итоговые числа с тринкетами (TrinketBook.Apply), база не меняется.</summary>
+        public FormTuning Clone() => (FormTuning)MemberwiseClone();
+
         const float U = HadesScale.Unit;
         const float D = HadesScale.Hp;
         const float F = 1f / 60f;
@@ -78,25 +113,18 @@ namespace Arena.Core
         public float shotLockArc = 180f;          // ± от направления прицела; 180 — во все стороны
         public bool shotLockWithMouse = true;
         public float shotBounceFuse = 0.4f;       // оценка: рикошет продлевает полёт (JumpSpeedMultiplier 0.8 в Hades)
-
-        // ---------- Заряд удержанием — по луку Hades (Coronacht, BowWeapon) ----------
-        // Все формы: нажал и отпустил — обычное применение; держишь — копится заряд, применяется при отпускании (FireOnRelease).
-        public float chargeTime = 0.6f;           // ChargeTime — полный заряд
-        public float chargeMin = 0.2f;            // MinChargeToFire — раньше 0.2 заряда отпустил — обычное применение
-        public float perfectWindow = 0.15f;       // PerfectChargeWindowDuration — «идеальный» выпуск сразу после полного заряда
-        public float perfectDamage = 1.167f;      // PerfectChargeDamageMultiplier
-        public float chargeMoveSlow = 0.5f;       // бег во время заряда (оценка; у лука — замедление BowSelfSpeed)
-        // что даёт заряд (0…1) каждой форме — наш выбор, в Hades таких форм нет:
-        public int shotVolley = 2;                // снаряд: при отпускании — очередь из 1 + до 2 снарядов («идеальный» — ещё +1)
+        // заряд (атакующий — стоишь): отпустил в окне — очередь из двух снарядов (урон ×2)
+        public float shotChargeTime = 0.6f;       // порог: столько держать до окна (у лука Hades ChargeTime 0.6)
+        public float shotChargeWindow = 0.2f;     // окно после порога — только в нём усиление (у лука «идеальное» окно 0.15)
+        public float shotChargeMove = 0f;         // скорость бега во время заряда: 0 — стоит, 1 — полная
+        public int shotVolley = 1;                // + столько снарядов очереди при усилении
         public float shotVolleyInterval = 0.1f;
-        public float shotChargeDamage = 0.5f;     // … и каждый снаряд очереди бьёт ×(1 + 0.5 × заряд)
-        public float dashChargeRange = 1f;        // рывок: дальность ×(1 + заряд) — до двух рывков, прыжок через лаву
-        public float dashChargeDamage = 0.5f;     // … урон задетым ×(1 + 0.5 × заряд)
-        public float zoneChargeRadius = 0.75f;    // зона: радиус ×(1 + 0.75 × заряд)
-        public float summonChargeLife = 1f;       // призыв: дух живёт ×(1 + заряд)
-        public float summonChargeDamage = 0.5f;   // … и стреляет ×(1 + 0.5 × заряд)
-        public int barrierChargeHits = 3;         // барьер: + до 3 поглощённых ударов («идеальный» — ещё +1)
-        public float barrierChargeLife = 0.5f;    // … и держится ×(1 + 0.5 × заряд)
+
+        // ---------- Заряд удержанием — общие правила ----------
+        // Нажал и отпустил — обычное применение; держишь — применяется при отпускании (как лук Hades, FireOnRelease).
+        // Усиление (×2) — только если отпустил в окне после порога; раньше порога или после окна — обычное применение.
+        // Порог, окно и скорость бега во время заряда — в разделе каждой формы: атакующие (снаряд, зона, призыв) — стоишь,
+        // защитные (рывок, барьер) — ходишь на полной скорости.
 
         // ---------- Рывок: WeaponBlink ----------
         public float dashRange = 320f * U;        // WeaponRange 320
@@ -109,6 +137,11 @@ namespace Arena.Core
         public float dashPierceRange = 1.3f;
         public float dashLavaReach = 400f / 300f; // рывок Загрея (RushWeapon): WeaponRange 300, BlinkMaxRange 400 — если рывок
                                                   // кончается в лаве, он тянется до берега, но не дальше ×4/3 (оценка смысла BlinkMaxRange)
+        // заряд (защитный — ходишь): отпустил в окне — дальность ×2 (прыжок через широкую лаву)
+        public float dashChargeTime = 0.6f;
+        public float dashChargeWindow = 0.2f;
+        public float dashChargeMove = 1f;
+        public float dashChargeRange = 1f;        // дальность ×(1 + это) при усилении
 
         // ---------- Зона: круг каста (WeaponCast) с уроном ----------
         public float zoneRadius = 2f;             // оценка: круг каста в Hades — 430 (3.26 ю) вокруг себя, наш ставится в точку прицела
@@ -123,6 +156,11 @@ namespace Arena.Core
         public float zoneLockRange = 1000f * U;
         public float zoneLockArc = 75f;
         public float zoneRiftWidth = 0.7f;        // Пронзание: полуширина разлома
+        // заряд (атакующий — стоишь): отпустил в окне — площадь ×2 (радиус ×√2)
+        public float zoneChargeTime = 0.6f;
+        public float zoneChargeWindow = 0.2f;
+        public float zoneChargeMove = 0f;
+        public float zoneChargeArea = 1f;         // площадь ×(1 + это) при усилении
 
         // ---------- Призыв: дух-слуга (оценка; фамильяры Hades II — PostAttackCooldown 4.5 с) ----------
         public float summonLife = 8f;
@@ -134,12 +172,22 @@ namespace Arena.Core
         public float summonSpeed = 5f;
         public float summonRamDamage = 20f * D;   // Пронзание: таран (ProjectileTorchOrbit 20)
         public float summonRamInterval = 1.1f;
+        // заряд (атакующий — стоишь): отпустил в окне — дух живёт ×2
+        public float summonChargeTime = 0.6f;
+        public float summonChargeWindow = 0.2f;
+        public float summonChargeMove = 0f;
+        public float summonChargeLife = 1f;       // время жизни ×(1 + это) при усилении
 
         // ---------- Барьер (оценка; у Мелинои блока нет) ----------
         public float barrierLife = 2f;
         public float barrierCooldown = 8f;        // с конца барьера
         public int barrierHits = 3;               // прочность: столько ударов поглощает
         public float barrierRadius = 0.9f;
+        // заряд (защитный — ходишь): отпустил в окне — прочность ×2 (3 → 6 ударов)
+        public float barrierChargeTime = 0.6f;
+        public float barrierChargeWindow = 0.2f;
+        public float barrierChargeMove = 1f;
+        public int barrierChargeHits = 3;         // + столько ударов при усилении
 
         // ---------- Свойства ----------
         public float burn = 30f * D;              // Scorch Гестии: атака даёт 30 стаков (TraitData_Hestia BaseValue 30)
@@ -204,11 +252,11 @@ namespace Arena.Core
 
         public static string Base(FormKind f) => f switch
         {
-            FormKind.Shot => "Снаряд: 171 урона, оглушение 0.3 с. Держать — заряд: очередь до 3 снарядов, каждый до ×1.5 урона.",
-            FormKind.Dash => "Рывок на 2.4 сквозь врагов, неуязвимость, над лавой — прыжок. Держать — заряд: до вдвое дальше.",
-            FormKind.Zone => "Круг в точке прицела на 3 с: каждые 0.5 с бьёт стоящих (29) и замедляет вдвое. Держать — заряд: шире до ×1.75.",
-            FormKind.Summon => "Дух-слуга на 8 с стреляет в ближайшего врага (57 раз в 0.8 с). Перезарядка 10 с. Держать — заряд: живёт до 16 с, бьёт до ×1.5.",
-            _ => "Щит на 2 с: поглощает 3 удара или снаряда. Перезарядка 8 с с конца. Держать — заряд: до 6 ударов и до 3 с.",
+            FormKind.Shot => "Снаряд: 171 урона, оглушение 0.3 с. Заряд (стоишь), отпустить в окне — очередь из двух снарядов.",
+            FormKind.Dash => "Рывок на 2.4 сквозь врагов, неуязвимость, над лавой — прыжок. Заряд (можно ходить), отпустить в окне — вдвое дальше.",
+            FormKind.Zone => "Круг в точке прицела на 3 с: каждые 0.5 с бьёт стоящих (29) и замедляет вдвое. Заряд (стоишь), отпустить в окне — вдвое больше площадь.",
+            FormKind.Summon => "Дух-слуга на 8 с стреляет в ближайшего врага (57 раз в 0.8 с). Перезарядка 10 с. Заряд (стоишь), отпустить в окне — живёт вдвое дольше.",
+            _ => "Щит на 2 с: поглощает 3 удара или снаряда. Перезарядка 8 с с конца. Заряд (можно ходить), отпустить в окне — вдвое больше ударов.",
         };
 
         /// <summary>Что свойство делает на форме (уровень — сколько раз свойство влито).</summary>

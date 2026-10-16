@@ -331,6 +331,12 @@ namespace Arena.Sim
         {
             center = default; radius = 0f;
             float best = float.MaxValue;
+            if (GridCollision)
+                foreach (var c in Covers)
+                {
+                    float d = (c.pos - from).sqrMagnitude;
+                    if (d < best) { best = d; center = c.pos; radius = c.r; }
+                }
             foreach (var o in Obstacles)
             {
                 if (!o.Shots || o.Height <= 0f && o.Type != null && o.Type.StartsWith("_Impassable")) continue;

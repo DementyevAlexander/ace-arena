@@ -319,12 +319,20 @@ namespace Arena.Core
         public float wakeReactionMin = 0.15f;
         public float wakeReactionMax = 0.45f;
         public float casketWeight = 0.8f;       // ActiveCapWeight Casket
-        /// <summary>Режим форм: в конце комнаты — одна карточка на земле, как дар в Hades (SpawnRoomReward): в 110 от героя
-        /// к ближайшей точке спавна. Подобрать — подойти ближе 140 (BaseLoot Interact Distance) и нажать «взаимодействие».
-        /// Бюджет случайных волн растёт с каждой взятой карточкой.</summary>
-        public float lootOffset = Hades.U(110f);
+        /// <summary>Режим форм: в конце комнаты на пятачке ближе к центру появляются lootCount карточек, рядом
+        /// по горизонтали экрана. Берётся одна, остальные сгорают. Подобрать — подойти ближе 140 (BaseLoot Interact Distance)
+        /// и нажать «взаимодействие». Бюджет случайных волн растёт с каждой взятой карточкой.</summary>
+        public int lootCount = 2;
+        /// <summary>Веса редкости карт на пятачке: редкая (2 вливания), эпическая (3), легендарная (4). Оценка.</summary>
+        public float[] rarityWeights = { 70f, 25f, 5f };
         public float lootReach = Hades.U(140f);
+        public float pedestalHalf = 0.9f;      // центры карточек — в 0.9 ю от середины пятачка (между ними 1.8 ю)
+        public float pedestalClear = 1.4f;     // вокруг каждой карточки свободно 1.4 ю: кольцо 0.8 и проход Смерти
+        public float pedestalClearMin = 0.85f; // если так не влезает нигде (острова Асфоделя) — отступ меньше, до этого
+        public float lootAppear = 0.4f;        // карточки вырастают из пола, потом их можно брать
         public int budgetPerReward = 8;
+        /// <summary>Этаж из арен: мини-босс и босс — обычный враг из набора арены, красный, с таким множителем здоровья.</summary>
+        public float eliteHpMini = 10f, eliteHpBoss = 20f;
         /// <summary>Арена зачищена: сначала надпись «Арена пройдена», через столько секунд загорается дверь и пускает дальше.</summary>
         public float doorsDelay = 2.5f;
     }

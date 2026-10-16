@@ -218,6 +218,7 @@ namespace Arena.Sim
 
         void Kill(Enemy e)
         {
+            if (e.Dummy) { e.Hp = e.MaxHp; return; } // мишень хаба не умирает
             e.Dead = true;
             e.DeathT = 0.8f;
             e.Tele = null;
@@ -288,7 +289,7 @@ namespace Arena.Sim
             if (stun > 0f) p.Stun = Mathf.Max(p.Stun, stun);
             InterruptPlayerCast();
             Events.Add(new SimEvent { Kind = EventKind.PlayerHit, Pos = p.Pos, Value = dmg, Stop = stop, Kill = dmg > PlayerCfg.hp * 0.1f });
-            if (p.Hp <= 0f) { p.Hp = 0f; GameOver = true; }
+            if (p.Hp <= 0f) { p.Hp = 0f; GameOver = true; Events.Add(new SimEvent { Kind = EventKind.RunEnd, Value = 0f }); }
             return true;
         }
     }

@@ -182,6 +182,22 @@ namespace Arena.Tests
             Assert.IsTrue(s.Enemies.Exists(e => e.Alive && e.Aggro), "враги Hades II выходят агрессивными");
         }
 
+        /// <summary>Снаряды пролетают там, где в Hades StopsProjectiles = false: над провалами и сквозь невидимые блокираторы
+        /// UnitsOnly (D_Combat02 и др.); сплошные стены держат.</summary>
+        [Test]
+        public void UnitsOnlyBlockersAndHolesLetShotsThrough()
+        {
+            int unitsOnly = 0;
+            foreach (var name in RoomLibrary.All)
+                foreach (var w in RoomLibrary.Get(name).walls)
+                {
+                    if (w.type == "Hole") Assert.IsFalse(w.shots, name + ": провал не держит снаряды");
+                    if (w.type.Contains("UnitsOnly")) { unitsOnly++; Assert.IsFalse(w.shots, name + ": " + w.type); }
+                    if (w.type == "_Impassable_Tile64Iso") Assert.IsTrue(w.shots, name + ": сплошной блокиратор держит");
+                }
+            Assert.Greater(unitsOnly, 100);
+        }
+
         [Test]
         public void EveryRoomLoadsWithHeroAndSpawnsOnFloor()
         {

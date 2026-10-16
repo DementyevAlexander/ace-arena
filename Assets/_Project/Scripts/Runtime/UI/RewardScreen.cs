@@ -7,7 +7,7 @@ using UnityEngine.UI;
 namespace Arena.UI
 {
     /// <summary>Подобранная карточка и просмотр скиллов (Tab). Сверху две карты рядом: «Сейчас в слоте» и «Получено» —
-    /// видно, что на что меняешь. Ниже ряд слотов и две кнопки: «Заменить» / «Вставить» (A) и «Влить» (Y);
+    /// видно, что на что меняешь; у каждой — редкость и ячейки душ по ней. Ниже ряд слотов и две кнопки: «Заменить» / «Вставить» (A) и «Влить» (Y);
     /// под каждой — что пропадёт или что станет. Недоступная кнопка погашена и объясняет почему.
     /// Слот — ← → (стик, крестовина, стрелки) или клик; B / Esc — оставить карточку на земле.
     /// В просмотре скиллов — только карта слота в фокусе и ряд слотов.</summary>
@@ -84,7 +84,7 @@ namespace Arena.UI
         /// <summary>Показывает выбор, пока он не сделан; Tab — просмотр скиллов без выбора.</summary>
         public void Sync(bool viewRequested, InputReader input)
         {
-            bool want = sim.RewardPending || viewRequested;
+            bool want = (sim.RewardPending && sim.TrinketOffer == null) || viewRequested; // тринкет — свой экран (TrinketScreen)
             if (want != canvas.enabled)
             {
                 canvas.enabled = want;
@@ -179,7 +179,7 @@ namespace Arena.UI
             readonly GameObject root;
             readonly Image frame;
             readonly Text caption, glyph, name, desc, traits, souls;
-            readonly Image[] cells = new Image[SkillCard.SoulCells];
+            readonly Image[] cells = new Image[SkillCard.MaxSoulCells];
 
             public CardPanel(Transform parent, float x, float y)
             {
@@ -208,7 +208,9 @@ namespace Arena.UI
             {
                 SetActive(true);
                 frame.color = frameColor;
-                caption.text = cap; caption.color = capColor;
+                var rar = Art.RarityColor(c.Rarity);
+                caption.text = $"{cap}  ·  <color=#{Hex(rar)}>{Rarities.Name(c.Rarity).ToUpperInvariant()}</color>";
+                caption.color = capColor;
                 glyph.text = FormText.Glyph(c.Form); glyph.color = Art.CardTint(c); glyph.enabled = true;
                 name.text = FormText.Name(c.Form);
                 name.rectTransform.anchoredPosition = new Vector2(116f, -98f);
@@ -220,11 +222,11 @@ namespace Arena.UI
                     sb.Append($"<color=#{Hex(Art.TraitColor(t))}>◆ {FormText.Name(t)}{(c.Level(t) > 1 ? $" ×{c.Level(t)}" : "")}</color> — {FormText.Cell(t, c.Form)}");
                 }
                 traits.text = sb.ToString();
-                souls.text = $"Души {c.Souls.Count}/{SkillCard.SoulCells}";
+                souls.text = $"Души {c.Souls.Count}/{c.SoulCells}";
                 for (int k = 0; k < cells.Length; k++)
                 {
-                    cells[k].enabled = true;
-                    cells[k].color = k < c.Souls.Count ? Art.TraitColor(c.Souls[k]) : new Color(1f, 1f, 1f, 0.16f);
+                    cells[k].enabled = k < c.SoulCells;
+                    cells[k].color = k < c.Souls.Count ? Art.TraitColor(c.Souls[k]) : rar.WithAlpha(0.35f);
                 }
             }
 

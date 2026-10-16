@@ -57,7 +57,8 @@ namespace Arena.Tests
             Assert.IsNull(s.Forms[1].Card);
             Assert.IsFalse(s.RewardPending, "карточки — только в конце комнаты");
             Assert.AreEqual(0, s.Offers.Count);
-            Assert.IsNull(s.Loot);
+            Assert.AreEqual(0, s.Loot.Count);
+            Assert.IsFalse(s.Pedestal);
         }
 
         [Test]
@@ -82,22 +83,67 @@ namespace Arena.Tests
             Assert.IsFalse(s.Forms[0].Card.CanFuse, "две ячейки заполнены");
         }
 
-        /// <summary>Заряд как у лука Hades: держишь — копится 0.6 с, при отпускании очередь 1 + 2 × заряд снарядов;
-        /// отпустил в окне 0.15 с после полного заряда («идеальный») — ещё +1 снаряд и ×1.167 урона.</summary>
+        /// <summary>Редкость задаёт число вливаний: редкая — 2, эпическая — 3, легендарная — 4. Считаются ячейки карты в слоте,
+        /// редкость донора не важна. Стартовые снаряд и рывок — редкие.</summary>
+        [Test]
+        public void RarityGivesSoulCells()
+        {
+            var s = new ArenaSim(5);
+            s.EnableForms();
+            Assert.AreEqual(Rarity.Rare, s.Forms[0].Card.Rarity);
+            Assert.AreEqual(Rarity.Rare, s.Forms[ArenaSim.DashSlot].Card.Rarity);
+            foreach (var (rarity, cells) in new[] { (Rarity.Rare, 2), (Rarity.Epic, 3), (Rarity.Legendary, 4) })
+            {
+                s.Forms[1].Card = new SkillCard(FormKind.Zone, Trait.Frost, rarity);
+                Assert.AreEqual(cells, s.Forms[1].Card.SoulCells);
+                for (int k = 0; k < cells; k++)
+                {
+                    s.RewardPending = true;
+                    s.Offers.Clear();
+                    s.Offers.Add(new SkillCard(FormKind.Shot, Trait.Fire, Rarity.Legendary));
+                    Assert.IsTrue(s.CanFuse(0, 1), $"{rarity}: вливание {k + 1}");
+                    s.FuseOffer(0, 1);
+                }
+                s.RewardPending = true;
+                s.Offers.Clear();
+                s.Offers.Add(new SkillCard(FormKind.Shot, Trait.Fire, Rarity.Legendary));
+                Assert.IsFalse(s.CanFuse(0, 1), $"{rarity}: ячейки заполнены");
+                Assert.AreEqual(1 + cells, s.Forms[1].Card.Level(Trait.Fire) + s.Forms[1].Card.Level(Trait.Frost));
+                s.LeaveLoot();
+            }
+        }
+
+        /// <summary>Редкость выпадает по весам ArenaTuning.rarityWeights (70 / 25 / 5); нулевой вес — не выпадает никогда.</summary>
+        [Test]
+        public void RarityRollFollowsWeights()
+        {
+            var rng = new System.Random(11);
+            var weights = new ArenaTuning().rarityWeights;
+            var n = new int[3];
+            const int Total = 20000;
+            for (int i = 0; i < Total; i++) n[(int)Rarities.Roll(rng, weights)]++;
+            float sum = weights[0] + weights[1] + weights[2];
+            for (int r = 0; r < 3; r++)
+                Assert.AreEqual(weights[r] / sum, n[r] / (float)Total, 0.015f, ((Rarity)r).ToString());
+            for (int i = 0; i < 2000; i++) Assert.AreNotEqual(Rarity.Legendary, Rarities.Roll(rng, new[] { 1f, 1f, 0f }));
+        }
+
+        /// <summary>Заряд: усиление (очередь из двух, урон ×2) — только если отпустил в окне 0.6–0.8 с; раньше порога и после
+        /// окна — обычный выстрел. Снаряд атакующий — пока заряжаешь, стоишь.</summary>
         [Test]
         public void ShotChargeReleasesVolley()
         {
             var s = NewForms();
             var e = Dummy(s, new Vector2(0f, 3f));
             float hp = e.Hp;
-            Hold(s, 0, 0.6f); // 0.63 с — в окне «идеального» выпуска
-            int perfect = 1 + Casts(s, 0.6f);
-            Assert.AreEqual(4, perfect, "полный заряд, «идеальный» выпуск: 1 + 2 + 1");
-            Assert.Less(e.Hp, hp - 30f * HadesScale.Hp * 1.5f * 3f, "заряженные попадания сильнее обычных");
+            Hold(s, 0, 0.6f, Vector2.right); // 0.63 с — в окне; стик вправо
+            Assert.AreEqual(0f, s.Player.Pos.x, 0.02f, "атакующий заряд — стоит");
+            Assert.AreEqual(2, 1 + Casts(s, 0.6f), "в окне: очередь из двух");
+            Assert.Less(e.Hp, hp - 30f * HadesScale.Hp * 1.9f, "два попадания");
 
             var t = NewForms();
-            Hold(t, 0, 1.2f); // окно прошло — без бонуса
-            Assert.AreEqual(3, 1 + Casts(t, 0.6f), "полный заряд без «идеального»: 1 + 2");
+            Hold(t, 0, 1.2f); // окно пропущено
+            Assert.AreEqual(1, 1 + Casts(t, 0.6f), "окно пропущено — обычный выстрел");
 
             var u = NewForms();
             Hold(u, 0, 0.05f); // меньше MinChargeToFire — обычный выстрел
@@ -109,15 +155,42 @@ namespace Arena.Tests
         {
             var s = NewForms();
             s.Forms[1].Card = new SkillCard(FormKind.Zone);
-            Hold(s, 1, 1.2f);
+            Hold(s, 1, 0.6f);
             var z = s.Effects.Find(f => f.Kind == EffectKind.FormZone);
-            Assert.AreEqual(s.FormCfg.zoneRadius * (1f + s.FormCfg.zoneChargeRadius), z.R, 0.01f, "полный заряд — радиус ×1.75");
+            Assert.AreEqual(s.FormCfg.zoneRadius * Mathf.Sqrt(2f), z.R, 0.01f, "полный заряд — площадь ×2");
 
             var b = NewForms();
             b.Forms[2].Card = new SkillCard(FormKind.Barrier);
             Hold(b, 2, 0.6f);
             var bar = b.Effects.Find(f => f.Kind == EffectKind.FormBarrier);
-            Assert.AreEqual(b.FormCfg.barrierHits + b.FormCfg.barrierChargeHits + 1, bar.Charges, "полный заряд и «идеальный» выпуск: 3 + 3 + 1");
+            Assert.AreEqual(b.FormCfg.barrierHits + b.FormCfg.barrierChargeHits, bar.Charges, "в окне: 3 + 3");
+        }
+
+        /// <summary>Полоса лавы поперёк коробки 30×30: пол слева и справа — земля, между ними — пол типа Lava и зона лавы.</summary>
+        static void LavaStrip(ArenaSim s, float x0, float x1)
+        {
+            RoomDef.Poly Rect(float a, float b, string type) => new() { type = type, h = 0f, p = new[] { new Vector2(a, -30f), new Vector2(b, -30f), new Vector2(b, 30f), new Vector2(a, 30f) } };
+            s.Room.floor = new[] { Rect(-30f, x0, "Floor"), Rect(x0, x1, "Lava"), Rect(x1, 30f, "Floor") };
+            s.Hazards.Add(new HazardZone { Type = "Lava", Damage = 5f, Poly = Rect(x0, x1, "Lava").p });
+        }
+
+        /// <summary>Зона лавы из карты накрывает землю острова — на земле не жжёт, на лаве жжёт.</summary>
+        [Test]
+        public void LavaZoneOverGroundDoesNotBurn()
+        {
+            var s = NewForms();
+            s.Player.BuffInvuln = 0f;
+            s.Hazards.Add(new HazardZone { Type = "Lava", Damage = 5f, Poly = new[] { new Vector2(-3f, -3f), new Vector2(3f, -3f), new Vector2(3f, 3f), new Vector2(-3f, 3f) } });
+            float hp = s.Player.Hp;
+            T.Run(s, 2f);
+            Assert.AreEqual(hp, s.Player.Hp, 0.01f, "пол коробки — земля, зона лавы поверх неё не жжёт");
+
+            var t = NewForms();
+            t.Player.BuffInvuln = 0f;
+            LavaStrip(t, -1f, 1f);
+            hp = t.Player.Hp;
+            T.Run(t, 2f);
+            Assert.Less(t.Player.Hp, hp, "на настоящей лаве жжёт");
         }
 
         [Test]
@@ -125,12 +198,38 @@ namespace Arena.Tests
         {
             var s = NewForms();
             s.Step(T.Dt, new SimInput { Pressed = 1 << ArenaSim.DashSlot, Held = 1 << ArenaSim.DashSlot });
-            T.Run(s, 1.2f, new SimInput { Held = 1 << ArenaSim.DashSlot });
+            T.Run(s, 0.6f, new SimInput { Held = 1 << ArenaSim.DashSlot });
             s.Step(T.Dt, new SimInput { Released = 1 << ArenaSim.DashSlot, Move = Vector2.right });
             Assert.IsTrue(s.FormDashing);
             Assert.GreaterOrEqual(s.FormLeap, 0f, "заряженный рывок — прыжок");
             T.Run(s, 0.5f);
             Assert.AreEqual(2f * 320f * HadesScale.Unit, s.Player.Pos.x, 0.1f, "дальность ×2");
+        }
+
+        /// <summary>Защитные формы (рывок, барьер) — во время заряда ходишь на полной скорости; атакующие (призыв) — стоишь.
+        /// Пропустил окно — обычное применение.</summary>
+        [Test]
+        public void DefensiveChargeAllowsWalkingAndMissedWindowIsPlain()
+        {
+            var s = NewForms();
+            s.Forms[2].Card = new SkillCard(FormKind.Barrier);
+            Hold(s, 2, 1.2f, Vector2.right); // окно пропущено
+            Assert.Greater(s.Player.Pos.x, 2f, "барьер заряжается на ходу");
+            var bar = s.Effects.Find(f => f.Kind == EffectKind.FormBarrier);
+            Assert.AreEqual(s.FormCfg.barrierHits, bar.Charges, "окно пропущено — обычный барьер");
+
+            var m = NewForms();
+            m.Forms[1].Card = new SkillCard(FormKind.Summon);
+            Hold(m, 1, 0.6f, Vector2.right);
+            Assert.AreEqual(0f, m.Player.Pos.x, 0.02f, "призыв атакующий — стоит");
+
+            var d = NewForms();
+            d.Step(T.Dt, new SimInput { Pressed = 1 << ArenaSim.DashSlot, Held = 1 << ArenaSim.DashSlot });
+            T.Run(d, 1.2f, new SimInput { Held = 1 << ArenaSim.DashSlot });
+            float x0 = d.Player.Pos.x;
+            d.Step(T.Dt, new SimInput { Released = 1 << ArenaSim.DashSlot, Move = Vector2.right });
+            T.Run(d, 0.5f);
+            Assert.AreEqual(320f * HadesScale.Unit, d.Player.Pos.x - x0, 0.1f, "окно пропущено — обычная дальность");
         }
 
         /// <summary>Рывок, который кончился бы в лаве, тянется до берега (не дальше ×4/3) прыжком — без урона.</summary>
@@ -139,7 +238,7 @@ namespace Arena.Tests
         {
             var s = NewForms();
             s.Player.BuffInvuln = 0f;
-            s.Hazards.Add(new HazardZone { Type = "Lava", Damage = 5f, Poly = new[] { new Vector2(1.5f, -3f), new Vector2(3f, -3f), new Vector2(3f, 3f), new Vector2(1.5f, 3f) } });
+            LavaStrip(s, 1.5f, 3f);
             float hp = s.Player.Hp;
             T.Press(s, ArenaSim.DashSlot, Vector2.right);
             Assert.GreaterOrEqual(s.FormLeap, 0f, "над лавой — прыжок");
@@ -271,7 +370,7 @@ namespace Arena.Tests
             s.Forms[ArenaSim.DashSlot].Card.Souls.Add(Trait.Reap);
             var e = Dummy(s, new Vector2(1.2f, 0f));
             e.Hp = 10f;
-            s.Step(T.Dt, new SimInput { Pressed = 1 << 3, Held = 1 << 3, Move = Vector2.right });
+            T.Press(s, 3, Vector2.right); // рывок — при отпускании, по стику
             T.Run(s, 0.3f);
             Assert.IsTrue(e.Dead, "рывок с Пронзанием бьёт задетых");
             Assert.LessOrEqual(s.Forms[ArenaSim.DashSlot].Cd, 0f, "Жатва: добивание рывком сразу восстанавливает рывок");
@@ -298,18 +397,21 @@ namespace Arena.Tests
             var card = new SkillCard(FormKind.Shot, Trait.Frost);
             card.Souls.Add(Trait.Rot);
             s.Forms[0].Card = card;
-            Hold(s, 0, 1.2f); // полный заряд — очередь из трёх
+            Hold(s, 0, 0.6f); // в окне — очередь из двух
             T.Run(s, 0.6f);
+            Tap(s, 0);         // третье попадание
+            T.Run(s, 0.5f);
             Assert.Greater(e.Frozen, 0f, "третье попадание замораживает");
             Assert.Greater(e.RotT, 0f);
             s.Damage(e, 99999f, false);
             Assert.Greater(n.RotT, 0f, "умерший с гнилью заражает соседей");
         }
 
-        /// <summary>Конец комнаты: одна карточка падает на землю рядом с героем (Hades: 110 от героя), подбирается только
-        /// вблизи (140); закрыть выбор — карточка остаётся на земле; применил — исчезла; в новой комнате — новая.</summary>
+        /// <summary>Конец комнаты: на пятачке появляются две карточки разных свойств, рядом по горизонтали экрана.
+        /// Пока вырастают — не взять; брать можно только вблизи (140); закрыть выбор — обе на месте; применил одну —
+        /// вторая сгорела, пятачок пустой; в новой комнате — новый.</summary>
         [Test]
-        public void OneCardDropsAtRoomEndAndIsPickedUpNearby()
+        public void TwoCardsRiseAtRoomEndOneTakenOtherBurns()
         {
             var s = new ArenaSim(7, RoomLibrary.Get("A_Combat01"));
             s.EnableForms();
@@ -321,27 +423,47 @@ namespace Arena.Tests
                 s.Step(T.Dt, default);
                 foreach (var e in s.Enemies) if (e.Alive) s.Damage(e, 99999f, false);
                 Assert.IsFalse(s.RewardPending, "выбор открывается только подбором");
-                if (s.Loot == null) continue;
-                Assert.IsNull(s.Enemies.Find(e => e.Alive), "карточка — когда комната пройдена");
-                Assert.LessOrEqual((s.LootPos - s.Player.Pos).magnitude, s.ArenaCfg.lootOffset + 0.01f, "падает рядом с героем");
+                if (s.Loot.Count == 0) continue;
+                Assert.IsNull(s.Enemies.Find(e => e.Alive), "пятачок — когда комната пройдена");
+                Assert.IsTrue(s.Pedestal);
+                if (s.IsMiniBossRoom) // там тринкеты (TrinketTests) — дальше, ничего не беря
+                {
+                    for (int k = 0; k < 600 && !s.DoorsOpen; k++) s.Step(T.Dt, default);
+                    s.Player.Pos = s.Room.exits[0].pos;
+                    s.Step(T.Dt, default);
+                    continue;
+                }
+                Assert.AreEqual(2, s.Loot.Count, "две карточки");
+                Assert.AreNotEqual(s.Loot[0].Card.Own, s.Loot[1].Card.Own, "свойства разные");
+                var axis = s.Loot[1].Pos - s.Loot[0].Pos;
+                Assert.AreEqual(2f * s.ArenaCfg.pedestalHalf, axis.magnitude, 0.01f);
+                Assert.Greater(Vector2.Dot(axis.normalized, ArenaSim.ScreenRight), 0.99f, "рядом по горизонтали экрана");
+                foreach (var g in s.Loot) Assert.IsTrue(s.InsideRoom(g.Pos, s.ArenaCfg.pedestalClearMin - 0.15f), "вокруг карточки свободно");
                 if (!checkedReach)
                 {
                     checkedReach = true;
-                    var near = s.LootPos;
-                    s.Player.Pos = near + Vector2.right * (s.ArenaCfg.lootReach + 0.3f);
+                    s.Player.Pos = s.Loot[0].Pos;
+                    Assert.IsFalse(s.PickUpLoot(), "карточки ещё вырастают");
+                    for (int k = 0; k < 120 && s.Time < s.LootReadyAt; k++) s.Step(T.Dt, default);
+                    s.Player.Pos = s.Loot[0].Pos + Vector2.Perpendicular(ArenaSim.ScreenRight) * (s.ArenaCfg.lootReach + 0.3f);
                     Assert.IsFalse(s.PickUpLoot(), "издалека не подобрать");
-                    s.Player.Pos = near;
+                    s.Player.Pos = s.Loot[0].Pos;
                     Assert.IsTrue(s.PickUpLoot());
-                    Assert.AreEqual(1, s.Offers.Count, "одна карточка");
+                    Assert.AreEqual(1, s.Offers.Count);
+                    Assert.AreSame(s.Loot[0].Card, s.Offers[0], "открыта ближайшая");
                     s.LeaveLoot();
                     Assert.IsFalse(s.RewardPending);
-                    Assert.IsNotNull(s.Loot, "оставленная карточка лежит на земле");
+                    Assert.AreEqual(2, s.Loot.Count, "закрыл выбор — обе на месте");
                 }
-                s.Player.Pos = s.LootPos;
+                for (int k = 0; k < 120 && s.Time < s.LootReadyAt; k++) s.Step(T.Dt, default);
+                s.Player.Pos = s.Loot[1].Pos;
                 Assert.IsTrue(s.PickUpLoot());
                 var card = s.Offers[0];
+                Assert.AreSame(s.Loot[1].Card, card);
                 s.FuseOffer(0, 0);
-                Assert.IsNull(s.Loot, "применённая карточка исчезла с земли");
+                Assert.AreEqual(0, s.Loot.Count, "взята одна — вторая сгорела");
+                Assert.IsTrue(s.Events.Exists(e => e.Kind == EventKind.LootBurned && e.Value == 0), "сгорела именно другая");
+                Assert.IsTrue(s.Pedestal, "пятачок остаётся пустым");
                 Assert.IsTrue(s.Forms[0].Card.Has(card.Own.Value));
                 rewards++;
                 // в дверь — следующая комната
@@ -412,11 +534,38 @@ namespace Arena.Tests
                 foreach (var e in s.Enemies) if (e.Alive) s.Damage(e, 99999f, false);
             }
             Assert.IsTrue(s.DoorsOpen, "дверь открывается и без взятой карточки");
-            Assert.IsNotNull(s.Loot);
+            Assert.AreEqual(2, s.Loot.Count);
             s.Player.Pos = s.Room.exits[0].pos;
             s.Step(T.Dt, default);
-            Assert.IsNull(s.Loot, "не взятая карточка осталась в прошлой комнате");
+            Assert.AreEqual(0, s.Loot.Count, "не взятые карточки остались в прошлой комнате");
+            Assert.IsFalse(s.Pedestal);
             Assert.AreEqual(0, s.Rewards);
+        }
+
+        /// <summary>Во всех комнатах пятачок встаёт на пол, куда можно дойти: вокруг каждой карточки нет стен, урн,
+        /// ловушек и лавы хотя бы на pedestalClearMin (с поправкой на шаг сетки).</summary>
+        [Test]
+        public void PedestalFitsInEveryRoom()
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            foreach (var name in RoomLibrary.All)
+            {
+                var s = new ArenaSim(3, RoomLibrary.Get(name));
+                s.EnableForms();
+                s.Player.BuffInvuln = 999f;
+                for (int i = 0; i < 60 * 300 && !s.Pedestal; i++)
+                {
+                    s.Step(T.Dt, default);
+                    foreach (var e in s.Enemies) if (e.Alive) s.Damage(e, 99999f, false);
+                }
+                Assert.IsTrue(s.Pedestal, name);
+                foreach (var g in s.Loot)
+                {
+                    Assert.IsTrue(s.InsideRoom(g.Pos, s.ArenaCfg.pedestalClearMin - 0.15f), $"{name}: карточка у стены {g.Pos}");
+                    foreach (var h in s.Hazards) Assert.IsFalse(Geo.InPoly(h.Poly, g.Pos), $"{name}: карточка в лаве");
+                }
+            }
+            UnityEngine.Debug.Log($"Пятачок во всех комнатах: {watch.ElapsedMilliseconds} мс");
         }
     }
 }

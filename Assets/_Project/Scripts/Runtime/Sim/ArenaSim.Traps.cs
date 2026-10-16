@@ -71,10 +71,28 @@ namespace Arena.Sim
             t.T = t.Total = time;
         }
 
+        /// <summary>Ловушка взведена, только пока в её комнате бой: на этаже — комната заперта (ActiveRoom), в отдельной комнате
+        /// Hades — пока она не зачищена (двери не горят). В хабе и в пройденных комнатах ловушки не работают.</summary>
+        public bool TrapArmed(Trap t)
+        {
+            if (HubMode) return false;
+            if (!FloorMode) return !DoorsOpen;
+            if (ActiveRoom < 0) return false;
+            int x = Mathf.FloorToInt(t.Pos.x), y = Mathf.FloorToInt(t.Pos.y);
+            return Floor.RoomAt(x, y) == ActiveRoom || Floor.Rooms[ActiveRoom].Rect.Contains(new Vector2Int(x, y));
+        }
+
         void UpdateTraps(float dt)
         {
             foreach (var t in Traps)
             {
+                if (!TrapArmed(t))
+                {
+                    // бой кончился (или не начался): ловушка сброшена и стоит, облако рассеялось; разбитая — так и остаётся
+                    if (t.Phase != TrapPhase.Gone) { t.Phase = TrapPhase.Idle; t.T = 0f; }
+                    t.Cloud = 0f;
+                    continue;
+                }
                 if (t.Cloud > 0f) UpdateCloud(t, dt);
                 switch (t.Kind)
                 {

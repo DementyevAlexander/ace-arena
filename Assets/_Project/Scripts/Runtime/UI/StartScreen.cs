@@ -29,7 +29,7 @@ namespace Arena.UI
             UiKit.Image(t, "Rule", Pal.GoldDim, new Vector2(0f, 1f), new Vector2(104f, -268f), new Vector2(460f, 2f), new Vector2(0f, 0.5f));
 
             menu = new MenuList(t, new Vector2(80f, -330f), 520f);
-            menu.Add("Новый забег", newRun);
+            menu.Add("Играть", newRun); // в хаб, оттуда — забег через врата
             menu.Add("Управление", () => controls.gameObject.SetActive(!controls.gameObject.activeSelf));
             menu.Add("Выход", quit);
 

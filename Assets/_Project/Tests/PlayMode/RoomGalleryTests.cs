@@ -13,7 +13,11 @@ namespace Arena.Tests
     /// Кадры пишутся, только если задана ARENA_CAPTURE_DIR; без неё тест просто проверяет, что комнаты играются.</summary>
     public class RoomGalleryTests
     {
-        [UnityTest, Timeout(1800000)] // 60 комнат по 4 с игры
+        /// <summary>Эти тесты — про отдельные комнаты Hades: забег по этажам из арен (по умолчанию в игре) выключен.</summary>
+        [SetUp]
+        public void SingleRooms() => GameController.ArenaFloors = false;
+
+        [UnityTest, Timeout(1800000)] // 30 комнат по 4 с игры
         public IEnumerator EveryRoomPlays()
         {
             LogAssert.ignoreFailingMessages = true;

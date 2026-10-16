@@ -125,16 +125,17 @@ namespace Arena.View
             if (leap >= 0f) body.localPosition = new Vector3(0f, Mathf.Sin(leap * Mathf.PI) * 1.1f, 0f);
             // заряд формы: кольцо сжимается к полному заряду, в окне «идеального» выпуска — белое и пульсирует
             float charge = 0f;
-            bool perfect = false, holding = false;
+            bool window = false, missed = false, holding = false;
             if (sim.FormsMode)
                 foreach (var fs in sim.Forms)
-                    if (fs.Holding) { holding = true; charge = Mathf.Max(charge, sim.ChargeOf(fs)); perfect |= sim.PerfectOf(fs); }
+                    if (fs.Holding) { holding = true; charge = Mathf.Max(charge, sim.ChargeOf(fs)); window |= sim.InChargeWindow(fs); missed |= sim.ChargeMissed(fs); }
             chargeRing.gameObject.SetActive(holding && !hidden);
             if (holding)
             {
-                chargeRing.localScale = Vector3.one * Mathf.Lerp(2.6f, 1.3f, charge) * (perfect ? 1f + 0.08f * Mathf.Sin(time * 40f) : 1f);
-                chargeMat.SetColor("_BaseColor", perfect ? new Color(1f, 1f, 1f, 1f) : new Color(1f, 0.85f, 0.45f, 0.25f + 0.6f * charge));
-                if (charge > 0f) body.localScale = new Vector3(1f + 0.05f * charge, 1f - 0.08f * charge, 1f + 0.05f * charge);
+                // кольцо сжимается к порогу; в окне — белое и пульсирует; окно пропущено — тусклое
+                chargeRing.localScale = Vector3.one * Mathf.Lerp(2.6f, 1.3f, charge) * (window ? 1f + 0.08f * Mathf.Sin(time * 40f) : 1f);
+                chargeMat.SetColor("_BaseColor", window ? new Color(1f, 1f, 1f, 1f) : missed ? new Color(0.5f, 0.48f, 0.55f, 0.35f) : new Color(1f, 0.85f, 0.45f, 0.25f + 0.6f * charge));
+                if (charge > 0f && !missed) body.localScale = new Vector3(1f + 0.05f * charge, 1f - 0.08f * charge, 1f + 0.05f * charge);
             }
             if (st.Move == StaffMove.Sprint) body.localEulerAngles = new Vector3(22f, 0f, 0f);
             if (st.Move is StaffMove.Swing or StaffMove.DashStrike) body.localEulerAngles = new Vector3(0f, -55f, 0f);
@@ -205,7 +206,13 @@ namespace Arena.View
             {
                 flashMats[i] = renderers[i].material; // свой экземпляр — для вспышек
                 baseColors[i] = flashMats[i].GetColor("_BaseColor");
+                if (e.Elite) // мини-босс и босс — тот же враг, красный
+                {
+                    baseColors[i] = Color.Lerp(baseColors[i], new Color(0.9f, 0.12f, 0.1f, baseColors[i].a), 0.7f);
+                    flashMats[i].SetColor("_BaseColor", baseColors[i]);
+                }
             }
+            if (e.Elite) model.localScale *= 1.3f;
 
             // полоска здоровья — смотрит в камеру
             var bar = new GameObject("Hp").transform;

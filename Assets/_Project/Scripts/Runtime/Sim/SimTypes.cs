@@ -26,8 +26,12 @@ namespace Arena.Sim
         Explosion, Teleport, CardCast, TelegraphStart, Attack, WaveStart, ShieldBreak, HitStop, Shake,
         RoomClear, TrapFire, BoltHit, PropBroken, DoorsOpen, RoomEnter, ArenaCleared,
         Zap, RewardReady, // режим форм: молния от Pos до To; выбор карточки
-        LootDropped,      // режим форм: в конце комнаты карточка упала на землю (Pos)
-        ChargeRelease,    // режим форм: заряженный скилл отпущен (Value — заряд, Crit — «идеальный» выпуск)
+        LootDropped,      // режим форм: в конце комнаты поднялся пятачок с карточками (Pos — его середина)
+        LootBurned,       // режим форм: взята другая карточка, эта сгорела (Pos, Value — индекс на пятачке)
+        ChargeRelease,    // режим форм: скилл отпущен в окне заряда — усиление
+        FloorEnter, FloorRoomEnter, FloorRoomLocked, FloorRoomCleared, // этаж Enter the Gungeon: новый этаж, вход в комнату, двери заперты, комната пройдена
+        HubGate, HubTalk, // хаб: шаг во врата (начать забег), реплика персонажа
+        RunEnd,           // забег окончен: Value 1 — пройден, 0 — Смерть повержена
     }
 
     /// <summary>Стоп-кадр Hades (HitSimSlowParameters): замедление всей игры после удара.</summary>
@@ -215,6 +219,10 @@ namespace Arena.Sim
     {
         public int Id;
         public EnemyKind Kind;
+        /// <summary>Мини-босс или босс этажа из арен: обычный враг, красный, здоровье ×10 / ×20.</summary>
+        public bool Elite;
+        /// <summary>Мишень хаба: стоит на месте, не атакует и не умирает (здоровье восстанавливается).</summary>
+        public bool Dummy;
         public Vector2 Pos, Vel, Face = new(0f, -1f), Dir;
         public float R;
         public float Hp, MaxHp;
@@ -337,6 +345,8 @@ namespace Arena.Sim
         public bool Round => Poly == null || Poly.Length < 3;
         /// <summary>StopsProjectiles: false — вода, обрыв, низкий бордюр (снаряды пролетают, ходить нельзя).</summary>
         public bool Shots = true;
+        /// <summary>Метка обхода индекса препятствий (ArenaSim.ObstaclesNear) — без повторов в выдаче.</summary>
+        public int Stamp;
     }
 
     /// <summary>Снаряд врага (сгусток ведьмы, дротик ловушки).</summary>

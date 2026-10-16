@@ -27,22 +27,38 @@ namespace Arena.Sim
         }
     }
 
+    /// <summary>Предмет на пятачке наград: карта (обычная комната) или тринкет (мини-босс, босс) — заполнено одно из двух.</summary>
+    public sealed class GroundCard
+    {
+        public SkillCard Card;
+        public Trinket Trinket;
+        public Vector2 Pos;
+    }
+
     /// <summary>Режим форм: 4 слота (ЛКМ, ПКМ, Q — снаряд, зона, призыв или барьер; Space — рывок), в каждом карта
-    /// «форма + свойства». В конце каждой комнаты на землю падает одна карточка (как дар в Hades): подошёл, нажал
+    /// «форма + свойства». В конце каждой комнаты ближе к центру появляются две карточки: подошёл к одной, нажал
     /// «взаимодействие» — открывается выбор: поставить её в слот или влить её душу в карту слота.
     /// Числа — FormTuning (по Hades II). Свойства на каждой форме — FormText.Cell.</summary>
     public sealed partial class ArenaSim
     {
-        public readonly FormTuning FormCfg = new();
+        /// <summary>Базовые числа форм и свойств (по Hades II). Поменял — вызови RecomputeTrinkets.</summary>
+        public readonly FormTuning FormBase = new();
+        /// <summary>Итоговые числа с тринкетами — их читают скиллы (TrinketBook.Apply поверх FormBase).</summary>
+        public FormTuning FormCfg { get; private set; } = new();
         public bool FormsMode { get; private set; }
         public readonly FormSlot[] Forms = { new(), new(), new(), new() };
         public readonly List<SkillCard> Offers = new();
         public bool RewardPending;
         public int Rewards;
         public const int DashSlot = 3;
-        /// <summary>Карточка на земле (null — нет) и где она лежит.</summary>
-        public SkillCard Loot;
-        public Vector2 LootPos;
+        /// <summary>Карточки на пятачке (пусто — нет). Взята одна — остальные сгорают.</summary>
+        public readonly List<GroundCard> Loot = new();
+        /// <summary>В этой комнате уже выпал пятачок наград (место под карточки; после выбора пуст до выхода).</summary>
+        public bool Pedestal;
+        public Vector2 PedestalPos;
+        /// <summary>Когда карточки вырастут целиком и их можно брать (по Time).</summary>
+        public float LootReadyAt;
+        GroundCard lootOpen;
 
         // рывок формы: из A в B равномерно (BlinkEaseIn/Out 0)
         bool fDashing, fDashReturn, fDashWall, fDashTouched, fDashKilled;
@@ -51,7 +67,7 @@ namespace Arena.Sim
         FormSlot fDashSlot;
         readonly HashSet<Enemy> fDashHit = new();
         float fShotSlow;
-        bool fCharging;   // какая-то форма заряжается — бег медленнее (chargeMoveSlow)
+        float fChargeMove = 1f; // скорость бега во время заряда: атакующие формы — 0 (стоит), защитные — 1
         bool fDashLeap;   // рывок над лавой или заряженный — герой в прыжке
         float fDashMul = 1f;
         bool doomBursting, sharing;
@@ -60,24 +76,37 @@ namespace Arena.Sim
         /// <summary>Рывок над лавой или заряженный — для вида: дуга прыжка (0…1 по ходу рывка), иначе −1.</summary>
         public float FormLeap => fDashing && fDashLeap ? Mathf.Clamp01(fDashT / Mathf.Max(fDashDur, 0.0001f)) : -1f;
 
-        /// <summary>Время полного заряда слота: Жатва снаряда (скорострельность) заряжает вдвое быстрее.</summary>
-        float ChargeTimeOf(FormSlot s) => FormCfg.chargeTime * (s.Haste > 0f ? 0.5f : 1f);
-
-        /// <summary>Заряд 0…1 зажатого слота: до MinChargeToFire — 0 (отпустишь — обычное применение).</summary>
-        public float ChargeOf(FormSlot s)
+        /// <summary>Заряд слота из раздела его формы: порог, окно усиления, скорость бега во время заряда.
+        /// Жатва снаряда (скорострельность) вдвое укорачивает порог и окно.</summary>
+        (float time, float window, float move) ChargeOfForm(FormSlot s)
         {
-            if (!s.Holding) return 0f;
-            float t = ChargeTimeOf(s);
-            return s.HoldT < FormCfg.chargeMin * t ? 0f : Mathf.Clamp01(s.HoldT / t);
+            var c = FormCfg;
+            var (t, w, m) = s.Card == null ? (c.shotChargeTime, c.shotChargeWindow, c.shotChargeMove) : s.Card.Form switch
+            {
+                FormKind.Shot => (c.shotChargeTime, c.shotChargeWindow, c.shotChargeMove),
+                FormKind.Dash => (c.dashChargeTime, c.dashChargeWindow, c.dashChargeMove),
+                FormKind.Zone => (c.zoneChargeTime, c.zoneChargeWindow, c.zoneChargeMove),
+                FormKind.Summon => (c.summonChargeTime, c.summonChargeWindow, c.summonChargeMove),
+                _ => (c.barrierChargeTime, c.barrierChargeWindow, c.barrierChargeMove),
+            };
+            float k = s.Haste > 0f ? 0.5f : 1f;
+            return (Mathf.Max(0.01f, t) * k, Mathf.Max(0.01f, w) * k, Mathf.Clamp01(m));
         }
 
-        /// <summary>Сейчас «идеальное» окно: полный заряд набран не больше PerfectChargeWindowDuration назад.</summary>
-        public bool PerfectOf(FormSlot s)
+        /// <summary>Сколько набрано до порога, 0…1 (для шкалы и кольца).</summary>
+        public float ChargeOf(FormSlot s) => s.Holding ? Mathf.Clamp01(s.HoldT / ChargeOfForm(s).time) : 0f;
+
+        /// <summary>Сейчас окно усиления: порог пройден, окно ещё не кончилось — отпустишь, будет ×2.</summary>
+        public bool InChargeWindow(FormSlot s)
         {
             if (!s.Holding) return false;
-            float t = ChargeTimeOf(s);
-            return s.HoldT >= t && s.HoldT <= t + FormCfg.perfectWindow;
+            var (t, w, _) = ChargeOfForm(s);
+            return s.HoldT >= t && s.HoldT <= t + w;
         }
+
+        /// <summary>Окно пропущено — отпустишь, будет обычное применение.</summary>
+        public bool ChargeMissed(FormSlot s) => s.Holding && s.HoldT > ChargeOfForm(s).time + ChargeOfForm(s).window;
+
         bool formShooting;
 
         /// <summary>Новая комната за дверью: снаряды, зоны и духи прошлой комнаты исчезают, рывок обрывается.</summary>
@@ -101,50 +130,136 @@ namespace Arena.Sim
             Forms[DashSlot].Card = new SkillCard(FormKind.Dash);
             fDashing = false; fShotSlow = 0f; Rewards = 0;
             RewardPending = false; Offers.Clear();
+            ClearLoot();
+            ResetTrinkets();
         }
 
         // ---------- карточки ----------
 
-        /// <summary>Конец комнаты: карточка «форма + свойство» падает в lootOffset от героя к ближайшей точке спавна
-        /// (Hades: SpawnRoomReward → SelectRoomRewardSpawnPoint, смещение 110). Если там стена — у ног героя.</summary>
-        void DropLoot()
+        /// <summary>Конец комнаты: на пятачке ближе к центру комнаты из пола вырастают награды, рядом по горизонтали экрана.
+        /// Обычная комната — карточки «форма + свойство» (ArenaTuning.lootCount), комната мини-босса — тринкеты
+        /// (TrinketTuning.offerCount). Берётся одна, остальные сгорают.</summary>
+        void DropLoot() => RaisePedestal(Room.min, Room.max, null, IsMiniBossRoom ? TrinketCfg.miniBossLevel : 0);
+
+        /// <summary>Комната мини-босса: награда — тринкеты (A_MiniBoss01, C_MiniBoss01, D_Mini05, D_Mini13).</summary>
+        public bool IsMiniBossRoom => !FloorMode && Room?.name != null && Room.name.Contains("Mini");
+
+        /// <summary>Пятачок у заданной точки (этаж: комната награды, после босса) — там или на ближайшем месте, где он помещается.</summary>
+        void DropLootAt(Vector2 at)
         {
-            double r = rng.NextDouble() * 4.6;
-            var form = r < 1.0 ? FormKind.Shot : r < 1.6 ? FormKind.Dash : r < 2.6 ? FormKind.Zone : r < 3.6 ? FormKind.Summon : FormKind.Barrier;
-            Loot = new SkillCard(form, (Trait)rng.Next(15));
-            var p = Player.Pos;
-            Vector2 toward = Room.heroStart;
-            float best = float.MaxValue;
-            foreach (var sp in Room.spawns)
-            {
-                float d = (sp.pos - p).sqrMagnitude;
-                if (d > 0.01f && d < best) { best = d; toward = sp.pos; }
-            }
-            var dir = toward - p;
-            var at = dir.sqrMagnitude > 0.0001f ? p + dir.normalized * ArenaCfg.lootOffset : p;
-            LootPos = InsideRoom(at, 0.2f) ? at : p;
-            Events.Add(new SimEvent { Kind = EventKind.LootDropped, Pos = LootPos });
+            if (Loot.Count > 0) return; // прежние ещё лежат
+            var w = new Vector2(10f, 10f);
+            RaisePedestal(at - w, at + w, at, 0);
         }
 
-        /// <summary>Смерть стоит у карточки (ближе lootReach) и выбор не открыт — можно подобрать.</summary>
-        public bool LootInReach => Loot != null && !RewardPending && !GameOver && (Player.Pos - LootPos).magnitude <= ArenaCfg.lootReach;
+        /// <summary>trinketLevel > 0 — тринкеты этого уровня, иначе карты. Между соседними предметами 2·pedestalHalf.</summary>
+        void RaisePedestal(Vector2 lo, Vector2 hi, Vector2? center, int trinketLevel)
+        {
+            ClearLoot();
+            var items = new List<GroundCard>();
+            if (trinketLevel > 0)
+                foreach (var t in RollTrinketOffers(TrinketCfg.offerCount, trinketLevel)) items.Add(new GroundCard { Trinket = t });
+            if (items.Count == 0)
+                for (int i = 0; i < Mathf.Max(1, ArenaCfg.lootCount); i++) items.Add(new GroundCard { Card = RandomLootCard(items) });
+            int n = items.Count;
+            float half = ArenaCfg.pedestalHalf * (n - 1);
+            var at = PedestalSpot(lo, hi, center, half);
+            for (int i = 0; i < n; i++)
+            {
+                float t = n == 1 ? 0f : -1f + 2f * i / (n - 1);
+                items[i].Pos = at + ScreenRight * (half * t);
+            }
+            Loot.AddRange(items);
+            Pedestal = true;
+            PedestalPos = at;
+            LootReadyAt = Time + ArenaCfg.lootAppear;
+            Events.Add(new SimEvent { Kind = EventKind.LootDropped, Pos = at });
+        }
 
-        /// <summary>Подобрать карточку («взаимодействие» рядом с ней): открывается выбор, бой стоит.</summary>
+        /// <summary>Одна случайная карта по тем же правилам, что на пятачке (веса тринкетов, редкость) — для магазина и проверок.</summary>
+        public SkillCard RollLootCard() => RandomLootCard(new List<GroundCard>());
+
+        static readonly float[] FormDropWeights = { 1f, 0.6f, 1f, 1f, 1f }; // снаряд, рывок, зона, призыв, барьер
+
+        /// <summary>Случайная карточка, не повторяющая свойство уже выложенных. Тринкеты направляют выпадение: свойство
+        /// тринкета — ×traitDropWeight, форма — ×formDropWeight. Редкость — по ArenaTuning.rarityWeights.</summary>
+        SkillCard RandomLootCard(List<GroundCard> already)
+        {
+            var formW = new float[FormDropWeights.Length];
+            for (int i = 0; i < formW.Length; i++) formW[i] = FormDropWeights[i] * TrinketBook.FormWeight((FormKind)i, TrinketSlots, TrinketCfg);
+            var traitW = new float[15];
+            for (int i = 0; i < traitW.Length; i++)
+                traitW[i] = already.Exists(g => g.Card?.Own == (Trait)i) ? 0f : TrinketBook.TraitWeight((Trait)i, TrinketSlots, TrinketCfg);
+            var card = new SkillCard((FormKind)WeightedPick(formW), (Trait)WeightedPick(traitW));
+            card.Rarity = Rarities.Roll(rng, ArenaCfg.rarityWeights);
+            return card;
+        }
+
+        int WeightedPick(float[] w)
+        {
+            float sum = 0f;
+            foreach (var x in w) sum += x;
+            if (sum <= 0f) return rng.Next(w.Length);
+            double r = rng.NextDouble() * sum;
+            for (int i = 0; i < w.Length; i++)
+            {
+                r -= w[i];
+                if (r < 0) return i;
+            }
+            return w.Length - 1;
+        }
+
+        void ClearLoot()
+        {
+            Loot.Clear();
+            Pedestal = false;
+            lootOpen = null;
+            TrinketOffer = null;
+        }
+
+        /// <summary>Ближайшая к Смерти карточка пятачка не дальше lootReach. Null — нет такой, карточки ещё вырастают
+        /// или выбор уже открыт.</summary>
+        public GroundCard LootNear
+        {
+            get
+            {
+                if (RewardPending || GameOver || Time < LootReadyAt) return null;
+                GroundCard best = null;
+                float bd = ArenaCfg.lootReach * ArenaCfg.lootReach;
+                foreach (var g in Loot)
+                {
+                    float d = (Player.Pos - g.Pos).sqrMagnitude;
+                    if (d <= bd) { bd = d; best = g; }
+                }
+                return best;
+            }
+        }
+
+        /// <summary>Смерть стоит у карточки и выбор не открыт — можно подобрать.</summary>
+        public bool LootInReach => LootNear != null;
+
+        /// <summary>Подобрать ближайшую награду («взаимодействие» рядом с ней): открывается выбор карты (Offers) или тринкета
+        /// (TrinketOffer), бой стоит.</summary>
         public bool PickUpLoot()
         {
-            if (!LootInReach) return false;
+            var g = LootNear;
+            if (g == null) return false;
+            lootOpen = g;
             RewardPending = true;
             Offers.Clear();
-            Offers.Add(Loot);
+            if (g.Trinket != null) TrinketOffer = g.Trinket; // выбор тринкета: Offers пуст
+            else Offers.Add(g.Card);
             Events.Add(new SimEvent { Kind = EventKind.RewardReady });
             return true;
         }
 
-        /// <summary>Закрыть выбор, не применяя: карточка остаётся на земле, её можно подобрать снова до выхода из комнаты.</summary>
+        /// <summary>Закрыть выбор, не применяя: награды остаются на пятачке, до выхода из комнаты можно взять любую.</summary>
         public void LeaveLoot()
         {
             RewardPending = false;
             Offers.Clear();
+            lootOpen = null;
+            TrinketOffer = null;
         }
 
         /// <summary>Поставить карточку в слот: рывок — только в Space, остальные — в ЛКМ, ПКМ, Q. Прежняя карта пропадает.</summary>
@@ -175,7 +290,11 @@ namespace Arena.Sim
         {
             RewardPending = false;
             Offers.Clear();
-            Loot = null;
+            for (int i = 0; i < Loot.Count; i++)
+                if (Loot[i] != lootOpen) Events.Add(new SimEvent { Kind = EventKind.LootBurned, Pos = Loot[i].Pos, Value = i });
+            Loot.Clear(); // пятачок остаётся пустым
+            lootOpen = null;
+            TrinketOffer = null;
             Rewards++;
             waveTimer = ArenaCfg.waveDelay;
         }
@@ -190,7 +309,7 @@ namespace Arena.Sim
             fShotSlow -= dt;
             var before = p.Pos;
             bool shooting = false;
-            fCharging = false;
+            fChargeMove = 1f;
             for (int i = 0; i < 4; i++)
             {
                 var s = Forms[i];
@@ -210,17 +329,16 @@ namespace Arena.Sim
                 if (input.IsPressed(i) && !s.Holding && s.Ready && s.Burst == 0 && !fDashing) { s.Holding = true; s.HoldT = 0f; }
                 if (!s.Holding) continue;
                 s.HoldT += dt;
-                fCharging = true;
+                fChargeMove = Mathf.Min(fChargeMove, ChargeOfForm(s).move);
                 if (s.Card.Form == FormKind.Shot)
                 {
                     shooting = true;
                     p.Face = AimAssist(c.shotLockRange, c.shotLockArc, c.shotLockWithMouse, input);
                 }
                 if (input.IsHeld(i) || fDashing) continue;
-                float k = ChargeOf(s);
-                bool perfect = PerfectOf(s);
+                bool boosted = InChargeWindow(s);
                 s.Holding = false;
-                ReleaseForm(s, i, input, k, perfect);
+                ReleaseForm(s, i, input, boosted ? 1f : 0f);
             }
 
             p.Moving = false;
@@ -233,22 +351,22 @@ namespace Arena.Sim
         }
 
         /// <summary>Отпустил кнопку: применение формы с зарядом k (0 — обычное), «идеальный» выпуск — ×1.167 урона.
-        /// Снаряд — выстрел и очередь ещё до 2 (+1) снарядов; рывок — дальше; зона — шире; призыв — дольше и сильнее;
-        /// барьер — больше ударов и дольше.</summary>
-        void ReleaseForm(FormSlot s, int i, SimInput input, float k, bool perfect)
+        /// Полный заряд — эффективность ×2: снаряд — очередь из двух, рывок — вдвое дальше, зона — вдвое больше площадь,
+        /// призыв — вдвое дольше, барьер — вдвое больше ударов.</summary>
+        void ReleaseForm(FormSlot s, int i, SimInput input, float k)
         {
             var c = FormCfg;
-            float pm = perfect ? c.perfectDamage : 1f;
-            if (k > 0f) Events.Add(new SimEvent { Kind = EventKind.ChargeRelease, Pos = Player.Pos, Value = k, Crit = perfect });
+            const float pm = 1f;
+            if (k > 0f) Events.Add(new SimEvent { Kind = EventKind.ChargeRelease, Pos = Player.Pos, Value = k, Crit = true });
             switch (s.Card.Form)
             {
                 case FormKind.Shot:
                 {
                     var dir = AimAssist(c.shotLockRange, c.shotLockArc, c.shotLockWithMouse, input);
                     Player.Face = dir;
-                    float mul = (1f + c.shotChargeDamage * k) * pm;
+                    float mul = pm;
                     FireShot(s, i, dir, mul);
-                    s.Burst = Mathf.RoundToInt(c.shotVolley * k) + (perfect ? 1 : 0);
+                    s.Burst = Mathf.RoundToInt(c.shotVolley * k);
                     s.BurstT = c.shotVolleyInterval;
                     s.BurstMul = mul;
                     fShotSlow = c.shotFireSlowTime;
@@ -256,10 +374,10 @@ namespace Arena.Sim
                     break;
                 }
                 case FormKind.Dash:
-                    StartFormDash(s, input, k, (1f + c.dashChargeDamage * k) * pm);
+                    StartFormDash(s, input, k, pm);
                     break;
                 default:
-                    ActivateForm(s, input, k, pm, perfect);
+                    ActivateForm(s, input, k);
                     break;
             }
         }
@@ -321,8 +439,8 @@ namespace Arena.Sim
 
         // ---------- активация зоны, призыва, барьера ----------
 
-        /// <summary>Зона, призыв, барьер с зарядом k (0 — обычное применение) и множителем «идеального» выпуска pm.</summary>
-        void ActivateForm(FormSlot s, SimInput input, float k = 0f, float pm = 1f, bool perfect = false)
+        /// <summary>Зона, призыв, барьер: k = 1 — усиление (отпущено в окне заряда), 0 — обычное применение.</summary>
+        void ActivateForm(FormSlot s, SimInput input, float k = 0f, float pm = 1f)
         {
             var c = FormCfg;
             var card = s.Card;
@@ -332,7 +450,7 @@ namespace Arena.Sim
                 case FormKind.Zone:
                 {
                     var at = ZoneTarget(input);
-                    float wide = 1f + c.zoneChargeRadius * k;
+                    float wide = Mathf.Sqrt(1f + c.zoneChargeArea * k); // площадь ×(1 + k)
                     SpawnZone(s, card, at, pm, false, card.Level(Trait.Ricochet), wide);
                     if (card.Has(Trait.Split))
                     {
@@ -348,7 +466,7 @@ namespace Arena.Sim
                     int alive = 0;
                     foreach (var f in s.Active) if (f.Kind == EffectKind.FormSpirit && f.Phase != 3) alive++;
                     if (alive >= 2 && card.Has(Trait.Reap)) foreach (var f in s.Active) { if (f.Kind == EffectKind.FormSpirit) { f.Life = 0f; break; } }
-                    float dmg = (1f + c.summonChargeDamage * k) * pm, life = 1f + c.summonChargeLife * k;
+                    float dmg = pm, life = 1f + c.summonChargeLife * k;
                     if (card.Has(Trait.Split))
                     {
                         SpawnSpirit(s, card, -1f, c.summonSplit * dmg, false).Life *= life;
@@ -360,9 +478,9 @@ namespace Arena.Sim
                 }
                 case FormKind.Barrier:
                 {
-                    float life = c.barrierLife * (1f + c.barrierChargeLife * k);
+                    float life = c.barrierLife;
                     var b = SpawnBarrier(s, card, life, false);
-                    b.Charges += Mathf.RoundToInt(c.barrierChargeHits * k) + (perfect ? 1 : 0);
+                    b.Charges += Mathf.RoundToInt(c.barrierChargeHits * k);
                     s.Cd = s.CdTotal = life + c.barrierCooldown;
                     break;
                 }
@@ -618,6 +736,7 @@ namespace Arena.Sim
         {
             if (!e.Alive) return;
             var c = FormCfg;
+            if (!secondary) dmg *= TrinketBook.SoulDamageMul(card, TrinketSlots, TrinketCfg); // Сосуд душ; молния берёт уже усиленный
             if (dmg > 0f) Damage(e, dmg, false); else e.Flash = 0.08f;
             if (e.Dead) { OnFormKill(card, s, form, src); return; }
             if (stun > 0f) ApplyCc(e, CcKind.Stun, stun);
@@ -656,6 +775,7 @@ namespace Arena.Sim
 
         void FormBlast(SkillCard card, FormSlot s, FormKind form, Vector2 at, float radius, float dmg, Effect src)
         {
+            dmg *= TrinketBook.SoulDamageMul(card, TrinketSlots, TrinketCfg); // Сосуд душ
             foreach (var e in Enemies) if (e.Alive && (e.Pos - at).magnitude <= radius + e.R) FormStrike(e, dmg, 0.2f, card, s, form, at, e.Pos - at, 1f, src, true);
             Events.Add(new SimEvent { Kind = EventKind.Explosion, Pos = at, Radius = radius, Color = 3 });
         }

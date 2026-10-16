@@ -21,6 +21,12 @@ namespace Arena.View
                 Floor = new Color(0.62f, 0.47f, 0.38f), FloorDark = new Color(0.5f, 0.36f, 0.3f), Wall = new Color(0.36f, 0.25f, 0.23f),
                 WallTop = new Color(0.48f, 0.34f, 0.3f), Void = new Color(0.16f, 0.06f, 0.05f), Hazard = new Color(1f, 0.42f, 0.08f), Accent = new Color(1f, 0.6f, 0.25f),
             },
+            // полис: мостовая из песчаника, мраморные стены, черепица; «бездна» — земля между домами
+            "Polis" => new Palette
+            {
+                Floor = new Color(0.8f, 0.75f, 0.66f), FloorDark = new Color(0.7f, 0.64f, 0.55f), Wall = new Color(0.92f, 0.89f, 0.82f),
+                WallTop = new Color(0.74f, 0.4f, 0.27f), Void = new Color(0.36f, 0.32f, 0.28f), Hazard = new Color(1f, 0.3f, 0.12f), Accent = new Color(0.98f, 0.76f, 0.36f),
+            },
             "Elysium" => new Palette
             {
                 Floor = new Color(0.78f, 0.82f, 0.68f), FloorDark = new Color(0.62f, 0.72f, 0.52f), Wall = new Color(0.86f, 0.86f, 0.8f),
@@ -30,6 +36,32 @@ namespace Arena.View
             {
                 Floor = new Color(0.46f, 0.32f, 0.33f), FloorDark = new Color(0.36f, 0.24f, 0.26f), Wall = new Color(0.25f, 0.17f, 0.2f),
                 WallTop = new Color(0.4f, 0.24f, 0.28f), Void = new Color(0.1f, 0.03f, 0.05f), Hazard = new Color(0.55f, 0.85f, 0.35f), Accent = new Color(0.85f, 0.2f, 0.25f),
+            },
+            // этажи Enter the Gungeon
+            "Castle" => new Palette
+            {
+                Floor = new Color(0.58f, 0.57f, 0.6f), FloorDark = new Color(0.48f, 0.47f, 0.52f), Wall = new Color(0.3f, 0.3f, 0.36f),
+                WallTop = new Color(0.42f, 0.5f, 0.38f), Void = new Color(0.07f, 0.07f, 0.1f), Hazard = new Color(1f, 0.4f, 0.1f), Accent = new Color(0.95f, 0.8f, 0.35f),
+            },
+            "Gungeon" => new Palette
+            {
+                Floor = new Color(0.6f, 0.5f, 0.42f), FloorDark = new Color(0.5f, 0.4f, 0.33f), Wall = new Color(0.36f, 0.24f, 0.22f),
+                WallTop = new Color(0.55f, 0.3f, 0.26f), Void = new Color(0.08f, 0.05f, 0.05f), Hazard = new Color(1f, 0.4f, 0.1f), Accent = new Color(1f, 0.55f, 0.3f),
+            },
+            "Mines" => new Palette
+            {
+                Floor = new Color(0.5f, 0.42f, 0.34f), FloorDark = new Color(0.4f, 0.33f, 0.27f), Wall = new Color(0.27f, 0.21f, 0.18f),
+                WallTop = new Color(0.45f, 0.36f, 0.26f), Void = new Color(0.05f, 0.04f, 0.03f), Hazard = new Color(1f, 0.5f, 0.15f), Accent = new Color(1f, 0.7f, 0.3f),
+            },
+            "Hollow" => new Palette
+            {
+                Floor = new Color(0.5f, 0.56f, 0.64f), FloorDark = new Color(0.4f, 0.46f, 0.55f), Wall = new Color(0.24f, 0.28f, 0.36f),
+                WallTop = new Color(0.62f, 0.72f, 0.82f), Void = new Color(0.04f, 0.06f, 0.1f), Hazard = new Color(0.45f, 0.8f, 1f), Accent = new Color(0.6f, 0.85f, 1f),
+            },
+            "Forge" => new Palette
+            {
+                Floor = new Color(0.4f, 0.36f, 0.36f), FloorDark = new Color(0.32f, 0.28f, 0.29f), Wall = new Color(0.2f, 0.16f, 0.17f),
+                WallTop = new Color(0.55f, 0.22f, 0.15f), Void = new Color(0.12f, 0.03f, 0.02f), Hazard = new Color(1f, 0.35f, 0.05f), Accent = new Color(1f, 0.45f, 0.15f),
             },
             "Test" => new Palette
             {
@@ -43,11 +75,16 @@ namespace Arena.View
             },
         };
 
+        /// <summary>Полис: высокие объекты арены последней сборки — CityView делает их прозрачными, когда они заслоняют Смерть.</summary>
+        public static readonly List<GameObject> Fadeables = new();
+
         public static Transform Build(ArenaSim sim)
         {
             doors = sim.Doors();
             var room = sim.Room;
             var pal = For(room.biome);
+            bool polis = room.biome == PolisDressing.Biome; // город: без обрывов, объекты — PolisKit
+            Fadeables.Clear();
             var root = new GameObject("Room " + room.name).transform;
             var rnd = new System.Random(room.name?.GetHashCode() ?? 7);
             float R(float a, float b) => a + (float)rnd.NextDouble() * (b - a);
@@ -58,7 +95,7 @@ namespace Arena.View
             foreach (var f in room.floor)
             {
                 if (f.p == null || f.p.Length < 3 || f.type == "Lava") continue; // магму рисует опасный пол
-                Mesh(root, MeshKit.Slab(f.p, 0f, -0.6f), cliffMat, false);
+                if (!polis) Mesh(root, MeshKit.Slab(f.p, 0f, -0.6f), cliffMat, false); // в городе пол вровень с землёй
                 Mesh(root, MeshKit.Polygon(f.p, 0.001f), floorMat, true);
             }
 
@@ -74,26 +111,41 @@ namespace Arena.View
                 Art.Part(root, MeshKit.Box(), tile, new Vector3(p.x, 0.01f, p.y), new Vector3(s, 0.03f, s * R(0.7f, 1.2f)), new Vector3(0f, R(0f, 90f), 0f), false);
             }
 
-            // стены и препятствия. Невидимые блокираторы Hades (_Impassable_*) не рисуются — только тёмные провалы-дыры.
-            // Стены между камерой и полом (ближний край) низкие, иначе закрывают Ace — в Hades их тоже не видно.
+            // стены и препятствия — всё, что мешает, видно. Провалы в полу — тёмные пятна (снаряды над ними пролетают).
+            // Невидимые блокираторы Hades (_Impassable_*), заходящие на пол, рисуются: держат снаряды — стеной,
+            // только героя и врагов (UnitsOnly) — низким бортиком. Стены ближнего края низкие, иначе закрывают Ace.
             var wallMat = Art.LitMat(pal.Wall);
             var topMat = Art.LitMat(pal.WallTop);
             var pitMat = Art.LitMat(Color.Lerp(pal.Void, Color.black, 0.3f));
+            var curbMat = Art.LitMat(Color.Lerp(pal.Wall, pal.Void, 0.45f));
+            var curbTopMat = Art.LitMat(Color.Lerp(pal.WallTop, pal.Floor, 0.35f));
             var camFwd = new Vector2(Mathf.Sin(CameraRig.Yaw * Mathf.Deg2Rad), Mathf.Cos(CameraRig.Yaw * Mathf.Deg2Rad));
             foreach (var o in sim.Obstacles)
             {
-                if (o.Height <= 0f)
+                if (polis && o.Type != null && o.Type.StartsWith("Polis/") && o.Poly != null)
                 {
-                    if (o.Type == "Hole" && o.Poly != null) Mesh(root, MeshKit.Polygon(o.Poly, 0.004f), pitMat, false);
+                    var go = PolisKit.Prop(root, o.Type, o.Poly, pal, rnd.Next(1000));
+                    if (o.Height >= 1.5f) Fadeables.Add(go);
                     continue;
                 }
-                float h = Mathf.Min(o.Height, MaxWall);
-                if (OccludesFloor(sim, o, camFwd)) h = Mathf.Min(h, FrontWall);
-                // дверь не заслонять: мелкое — убрать, стену контура — опустить
-                if (HidesDoor(o.Pos, o.R, h))
+                bool curb = false;
+                float h = o.Height;
+                if (h <= 0f)
                 {
-                    if (o.R <= 1.2f) continue;
-                    h = Mathf.Min(h, 0.3f);
+                    if (o.Type == "Hole") { if (o.Poly != null) Mesh(root, MeshKit.Polygon(o.Poly, 0.004f), pitMat, false); continue; }
+                    if (o.Poly == null || !TouchesFloor(sim, o.Poly)) continue; // за краем пола — не видно и не нужно
+                    curb = !o.Shots;
+                    h = curb ? CurbHeight : InvisibleWall;
+                }
+                h = Mathf.Min(h, MaxWall);
+                if (OccludesFloor(sim, o, camFwd)) h = Mathf.Min(h, FrontWall);
+                // дверь не заслонять — опустить, но не прятать: всё, что мешает, должно быть видно
+                if (HidesDoor(o.Pos, o.R, h)) h = Mathf.Min(h, 0.3f);
+                if (curb)
+                {
+                    Mesh(root, MeshKit.Slab(o.Poly, h), curbMat, true);
+                    Mesh(root, MeshKit.Polygon(o.Poly, h + 0.01f), curbTopMat, false);
+                    continue;
                 }
                 if (o.Round)
                 {
@@ -118,15 +170,34 @@ namespace Arena.View
             foreach (var d in room.decor)
                 if (!HidesDoor(d.pos, d.r, d.h)) Art.Part(root, MeshKit.Ico(1, 0.1f, rnd.Next(99)), decorMat, Art.W(d.pos) + Vector3.up * (d.h * 0.4f), new Vector3(d.r * 2f, Mathf.Max(0.3f, d.h), d.r * 2f), default, false);
 
-            // бездна под комнатой
-            var abyss = Art.Part(root, MeshKit.Box(), Art.LitMat(pal.Void), new Vector3((room.min.x + room.max.x) * 0.5f, -3f, (room.min.y + room.max.y) * 0.5f),
+            // бездна под комнатой; в городе — земля вровень с мостовой
+            var abyss = Art.Part(root, MeshKit.Box(), Art.LitMat(pal.Void), new Vector3((room.min.x + room.max.x) * 0.5f, polis ? -0.28f : -3f, (room.min.y + room.max.y) * 0.5f),
                 new Vector3(size.x + 80f, 0.5f, size.y + 80f), default, false);
-            abyss.name = "Abyss";
+            abyss.name = polis ? "Ground" : "Abyss";
             return root;
         }
 
-        /// <summary>Высота стен: не выше MaxWall, а стены ближнего края — не выше FrontWall, чтобы не закрывать бой.</summary>
-        const float MaxWall = 1.8f, FrontWall = 0.4f;
+        /// <summary>Высота стен: не выше MaxWall, а стены ближнего края — не выше FrontWall, чтобы не закрывать бой.
+        /// Невидимые блокираторы Hades: держат снаряды — стена InvisibleWall, только юнитов — бортик CurbHeight.</summary>
+        const float MaxWall = 1.8f, FrontWall = 0.4f, InvisibleWall = 0.9f, CurbHeight = 0.22f;
+
+        /// <summary>Многоугольник заходит на пол комнаты: вершина, середина ребра или центр на полу.</summary>
+        static bool TouchesFloor(ArenaSim sim, Vector2[] poly)
+        {
+            var c = Vector2.zero;
+            for (int i = 0; i < poly.Length; i++)
+            {
+                c += poly[i];
+                if (OnFloor(sim, poly[i]) || OnFloor(sim, (poly[i] + poly[(i + 1) % poly.Length]) * 0.5f)) return true;
+            }
+            return OnFloor(sim, c / poly.Length);
+        }
+
+        static bool OnFloor(ArenaSim sim, Vector2 p)
+        {
+            foreach (var f in sim.Room.floor) if (f.p != null && f.p.Length >= 3 && Geo.InPoly(f.p, p)) return true;
+            return false;
+        }
 
         /// <summary>Двери текущей комнаты (для правила «ничто не заслоняет дверь»).</summary>
         static List<(Vector2 pos, Vector2 inward)> doors = new();
@@ -245,7 +316,8 @@ namespace Arena.View
         }
     }
 
-    /// <summary>Ловушки комнаты. Шипы выскакивают из площадки; статуи, топоры, пилы и лучники в замахе белеют (PreAttackFlash);
+    /// <summary>Ловушки комнаты — красные, цвет опасности: взведённые (в комнате бой) яркие и пульсируют, сброшенные тусклые.
+    /// Шипы выскакивают из площадки; статуи, топоры, пилы и лучники в замахе белеют (PreAttackFlash);
     /// газ и яд перед выбросом показывают растущий круг облака (LobWarningDecal); взрывной куб с горящим фитилём —
     /// красный круг ровно радиуса взрыва (BlastWarningDecal).</summary>
     public sealed class TrapViews
@@ -266,7 +338,7 @@ namespace Arena.View
         public TrapViews(ArenaSim sim, Transform parent)
         {
             this.sim = sim;
-            var pad = Art.LitMat(new Color(0.35f, 0.32f, 0.36f));
+            var pad = Art.LitMat(new Color(0.78f, 0.16f, 0.12f), 0.35f); // площадки — красные, чтобы не путать с полом
             var metal = Art.LitMat(new Color(0.75f, 0.74f, 0.8f));
             var marble = Art.LitMat(new Color(0.88f, 0.86f, 0.8f));
             var bronze = Art.LitMat(new Color(0.72f, 0.52f, 0.3f));
@@ -394,7 +466,15 @@ namespace Arena.View
                 // белая вспышка замаха у статуй, топоров, пил и лучников
                 bool flashes = t.Kind is TrapKind.Phalanx or TrapKind.Axe or TrapKind.Saw or TrapKind.Archer;
                 float white = flashes ? 0.8f * warn : 0f;
-                for (int i = 0; i < v.Mats.Length; i++) v.Mats[i].SetColor("_BaseColor", Color.Lerp(v.Base[i], Color.white, white));
+                // взведена — ярче и пульсирует красным, сброшена — тусклая
+                bool armed = sim.TrapArmed(t);
+                float danger = armed ? 0.15f + 0.15f * Mathf.Sin(time * 5f) : 0f;
+                for (int i = 0; i < v.Mats.Length; i++)
+                {
+                    var c = Color.Lerp(v.Base[i], new Color(1f, 0.12f, 0.08f), danger);
+                    if (!armed) c = Color.Lerp(c, new Color(0.25f, 0.2f, 0.2f), 0.45f);
+                    v.Mats[i].SetColor("_BaseColor", Color.Lerp(c, Color.white, white));
+                }
                 switch (t.Kind)
                 {
                     case TrapKind.Spike:
