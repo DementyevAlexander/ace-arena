@@ -431,6 +431,15 @@ namespace Arena.View
                     case EventKind.PlayerHealed: // Поглощение: зелёная цифра, мелкие тики зоны — без цифры
                         if (ev.Value >= 1f) hud.Number(ev.Pos, ev.Value, false, new Color(0.45f, 1f, 0.55f));
                         break;
+                    case EventKind.GraceCollected: // Милость подобрана: малахитовая искра у героини
+                        effects.Puff(ev.Pos, 0.45f, Art.Grace, 0.2f, 0.7f);
+                        break;
+                    case EventKind.GraceSpent:
+                        effects.Ring(ev.Pos, 1.1f, Art.Grace.WithAlpha(0.9f), 0.35f);
+                        break;
+                    case EventKind.EliteSkillCast: // элитка применила скилл
+                        effects.Ring(ev.Pos, 1.4f, Art.EliteRed.WithAlpha(0.85f), 0.3f);
+                        break;
                     case EventKind.LootRerolled:
                         effects.Ring(ev.Pos, 2.2f, new Color(0.75f, 0.7f, 1f, 0.9f), 0.4f);
                         break;

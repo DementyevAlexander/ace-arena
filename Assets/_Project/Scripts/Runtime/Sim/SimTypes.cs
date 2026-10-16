@@ -34,6 +34,10 @@ namespace Arena.Sim
         RunEnd,           // забег окончен: Value 1 — пройден, 0 — Смерть повержена
         PlayerHealed,     // режим форм: Поглощение вылечило Смерть на Value
         LootRerolled,     // режим форм: награды пятачка переброшены (Pos — середина пятачка)
+        GraceCollected,   // Милость подобрана: Value — сколько
+        GraceSpent,       // Милость потрачена (покупка, переброс): Value — сколько
+        EliteSkillCast,   // элитка применила скилл: Value — EliteSkill
+        BossStage,        // Мегера перешла в новую фазу: Value — номер фазы (1–3)
     }
 
     /// <summary>Стоп-кадр Hades (HitSimSlowParameters): замедление всей игры после удара.</summary>
@@ -167,10 +171,16 @@ namespace Arena.Sim
     }
 
     /// <summary>Ghost и Stomper — DandyAce и Пуфф; Thug и Witch — Hades; Wastrel и Casket — Hades II.</summary>
-    public enum EnemyKind { Ghost, Stomper, Thug, Witch, Wastrel, Casket }
+    public enum EnemyKind { Ghost, Stomper, Thug, Witch, Wastrel, Casket, Megaera }
+
+    /// <summary>Оружие Мегеры (Harpy в Hades): рывок, кнут вокруг себя, веер снарядов, молнии, подмога.</summary>
+    public enum MegaWeapon { Lunge, Whirl, Beam, Lightning, Spawns }
 
     /// <summary>Cover, Peek — HideAndPeekAI ведьмы Hades; Hide, Approach — то же у Casket (Hades II); PreFire — пауза Thug между замахом и выпадом.</summary>
     public enum AiState { Spawn, Wander, Alert, Chase, Windup, Strike, Recover, Lunge, PreFire, Cover, Peek, Hide, Approach }
+
+    /// <summary>Скилл элитки (мини-босса) — вражеская версия формы игрока: залп снарядов, круг, дух, щит, рывок.</summary>
+    public enum EliteSkill { Shot, Zone, Summon, Barrier, Dash }
 
     /// <summary>Ellipse — эллипс (круг) с центром Center; Lane — полоса; Trapezoid — от Center вперёд, ширина растёт
     /// от Base до Side; Fan — сектор радиуса Forward с полууглом Angle (градусы).</summary>
@@ -274,6 +284,22 @@ namespace Arena.Sim
         public SkillCard DoomCard;            // чья метка — для связки «Двойной приговор»
         public float DoomEchoT, DoomEchoDmg;  // второй приговор: через сколько и сколько
         public float RotTick;                 // Гнилая кость III: тики урона гнили
+        // элитка: два скилла-формы с перезарядкой (ArenaSim.EliteSkills)
+        public EliteSkill[] Skills;
+        public float[] SkillCd;
+        public int Casting = -1;              // какой скилл сейчас (−1 — никакой): телеграф, потом применение
+        public float CastT, DashT;
+        public Vector2 CastAt, CastDir, DashFrom;
+        public bool DashHit;
+        // Мегера (ArenaSim.Megaera): фаза, оружие, сколько атак назад было каждое, рывков подряд, неуязвимость смены фазы
+        public int Stage, Ticks, LungeRun;
+        public MegaWeapon Weapon;
+        public bool[] Armed;
+        public int[] Ago;
+        public float Invuln;
+        public Enemy Owner;                   // чья подмога (Мегера: не больше spawnMaxActive своих)
+        public int Shield;                    // щит элитки: сколько ударов ещё поглотит
+        public float ShieldT;
         public float LinkT;                   // Hitch: часть урона уходит другим связанным
         public float ZoneSlowT;
         public float PullSpeed;               // скорость притяжения (0 — 2.4, как Black Hole)
@@ -291,6 +317,11 @@ namespace Arena.Sim
         // режим форм (ArenaSim.Forms)
         FormShot, FormBolt, FormZone, FormSpirit, FormBarrier, FormWall, FormTrail, FormShade, FormEchoShot, FormDashReturn, FormVortex,
         FormDetonation, // связка «Цепная детонация»: взрыв добитого врага с короткой задержкой
+        Grace,          // Милость: малахитовый ромбик, выпал из врага, притягивается к Смерти (Charges — сколько стоит)
+        EliteZone,      // элитка: красный круг под Смертью — бьёт и замедляет, пока стоишь
+        EliteSpirit,    // элитка: дух рядом с ней стреляет в Смерть
+        EliteShield,    // элитка: щит вокруг неё поглощает удары
+        MegaStrike,     // Мегера: молния — красный круг, через Fuse удар
     }
 
     /// <summary>Чем нанесён удар: главная карта, её улучшение и собственный эффект.</summary>
@@ -341,6 +372,7 @@ namespace Arena.Sim
         public bool Payload;              // применено Спуском — дальше не спускает
         public bool Triggered;            // снаряд уже спустил карту следующего слота
         public int Gen;                   // поколение эха (Камертон III: эхо эха)
+        public bool Straight;             // вражеский снаряд летит прямо, не наводясь (веер Мегеры)
     }
 
     /// <summary>Препятствие комнаты: многоугольник и описанная окружность (быстрая проверка).</summary>

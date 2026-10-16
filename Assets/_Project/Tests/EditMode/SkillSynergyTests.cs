@@ -332,6 +332,8 @@ namespace Arena.Tests
             }
             Assert.AreEqual(2, s.Loot.Count, "пятачок с картами");
             Assert.AreEqual(s.ArenaCfg.rerollsPerDrop, s.RerollsLeft);
+            foreach (var f in s.Effects) if (f.Kind == EffectKind.Grace) f.Done = true; // ромбики с врагов не мешают счёту
+            s.AddGrace(3 * s.ArenaCfg.rerollCost + 5 - s.Grace); // переброс — за Милость
             Assert.IsFalse(s.RerollLoot(), "пока карточки вырастают — нельзя");
             for (int r = 0; r < 3; r++)
             {
@@ -348,6 +350,7 @@ namespace Arena.Tests
             }
             for (int k = 0; k < 120 && s.Time < s.LootReadyAt; k++) s.Step(T.Dt, default);
             Assert.AreEqual(0, s.RerollsLeft);
+            Assert.AreEqual(5, s.Grace, "три переброса по 15");
             Assert.IsFalse(s.RerollLoot(), "четвёртого переброса нет");
             Assert.IsTrue(s.PickUpLoot(), "взять можно как обычно");
         }

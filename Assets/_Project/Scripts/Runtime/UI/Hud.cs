@@ -17,6 +17,12 @@ namespace Arena.UI
         readonly Canvas canvas;
         readonly Image hpFill;
         readonly Text hpText, roomText, waveText, infoText, banner, buffText, hint;
+        readonly Text graceText; // Милость забега — под полоской здоровья
+        int lastGrace = -1;
+        const float BossW = 900f, BossH = 20f;
+        readonly GameObject bossBar; // здоровье босса — сверху по центру, засечки фаз
+        readonly Image bossFill;
+        readonly Text bossName;
         readonly Minimap minimap;
         readonly RectTransform prompt;   // «E Взять» над ближайшей карточкой пятачка
         readonly Image promptKey;
@@ -56,6 +62,16 @@ namespace Arena.UI
             var hpBg = UiKit.Image(hpFrame.transform, "HpBg", new Color(0.16f, 0.09f, 0.19f, 0.95f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(HpW, HpH));
             hpFill = UiKit.Image(hpBg.transform, "HpFill", new Color(0.85f, 0.29f, 0.39f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(HpW, HpH), new Vector2(0f, 0.5f));
             hpText = UiKit.Label(hpBg.transform, "", 21, Color.white, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(HpW, HpH));
+            graceText = UiKit.Label(t, "", 28, Art.Grace, new Vector2(0f, 1f), new Vector2(50f, -128f), new Vector2(300f, 36f), TextAnchor.MiddleLeft, FontStyle.Bold);
+            graceText.rectTransform.pivot = new Vector2(0f, 0.5f);
+            var bossFrame = UiKit.Image(t, "BossFrame", Pal.GoldDim, new Vector2(0.5f, 1f), new Vector2(0f, -78f), new Vector2(BossW + 4f, BossH + 4f), new Vector2(0.5f, 1f));
+            bossBar = bossFrame.gameObject;
+            var bossBg = UiKit.Image(bossFrame.transform, "Bg", new Color(0.16f, 0.09f, 0.19f, 0.95f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(BossW, BossH));
+            bossFill = UiKit.Image(bossBg.transform, "Fill", new Color(0.85f, 0.18f, 0.25f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(BossW, BossH), new Vector2(0f, 0.5f));
+            foreach (var at in new[] { 0.25f, 0.5f, 0.75f }) // пороги фаз Мегеры (AIEndHealthThreshold)
+                UiKit.Image(bossBg.transform, "Tick", new Color(1f, 0.9f, 0.6f, 0.85f), new Vector2(0f, 0.5f), new Vector2(BossW * at, 0f), new Vector2(3f, BossH + 6f));
+            bossName = UiKit.Label(bossFrame.transform, "", 26, Pal.Text, new Vector2(0.5f, 1f), new Vector2(0f, 22f), new Vector2(BossW, 34f));
+            bossBar.SetActive(false);
             buffText = UiKit.Label(t, "", 20, new Color(0.6f, 1f, 1f), new Vector2(0f, 1f), new Vector2(48f, -132f), new Vector2(700f, 28f), TextAnchor.MiddleLeft, FontStyle.Normal);
             buffText.rectTransform.pivot = new Vector2(0f, 0.5f);
             // справа сверху: волна и счёт
@@ -131,6 +147,18 @@ namespace Arena.UI
             if (hp != lastHp) { lastHp = hp; hpText.text = $"{hp} / {sim.PlayerCfg.hp:0}"; }
             string room = sim.LocationTitle;
             if (room != lastRoom) { lastRoom = room; roomText.text = room; }
+            Enemy boss = null;
+            foreach (var en in sim.Enemies) if (en.Kind == EnemyKind.Megaera && !en.Dead) boss = en;
+            if (bossBar.activeSelf != (boss != null)) bossBar.SetActive(boss != null);
+            if (boss != null)
+            {
+                bossFill.rectTransform.sizeDelta = new Vector2(BossW * Mathf.Clamp01(boss.Hp / boss.MaxHp), BossH);
+                bossFill.color = boss.Invuln > 0f ? Pal.Gold : new Color(0.85f, 0.18f, 0.25f);
+                bossName.text = $"Мегера, фурия  <size=20><color=#{ColorUtility.ToHtmlStringRGB(Pal.Muted)}>фаза {boss.Stage + 1}</color></size>";
+            }
+            bool graceOn = sim.FormsMode && !sim.HubMode;
+            if (graceText.gameObject.activeSelf != graceOn) graceText.gameObject.SetActive(graceOn);
+            if (graceOn && sim.Grace != lastGrace) { lastGrace = sim.Grace; graceText.text = $"◆ {sim.Grace}  <size=20><color=#{ColorUtility.ToHtmlStringRGB(Pal.Muted)}>Милость</color></size>"; }
             if (sim.HubMode)
             {
                 if (lastWave != -2) { lastWave = -2; waveText.text = Arena.Core.HubBuilder.Name; infoText.text = "Врата наверху — новый забег"; }
@@ -223,6 +251,8 @@ namespace Arena.UI
                         ? $"{FormText.Name(c.Form)} · <color=#{ColorUtility.ToHtmlStringRGB(Art.CardTint(c))}>{FormText.Name(c.Own.Value)}</color>"
                         : FormText.Name(c.Form)) + pips;
                 }
+                if (g.Price > 0) // магазин: цена Милостью, не хватает — красным
+                    l.text += $"  <color=#{ColorUtility.ToHtmlStringRGB(g.Price <= sim.Grace ? Art.Grace : Pal.Danger)}>◆ {g.Price}</color>";
                 var vp = cam.WorldToViewportPoint(Art.W(g.Pos, LootView.CardTop));
                 float y = vp.y * size.y + Gap + (g == nearCard ? PromptH + 4f : 0f);
                 l.rectTransform.anchoredPosition = new Vector2(vp.x * size.x, y);
@@ -268,12 +298,12 @@ namespace Arena.UI
                     promptKeyText.text = key;
                     promptKey.rectTransform.sizeDelta = new Vector2(promptKeyText.preferredWidth + 20f, PromptH);
                 }
-                promptText.text = nearCard != null ? "Взять" : hubNear.Kind == Arena.Core.HubSpotKind.Gate ? "Начать забег" : hubNear.Kit ? "Стартовый набор" : "Говорить";
+                promptText.text = nearCard != null ? (nearCard.Price > 0 ? "Купить" : "Взять") : hubNear.Kind == Arena.Core.HubSpotKind.Gate ? "Начать забег" : hubNear.Kit ? "Стартовый набор" : "Говорить";
                 // ключ и слово — по центру под названием
                 float keyW = promptKey.rectTransform.sizeDelta.x;
                 float w = keyW + 10f + promptText.preferredWidth;
                 // переброс — той же строкой справа: «E Взять   F Перебросить · 3»
-                bool canReroll = nearCard != null && sim.CanReroll;
+                bool canReroll = nearCard != null && sim.RerollsLeft > 0 && !sim.LootIsShop;
                 if (reroll.gameObject.activeSelf != canReroll) reroll.gameObject.SetActive(canReroll);
                 float w2 = 0f, key2W = 0f;
                 if (canReroll)
@@ -284,7 +314,10 @@ namespace Arena.UI
                         rerollKeyText.text = rk;
                         rerollKey.rectTransform.sizeDelta = new Vector2(rerollKeyText.preferredWidth + 20f, PromptH);
                     }
-                    rerollText.text = $"Перебросить <color=#{ColorUtility.ToHtmlStringRGB(Pal.Faint)}>· {sim.RerollsLeft}</color>";
+                    int cost = sim.ArenaCfg.rerollCost;
+                    bool afford = sim.Grace >= cost;
+                    rerollText.text = $"Перебросить <color=#{ColorUtility.ToHtmlStringRGB(afford ? Art.Grace : Pal.Danger)}>◆ {cost}</color> <color=#{ColorUtility.ToHtmlStringRGB(Pal.Faint)}>· {sim.RerollsLeft}</color>";
+                    rerollKey.color = afford ? Pal.Muted : Pal.KeyDark;
                     key2W = rerollKey.rectTransform.sizeDelta.x;
                     w2 = 28f + key2W + 10f + rerollText.preferredWidth;
                 }

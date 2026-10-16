@@ -176,6 +176,21 @@ namespace Arena.UI
                 if (opens.Count > 0) what += " · связка " + string.Join(", ", opens.ConvertAll(b => $"«{Bonds.Name(b)}»"));
                 fuse.Set(pad ? "Y" : "", $"Влить {FormText.Name(trait)} в {FormText.Name(cur.Form)}", $"{what} · {gotName} исчезнет", Gain, true);
             }
+
+            // магазин: цена Милостью; не хватает — оба действия закрыты
+            int price = sim.OpenPrice;
+            if (price <= 0) return;
+            offered.Show(got, $"В ПРОДАЖЕ · ◆ {price}", Art.Grace, Art.Grace);
+            leaveHint.GetComponent<Text>().text = mouse ? "Esc — оставить на прилавке" : "B — оставить на прилавке";
+            if (!sim.CanAfford)
+            {
+                string lack = $"Не хватает Милости: нужно ◆ {price}, есть ◆ {sim.Grace}";
+                take.Set(pad ? "A" : "", $"Купить {gotName}", lack, Loss, false);
+                fuse.Set(pad ? "Y" : "", $"Купить и влить {FormText.Name(trait)}", lack, Loss, false);
+                return;
+            }
+            take.AddNote($"  ·  −◆ {price}");
+            fuse.AddNote($"  ·  −◆ {price}");
         }
 
         // ---------- карта сверху ----------
@@ -347,6 +362,9 @@ namespace Arena.UI
                 note.text = noteText;
                 note.color = noteColor;
             }
+
+            /// <summary>Дописать к пояснению доступного действия (цена в магазине).</summary>
+            public void AddNote(string s) { if (enabled) note.text += s; }
         }
     }
 }

@@ -37,7 +37,7 @@ namespace Arena.Sim
                 e.Pos += e.ExtVel * dt;
                 e.ExtVel = Vector2.MoveTowards(e.ExtVel, Vector2.zero, e.Grip * dt);
             }
-            if (!UpdateStatuses(e, dt))
+            if (!UpdateStatuses(e, dt) && !UpdateEliteSkills(e, dt)) // элитка в касте или рывке — своя атака ждёт
             {
                 var walkFrom = e.Pos;
                 switch (e.Kind)
@@ -47,6 +47,7 @@ namespace Arena.Sim
                     case EnemyKind.Thug: UpdateThug(e, dt); break;
                     case EnemyKind.Witch: UpdateWitch(e, dt); break;
                     case EnemyKind.Wastrel: UpdateWastrel(e, dt); break;
+                    case EnemyKind.Megaera: UpdateMegaera(e, dt); break;
                     default: UpdateCasket(e, dt); break;
                 }
                 if (slow < 1f) e.Pos = walkFrom + (e.Pos - walkFrom) * slow;

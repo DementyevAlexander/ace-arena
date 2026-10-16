@@ -248,8 +248,10 @@ namespace Arena.Tests
                 Assert.Greater(sim.Enemies.Count, 0, name + ": враги");
                 if (room.Elite > 0)
                 {
-                    var elite = sim.Enemies.Find(e => e.Elite);
-                    Assert.IsNotNull(elite, name + ": красный враг");
+                    // мини-босс — красная элитка с двумя скиллами-формами, босс — Мегера
+                    var elite = sim.Enemies.Find(e => room.Elite == 2 ? e.Kind == EnemyKind.Megaera : e.Elite);
+                    Assert.IsNotNull(elite, name + (room.Elite == 2 ? ": Мегера" : ": красный враг"));
+                    if (room.Elite == 1) Assert.AreEqual(2, elite.Skills?.Length ?? 0, name + ": два скилла у мини-босса");
                     elites++;
                 }
                 if (!firstShot) { firstShot = true; for (int i = 0; i < 90; i++) yield return null; sim.Player.BuffInvuln = 0f; yield return CaptureUi("24_arena_fight"); sim.Player.BuffInvuln = 9999f; }

@@ -105,6 +105,7 @@ namespace Arena.UI
                     {
                         EtgRoomKind.Boss => new Color32(220, 90, 90, 230),
                         EtgRoomKind.Exit => new Color32(110, 160, 255, 230),
+                        _ when r == sim.ShopRoom => new Color32(77, 199, 148, 230), // магазин — малахит, как Милость
                         EtgRoomKind.Reward => new Color32(240, 210, 100, 230),
                         _ => st == ArenaSim.FloorRoomState.Active ? new Color32(240, 150, 70, 230) : new Color32(200, 196, 186, 210),
                     };

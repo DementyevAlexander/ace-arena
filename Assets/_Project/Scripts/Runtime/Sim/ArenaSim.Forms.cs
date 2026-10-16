@@ -36,6 +36,8 @@ namespace Arena.Sim
         public SkillCard Card;
         public Trinket Trinket;
         public Vector2 Pos;
+        /// <summary>Цена в Милости (магазин); 0 — награда пятачка.</summary>
+        public int Price;
     }
 
     /// <summary>Режим форм: 4 слота (ЛКМ, ПКМ, Q — снаряд, зона, призыв или барьер; Space — рывок), в каждом карта
@@ -143,6 +145,7 @@ namespace Arena.Sim
             RewardPending = false; Offers.Clear();
             ClearLoot();
             ResetTrinkets();
+            ResetGrace();
         }
 
         // ---------- карточки ----------
@@ -192,7 +195,7 @@ namespace Arena.Sim
 
         /// <summary>Можно перебросить: Смерть у пятачка, карточки выросли, выбор не открыт, перебросы остались.
         /// Цена — ArenaTuning.rerollCost золота (пока золота нет — бесплатно).</summary>
-        public bool CanReroll => RerollsLeft > 0 && LootNear != null;
+        public bool CanReroll => RerollsLeft > 0 && !lootShop && LootNear != null && Grace >= ArenaCfg.rerollCost;
 
         /// <summary>Перебросить все награды пятачка: старые сгорают, на их местах вырастают новые того же вида (карты или тринкеты
         /// того же уровня) по тем же правилам выпадения. Не больше ArenaTuning.rerollsPerDrop раз за выдачу.</summary>
@@ -200,6 +203,8 @@ namespace Arena.Sim
         {
             if (!CanReroll) return false;
             RerollsLeft--;
+            Grace -= ArenaCfg.rerollCost;
+            if (ArenaCfg.rerollCost > 0) Events.Add(new SimEvent { Kind = EventKind.GraceSpent, Pos = PedestalPos, Value = ArenaCfg.rerollCost });
             for (int i = 0; i < Loot.Count; i++) Events.Add(new SimEvent { Kind = EventKind.LootBurned, Pos = Loot[i].Pos, Value = i });
             var items = new List<GroundCard>();
             if (pedestalTrinketLevel > 0)
@@ -255,6 +260,7 @@ namespace Arena.Sim
             lootOpen = null;
             TrinketOffer = null;
             RerollsLeft = 0;
+            lootShop = false;
         }
 
         /// <summary>Ближайшая к Смерти карточка пятачка не дальше lootReach. Null — нет такой, карточки ещё вырастают
@@ -320,11 +326,11 @@ namespace Arena.Sim
 
         /// <summary>Поставить карточку в слот: рывок — только в Space, остальные — в ЛКМ, ПКМ, Q. Прежняя карта пропадает.</summary>
         public bool CanTake(int offer, int slot) =>
-            RewardPending && offer >= 0 && offer < Offers.Count && slot >= 0 && slot < 4 && (Offers[offer].Form == FormKind.Dash) == (slot == DashSlot);
+            RewardPending && CanAfford && offer >= 0 && offer < Offers.Count && slot >= 0 && slot < 4 && (Offers[offer].Form == FormKind.Dash) == (slot == DashSlot);
 
         /// <summary>Влить душу карточки (её свойство) в карту слота: форма остаётся от карты слота.</summary>
         public bool CanFuse(int offer, int slot) =>
-            RewardPending && offer >= 0 && offer < Offers.Count && slot >= 0 && slot < 4 && Forms[slot].Card != null && Forms[slot].Card.Souls.Count < SoulCellsOf(Forms[slot].Card);
+            RewardPending && CanAfford && offer >= 0 && offer < Offers.Count && slot >= 0 && slot < 4 && Forms[slot].Card != null && Forms[slot].Card.Souls.Count < SoulCellsOf(Forms[slot].Card);
 
         public void TakeOffer(int offer, int slot)
         {
@@ -344,6 +350,7 @@ namespace Arena.Sim
 
         void FinishReward()
         {
+            if (lootShop && lootOpen != null) { FinishPurchase(); return; } // магазин: остальные не сгорают
             RewardPending = false;
             Offers.Clear();
             for (int i = 0; i < Loot.Count; i++)
@@ -1279,6 +1286,7 @@ namespace Arena.Sim
         /// <summary>Добивание любым ударом, пока стоит барьер с Жатвой: +1 прочность.</summary>
         void OnKillForms(Enemy dead)
         {
+            DropGrace(dead);
             if (dead.Burn > 0f && TrinketIII(TrinketKind.Ember))
             {
                 // Уголёк III: умерший с горением поджигает соседей
@@ -1467,6 +1475,11 @@ namespace Arena.Sim
                     f.Life -= dt;
                     if (f.Life <= 0f) f.Done = true;
                     break;
+                case EffectKind.Grace: UpdateGraceOrb(f, dt); break;
+                case EffectKind.EliteZone: UpdateEliteZone(f, dt); break;
+                case EffectKind.EliteSpirit: UpdateEliteSpirit(f, dt); break;
+                case EffectKind.EliteShield: UpdateEliteShield(f, dt); break;
+                case EffectKind.MegaStrike: UpdateMegaStrike(f, dt); break;
                 case EffectKind.FormDetonation:
                     f.T -= dt;
                     if (f.T > 0f) break;

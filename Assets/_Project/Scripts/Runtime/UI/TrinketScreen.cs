@@ -153,6 +153,14 @@ namespace Arena.UI
             leave.text = mouse ? "Esc — оставить на земле" : "B — оставить на земле";
 
             string key = mouse ? "" : "A";
+            int price = sim.OpenPrice;
+            if (price > 0 && !sim.CanAfford)
+            {
+                // магазин: не хватает Милости
+                SetAct(key, $"Купить {TrinketBook.Name(got.Kind)}", $"Не хватает Милости: нужно ◆ {price}, есть ◆ {sim.Grace}", Loss, false);
+                leave.text = mouse ? "Esc — оставить на прилавке" : "B — оставить на прилавке";
+                return;
+            }
             if (sim.TrinketOfferIsLevelUp)
             {
                 var cur = sim.TrinketSlots[own];
@@ -174,6 +182,7 @@ namespace Arena.UI
 
         void SetAct(string key, string title, string note, Color noteColor, bool on)
         {
+            if (on && sim.OpenPrice > 0) note += $"  ·  −◆ {sim.OpenPrice}"; // магазин: цена Милостью
             actOn = on;
             actFrame.color = on ? ActTint : new Color(1f, 1f, 1f, 0.12f);
             actBg.color = on ? ActFill : new Color(0.08f, 0.065f, 0.11f, 0.9f);

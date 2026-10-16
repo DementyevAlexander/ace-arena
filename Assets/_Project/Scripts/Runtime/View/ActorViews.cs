@@ -318,8 +318,10 @@ namespace Arena.View
                 case EnemyKind.Thug: BuildThug(out legL, out legR); break;
                 case EnemyKind.Witch: BuildWitch(); break;
                 case EnemyKind.Wastrel: BuildWastrel(out legL, out legR); break;
+                case EnemyKind.Megaera: BuildMegaera(); break;
                 default: BuildCasket(out legL, out legR, out lid, out vortex); break;
             }
+            if (e.Kind == EnemyKind.Megaera) model.localScale = Vector3.one * 1.15f; // фурия выше героини
             if (e.Kind == EnemyKind.Wastrel) model.localScale = Vector3.one * 0.95f; // Wastrel крупнее Мелинои
             renderers = body.GetComponentsInChildren<Renderer>();
             flashMats = new Material[renderers.Length];
@@ -374,7 +376,7 @@ namespace Arena.View
             tele = new TelegraphView(parent);
         }
 
-        static float Height(EnemyKind k) => k switch { EnemyKind.Ghost => 1.55f, EnemyKind.Thug => 1.9f, EnemyKind.Witch => 1.6f, EnemyKind.Wastrel => 1.55f, EnemyKind.Casket => 1.35f, _ => 0.9f };
+        static float Height(EnemyKind k) => k switch { EnemyKind.Ghost => 1.55f, EnemyKind.Thug => 1.9f, EnemyKind.Witch => 1.6f, EnemyKind.Wastrel => 1.55f, EnemyKind.Casket => 1.35f, EnemyKind.Megaera => 2.3f, _ => 0.9f };
 
         /// <summary>Wretched Thug (концепт «Enemy caste»): глиняный толстяк — огромное пузо, маленькая голова, насупленные
         /// брови, каменная дубина в правой руке; выше Ace (Tallness 380 против 200).</summary>
@@ -426,6 +428,42 @@ namespace Arena.View
             Art.Part(body, MeshKit.Prism(6), wood, new Vector3(0.38f, 0f, 0.22f), new Vector3(0.06f, 1.38f, 0.06f), new Vector3(0f, 0f, -4f));
             Art.Part(body, MeshKit.Torus(0.14f, 14, 5), wood, new Vector3(0.33f, 1.5f, 0.22f), Vector3.one * 0.24f, new Vector3(90f, 0f, 0f));
             Art.Part(body, MeshKit.Ico(0), wood, new Vector3(0.28f, 1.46f, 0.22f), Vector3.one * 0.07f);
+        }
+
+        /// <summary>Мегера, фурия: тёмно-багровое платье, бледная лиловатая кожа, тёмные волосы в высоком узле, перепончатые
+        /// крылья за спиной, кнут в правой руке.</summary>
+        void BuildMegaera()
+        {
+            var dress = Art.LitMat(new Color(0.42f, 0.08f, 0.14f));
+            var dressDark = Art.LitMat(new Color(0.22f, 0.04f, 0.09f));
+            var skin = Art.LitMat(new Color(0.78f, 0.7f, 0.82f));
+            var hair = Art.LitMat(new Color(0.12f, 0.06f, 0.12f));
+            var wing = Art.LitMat(new Color(0.3f, 0.05f, 0.1f, 0.92f), 0.4f, true);
+            var gold = Art.LitMat(new Color(0.85f, 0.65f, 0.3f), 0.6f);
+            var eye = Art.LitMat(new Color(1f, 0.25f, 0.2f), 3f);
+            var whip = Art.LitMat(new Color(0.35f, 0.1f, 0.12f));
+            Art.Part(body, MeshKit.Prism(8, 0.42f), dress, Vector3.zero, new Vector3(0.78f, 1.05f, 0.7f));                       // юбка
+            Art.Part(body, MeshKit.Prism(8, 1.06f), dressDark, Vector3.zero, new Vector3(0.8f, 0.08f, 0.72f));                    // подол
+            Art.Part(body, MeshKit.Prism(6, 0.75f), dress, new Vector3(0f, 1.0f, 0f), new Vector3(0.42f, 0.42f, 0.34f));          // корсет
+            Art.Part(body, MeshKit.Box(), gold, new Vector3(0f, 1.02f, 0f), new Vector3(0.46f, 0.06f, 0.38f));                    // пояс
+            Art.Part(body, MeshKit.Ico(1), skin, new Vector3(0.27f, 1.36f, 0f), new Vector3(0.16f, 0.14f, 0.16f));                // плечи
+            Art.Part(body, MeshKit.Ico(1), skin, new Vector3(-0.27f, 1.36f, 0f), new Vector3(0.16f, 0.14f, 0.16f));
+            Art.Part(body, MeshKit.Prism(5), skin, new Vector3(0f, 1.42f, 0f), new Vector3(0.1f, 0.12f, 0.1f));                   // шея
+            Art.Part(body, MeshKit.Ico(1), skin, new Vector3(0f, 1.66f, 0.02f), new Vector3(0.28f, 0.32f, 0.28f));                // голова
+            Art.Part(body, MeshKit.Ico(1, 0.08f, 7), hair, new Vector3(0f, 1.74f, -0.06f), new Vector3(0.32f, 0.3f, 0.3f));       // волосы
+            Art.Part(body, MeshKit.Ico(1), hair, new Vector3(0f, 1.95f, -0.1f), new Vector3(0.2f, 0.24f, 0.2f));                  // узел
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(-0.06f, 1.67f, 0.15f), new Vector3(0.06f, 0.035f, 0.03f), default, false);
+            Art.Part(body, MeshKit.Ico(0), eye, new Vector3(0.06f, 1.67f, 0.15f), new Vector3(0.06f, 0.035f, 0.03f), default, false);
+            // крылья: перепонки — плоские треугольники, раскрыты назад и вверх
+            Art.Part(body, MeshKit.Prism(3, 0f), wing, new Vector3(0.35f, 1.35f, -0.25f), new Vector3(0.9f, 1.0f, 0.05f), new Vector3(-10f, -25f, -55f));
+            Art.Part(body, MeshKit.Prism(3, 0f), wing, new Vector3(-0.35f, 1.35f, -0.25f), new Vector3(0.9f, 1.0f, 0.05f), new Vector3(-10f, 25f, 55f));
+            Art.Part(body, MeshKit.Prism(3, 0f), wing, new Vector3(0.55f, 1.1f, -0.3f), new Vector3(0.6f, 0.7f, 0.04f), new Vector3(-10f, -25f, -100f));
+            Art.Part(body, MeshKit.Prism(3, 0f), wing, new Vector3(-0.55f, 1.1f, -0.3f), new Vector3(0.6f, 0.7f, 0.04f), new Vector3(-10f, 25f, 100f));
+            // рука и кнут: рукоять и кольца плети
+            Art.Part(body, MeshKit.Ico(1), skin, new Vector3(0.36f, 0.95f, 0.18f), Vector3.one * 0.11f);
+            Art.Part(body, MeshKit.Prism(6), gold, new Vector3(0.38f, 0.8f, 0.22f), new Vector3(0.05f, 0.28f, 0.05f), new Vector3(20f, 0f, 0f));
+            Art.Part(body, MeshKit.Torus(0.06f, 16, 5), whip, new Vector3(0.45f, 0.45f, 0.35f), Vector3.one * 0.32f, new Vector3(70f, 0f, 20f));
+            Art.Part(body, MeshKit.Torus(0.06f, 16, 5), whip, new Vector3(0.5f, 0.2f, 0.42f), Vector3.one * 0.26f, new Vector3(80f, 30f, 0f));
         }
 
         void BuildGhost()

@@ -278,6 +278,83 @@ namespace Arena.Core
         public float wanderDistance = Hades.U(100f);
     }
 
+    /// <summary>Мегера (Harpy) — первая фурия, босс Тартара в Hades. Файлы: Scripts/EnemyData.lua:9963 (Harpy, AIStages),
+    /// Scripts/WeaponData.lua (HarpyLunge 4432, HarpyWhipWhirl 5170, HarpyBeam 5507, HarpyLightning 6186, HarpySpawns 7144),
+    /// Game/Weapons/EnemyWeapons.sjson, Game/Projectiles/EnemyProjectiles.sjson, Scripts/EncounterData.lua:3509 (BossHarpy1).
+    /// Без Пакта: без помощи сестёр (SupportAIWeaponOptions).</summary>
+    [Serializable]
+    public sealed class MegaeraTuning
+    {
+        public float hp = 4400f * Hades.EnemyHpScale;       // MaxHealth 4400 → ≈ 25 143
+        public float speed = Hades.U(600f);                // Speed 600 — быстрее героя (540)
+        public float radius = Hades.U(51f);                // столкновение ±51
+        public float ccMul = 0.3f;                         // 1_BaseBoss: SlowEffectModifier 0.3 — контроль на неё втрое короче
+        public float[] stageAt = { 0.75f, 0.5f, 0.25f };   // AIStages: AIEndHealthThreshold — удар не проходит ниже порога
+        public float stageShift = 2f;                      // BossStageTransition: WaitDuration 2.0 — неуязвима, стоит
+        public float chaseTimeout = 10f;                   // HarpyLunge: AIMoveWithinRangeTimeout 10 (рывок); у кнута — 4
+        public float setupDelay = 1.5f;                    // AISetupDelay 1.5 — стоит на арене с начала, потом в бой
+
+        // HarpyLunge: рывок по прямой
+        public float lungeRange = Hades.U(600f);           // AIAttackDistance 600
+        public float lungeWindup = 0.82f;                  // PreAttackDuration 0.82, направление — в начале замаха
+        public float lungeDistance = Hades.U(900f);        // SelfVelocity 3000 × Grip 0.3 с ≈ 900 (оценка)
+        public float lungeTime = 0.3f;                     // FireDuration 0.3
+        public float lungeWidth = Hades.U(100f);           // хитбокс −50…150 поперёк (оценка)
+        public float lungeDamage = 13f * Hades.EnemyDamageScale; // Damage 13 → 72
+        public float lungeStun = 0.5f;                     // ZagreusOnHitStun 0.5
+        public float lungeRecover = 1.2f;                  // PostAttackDuration 1.2
+        public int lungeMaxRun = 2;                        // MaxConsecutiveUses 2
+
+        // HarpyWhipWhirl: удар кнутом вокруг себя
+        public float whirlRange = Hades.U(200f);           // AIAttackDistance 200
+        public float whirlMaxDistance = Hades.U(600f);     // MaxPlayerDistance 600 — дальше не выбирает
+        public float whirlTimeout = 4f;
+        public float whirlWindup = 1f;                     // PreAttackDuration 1.0
+        public float whirlRadius = Hades.U(550f);          // DamageRadius 550
+        public float whirlDamage = 15f * Hades.EnemyDamageScale; // Damage 15 → 83
+        public float whirlStun = 0.3f;
+        public float whirlRecover = 0.3f;
+        public int whirlGap = 2;                           // MinAttacksBetweenUse 2
+
+        // HarpyBeam: 15 залпов веером по 5
+        public float beamRange = Hades.U(1200f);           // AIAttackDistance 1200
+        public float beamWindup = 0.5f;
+        public int beamTicks = 15;                         // FireTicks 15
+        public float beamTick = 0.25f;                     // FireCooldown 0.25
+        public int beamCount = 5;                          // NumProjectiles 5
+        public float beamAngle = 35f;                      // ProjectileAngleOffset 35 — между снарядами (трактовка)
+        public float beamSpread = 5f;                      // Spread 5 — разброс ± (трактовка)
+        public float beamSpeed = Hades.U(800f);
+        public float beamDamage = 4f * Hades.EnemyDamageScale; // Damage 4 → 22
+        public float beamRecover = 1.5f;
+        public int beamGap = 3;
+
+        // HarpyLightning: молнии с неба вокруг героя
+        public float boltsRange = Hades.U(900f);           // AIAttackDistance по умолчанию 900
+        public float boltsWindup = 0.5f;
+        public int boltsTicks = 5;                         // FireTicks 5
+        public float boltsTick = 1.2f;                     // FireCooldown 1.2
+        public float boltsRing = Hades.U(425f);            // AttackSlots: центр и 4 точки на 425
+        public float boltsFuse = 0.75f;                    // Fuse 0.75 — красный круг, потом удар
+        public float boltsRadius = Hades.U(300f);          // DamageRadius 300
+        public float boltsDamage = 9f * Hades.EnemyDamageScale; // Damage 9 → 50
+        public float boltsRecover = 0.6f;
+        public int boltsGap = 3;
+
+        // HarpySpawns: «Ко мне!» — подмога
+        public int spawnCount = 6;                         // SpawnCount 6, HeavyMelee или LightRanged
+        public float spawnRadius = Hades.U(950f);
+        public int spawnMaxActive = 5;                     // MaxActiveSpawns 5
+        public float spawnRecover = 1f;
+        public int spawnGap = 10;                          // MinAttacksBetweenUse 10
+
+        // BossHarpy1: фоновая подмога весь бой
+        public float addsStart = 15f;                      // StartDelay 15
+        public float addsIntervalMin = 5f, addsIntervalMax = 7f; // SpawnIntervalMin/Max
+        public int addsCap = 4;                            // ActiveEnemyCapBase 4 (вместе с ней)
+        public float floorHpGrowth = 0.3f;                 // этажи 2–5 — пока она же, здоровье +30% за этаж (наше)
+    }
+
     /// <summary>Wretched Witch (LightRanged) из Hades: прячется за укрытием 2.3 с, выходит на линию огня, замах 0.5 с, стреляет сгустком.
     /// EnemyData.lua:1548/1646, EnemyAI.lua:1846 (HideAndPeekAI), EnemyProjectiles.sjson:2672.</summary>
     [Serializable]
@@ -332,7 +409,35 @@ namespace Arena.Core
         public float lootAppear = 0.4f;        // карточки вырастают из пола, потом их можно брать
         /// <summary>Переброс наград пятачка (F / LB рядом с ним): столько раз за одну выдачу. Цена — золото, пока бесплатно.</summary>
         public int rerollsPerDrop = 3;
-        public int rerollCost = 0;
+        public int rerollCost = 15;            // Милости за переброс
+
+        /// <summary>Милость — валюта забега: малахитовые ромбики выпадают из убитых врагов; ближе graceMagnet — летят к Смерти
+        /// и подбираются сами. В начале забега — 0. Числа — оценка.</summary>
+        public int graceMin = 1, graceMax = 3; // с обычного врага
+        public int graceElite = 15;            // с мини-босса
+        public int graceBoss = 40;             // с босса
+        public float graceMagnet = 3f;         // «несколько метров»: ближе — притягивается
+        public float gracePickup = 0.45f;
+        public float graceFlySpeed = 11f;
+        public float graceScatter = 3.5f;      // выпав, разлетается с такой скоростью и тормозит
+        public float graceSettle = 0.35f;      // столько лежит, прежде чем начнёт притягиваться
+
+        /// <summary>Магазин — комната на этаже (ShopRoom): карты и тринкеты I за Милость, товар не сгорает и живёт весь этаж.</summary>
+        public int shopCards = 6, shopTrinkets = 2;
+        public int[] shopCardPrice = { 30, 50, 80 }; // редкая, эпическая, легендарная
+        public int shopTrinketPrice = 60;
+
+        /// <summary>Элитки (мини-боссы): по два скилла-формы с перезарядкой. Телеграф красный, на время каста стоит.</summary>
+        public float[] eliteSkillCd = { 6f, 9f, 12f, 10f, 7f }; // залп, круг, дух, щит, рывок
+        public float eliteSkillRange = 12f;    // применяет, если Смерть ближе
+        public float eliteCastTime = 0.7f;     // телеграф
+        public int eliteShotCount = 3;
+        public float eliteShotSpread = 18f;    // градусов между снарядами залпа
+        public float eliteZoneRadius = 2f, eliteZoneLife = 3f, eliteZoneTick = 0.5f, eliteZoneDamage = 8f, eliteZoneSlow = 0.6f;
+        public float eliteSpiritLife = 8f, eliteSpiritFire = 1.5f;
+        public int eliteShieldHits = 5;
+        public float eliteShieldTime = 4f;
+        public float eliteDashRange = 6f, eliteDashTime = 0.3f, eliteDashDamage = 30f;
         public int budgetPerReward = 8;
         /// <summary>Этаж из арен: мини-босс и босс — обычный враг из набора арены, красный, с таким множителем здоровья.</summary>
         public float eliteHpMini = 10f, eliteHpBoss = 20f;

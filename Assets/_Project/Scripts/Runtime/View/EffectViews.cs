@@ -321,9 +321,27 @@ namespace Arena.View
 
         void BuildForm(Effect f)
         {
-            tint = Art.CardTint(f.Card);
+            tint = f.Kind is EffectKind.EliteZone or EffectKind.EliteSpirit or EffectKind.EliteShield or EffectKind.MegaStrike ? Art.EliteRed : Art.CardTint(f.Card);
             switch (f.Kind)
             {
+                case EffectKind.Grace:
+                {
+                    // Милость: малахитовый ромбик — две пирамиды основаниями друг к другу
+                    var m = Art.LitMat(Art.Grace, 2.2f);
+                    Add(Art.Part(root, MeshKit.Prism(4, 0f), m, new Vector3(0f, 0.4f, 0f), new Vector3(0.2f, 0.2f, 0.2f), default, false));
+                    Add(Art.Part(root, MeshKit.Prism(4, 0f), m, new Vector3(0f, 0.4f, 0f), new Vector3(0.2f, 0.2f, 0.2f), new Vector3(180f, 0f, 0f), false));
+                    break;
+                }
+                case EffectKind.EliteSpirit:
+                {
+                    // дух элитки: тёмный саван, череп, красные глаза
+                    var shroud = Art.LitMat(new Color(0.3f, 0.12f, 0.14f, 0.6f), 0.6f, true);
+                    Add(Art.Part(root, MeshKit.Prism(7, 0.2f), shroud, new Vector3(0f, 0.55f, 0f), new Vector3(0.42f, 0.6f, 0.42f), new Vector3(180f, 0f, 0f), false));
+                    Add(Art.Part(root, MeshKit.Ico(1), Art.LitMat(new Color(0.86f, 0.83f, 0.76f), 0.3f), new Vector3(0f, 1.15f, 0f), new Vector3(0.32f, 0.34f, 0.3f), default, false));
+                    Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(tint, 4f), new Vector3(-0.07f, 1.17f, 0.13f), Vector3.one * 0.07f, default, false));
+                    Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(tint, 4f), new Vector3(0.07f, 1.17f, 0.13f), Vector3.one * 0.07f, default, false));
+                    break;
+                }
                 case EffectKind.FormShot:
                     Add(Art.Part(root, MeshKit.Ico(1), Art.LitMat(tint, 3f), new Vector3(0f, 0.75f, 0f), Vector3.one * 0.34f, default, false));
                     Add(Art.Part(root, MeshKit.Ico(0), Art.LitMat(Color.white, 4f), new Vector3(0f, 0.75f, 0f), Vector3.one * 0.16f, default, false));
@@ -334,6 +352,8 @@ namespace Arena.View
                     Trail(root, tint, 0.14f, 0.15f, 0.85f);
                     break;
                 case EffectKind.FormZone:
+                case EffectKind.EliteZone:
+                case EffectKind.MegaStrike:
                 {
                     var fm = Art.DecalInstance(new Color(tint.r, tint.g, tint.b, 0.16f), f.Phase == 1 ? -1 : 0, 1); owned.Add(fm);
                     Add(Art.Decal(root, f.Phase == 1 ? MeshKit.FloorLane() : MeshKit.FloorQuad(), fm, 0.026f));
@@ -363,6 +383,7 @@ namespace Arena.View
                 }
                 case EffectKind.FormBarrier:
                 case EffectKind.FormWall:
+                case EffectKind.EliteShield:
                 {
                     float a = f.Kind == EffectKind.FormWall ? 0.18f : 0.26f;
                     Add(Art.Part(root, MeshKit.Ico(1), Art.LitMat(new Color(tint.r, tint.g, tint.b, a), 1.4f, true), new Vector3(0f, 0.7f, 0f), Vector3.one, default, false));
@@ -408,7 +429,24 @@ namespace Arena.View
                 case EffectKind.FormShot:
                     root.localScale = Vector3.one * f.Grow * (0.85f + 0.3f * f.Mul);
                     break;
+                case EffectKind.Grace:
+                {
+                    root.rotation = Quaternion.Euler(0f, time * 140f + f.Id * 37f, 0f);
+                    float bob = 0.4f + 0.07f * Mathf.Sin(time * 4f + f.Id);
+                    parts[0].localPosition = parts[1].localPosition = new Vector3(0f, bob, 0f);
+                    root.localScale = Vector3.one * (f.Charges > 1 ? 1.5f : 1f);
+                    break;
+                }
+                case EffectKind.EliteSpirit:
+                {
+                    var to = sim.Player.Pos - f.Pos;
+                    if (to.sqrMagnitude > 0.0001f) root.rotation = Quaternion.LookRotation(new Vector3(to.x, 0f, to.y));
+                    root.position += Vector3.up * (0.12f * Mathf.Sin(time * 3f + f.Id));
+                    break;
+                }
                 case EffectKind.FormZone:
+                case EffectKind.EliteZone:
+                case EffectKind.MegaStrike:
                 {
                     root.rotation = f.Phase == 1 ? Quaternion.LookRotation(new Vector3(f.Dir.x, 0f, f.Dir.y)) : Quaternion.identity;
                     float fade = Mathf.Clamp01(Mathf.Min(f.Age * 6f, f.Phase == 2 ? 1f : f.Life * 3f + 0.25f));
@@ -456,6 +494,7 @@ namespace Arena.View
                 }
                 case EffectKind.FormBarrier:
                 case EffectKind.FormWall:
+                case EffectKind.EliteShield:
                 {
                     root.rotation = Quaternion.identity;
                     float s = f.R * f.Grow * 2f * (1f + 0.04f * Mathf.Sin(time * 12f));

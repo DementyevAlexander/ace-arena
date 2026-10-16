@@ -213,6 +213,11 @@ namespace Arena.View
 
         public static Vector3 W(Vector2 p, float y = 0f) => new(p.x, y, p.y);
 
+        /// <summary>Милость — мягкий малахит: ромбики на полу, счётчик в HUD, цены в магазине.</summary>
+        public static readonly Color Grace = new(0.3f, 0.78f, 0.58f);
+        /// <summary>Скиллы элиток — красные, как телеграфы врагов.</summary>
+        public static readonly Color EliteRed = new(1f, 0.28f, 0.22f);
+
         /// <summary>Цвет свойства формы — им светятся снаряды, зоны, духи и подписи.</summary>
         public static Color TraitColor(Arena.Core.Trait t) => t switch
         {

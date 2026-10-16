@@ -99,6 +99,7 @@ namespace Arena.Sim
 
         public void ApplyCc(Enemy e, CcKind kind, float duration)
         {
+            if (e.Kind == EnemyKind.Megaera) duration *= MegaeraCfg.ccMul; // босс: контроль втрое короче (SlowEffectModifier)
             if (kind == CcKind.Stun) e.Stun = Mathf.Max(e.Stun, duration);
             else if (kind == CcKind.Fear) e.Fear = Mathf.Max(e.Fear, duration);
             InterruptAttack(e);
@@ -108,7 +109,7 @@ namespace Arena.Sim
         /// (FireDuration в AttackOnce не проверяет CanAttack), поэтому во время удара оглушение не действует.</summary>
         void HitStunEnemy(Enemy e, float duration)
         {
-            if (e.Dead || e.State is AiState.Strike or AiState.Lunge) return;
+            if (e.Dead || e.State is AiState.Strike or AiState.Lunge || e.Kind == EnemyKind.Megaera) return; // босса удар не сбивает
             e.HitStun = Mathf.Max(e.HitStun, duration);
             if (e.Kind is EnemyKind.Wastrel or EnemyKind.Casket)
             {
@@ -129,6 +130,7 @@ namespace Arena.Sim
         /// Hades: замах (PreAttack, PreFire) прерывается, начавшийся удар — нет; потом враг начинает замах заново.</summary>
         void InterruptAttack(Enemy e)
         {
+            if (e.Kind == EnemyKind.Megaera) return; // замах босса не срывается
             if (e.Kind is EnemyKind.Wastrel or EnemyKind.Casket) { InterruptHades2(e); return; }
             if (e.HadesKind)
             {
@@ -203,7 +205,14 @@ namespace Arena.Sim
         public void Damage(Enemy e, float amount, bool crit, bool dot = false, DotKind dotKind = DotKind.Bleed, HitStop stop = HitStop.None)
         {
             if (e.Dead) return;
+            if (EliteShieldAbsorb(e, dot)) return; // щит элитки
             if (e.RotT > 0f) amount *= 1f + FormCfg.rotVuln * e.RotLvl; // гниль: уязвимость
+            bool shift = false;
+            if (e.Kind == EnemyKind.Megaera)
+            {
+                amount = MegaeraDamage(e, amount, out shift); // фазы: ниже порога не пробить, в смене фазы — неуязвима
+                if (amount <= 0f && !shift) { if (!dot) Events.Add(new SimEvent { Kind = EventKind.PlayerBlocked, Pos = e.Pos }); return; }
+            }
             e.Hp -= amount;
             // Hades: красная вспышка 0.03 с и дрожь 6 ед. за 0.15 с (CombatPresentation.lua:1901, 1930)
             e.Flash = 0.03f;
@@ -213,6 +222,7 @@ namespace Arena.Sim
             if (e.DoomT > 0f && !doomBursting) e.DoomAcc += amount;
             if (e.LinkT > 0f && !sharing) ShareDamage(e, amount);
             if (e.HadesKind && !dot) Aggro(e);
+            if (shift) MegaeraStageShift(e);
             if (e.Hp <= 0f && !e.Dead) Kill(e);
         }
 

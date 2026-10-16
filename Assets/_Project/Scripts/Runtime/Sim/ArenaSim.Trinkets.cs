@@ -49,7 +49,7 @@ namespace Arena.Sim
 
         /// <summary>Поставить новый тринкет в слот: пустой или занятый (прежний пропадёт вместе с уровнем).</summary>
         public bool CanPutTrinket(int slot) =>
-            RewardPending && TrinketOffer != null && !TrinketOfferIsLevelUp && slot >= 0 && slot < TrinketSlots.Length;
+            RewardPending && CanAfford && TrinketOffer != null && !TrinketOfferIsLevelUp && slot >= 0 && slot < TrinketSlots.Length;
 
         public void PutTrinket(int slot)
         {
@@ -62,7 +62,7 @@ namespace Arena.Sim
         /// <summary>Повтор: уровень стоящего тринкета +1 (до V).</summary>
         public void LevelTrinket()
         {
-            if (!RewardPending || !CanLevelTrinket) return;
+            if (!RewardPending || !CanLevelTrinket || !CanAfford) return;
             var t = TrinketSlots[TrinketSlotOf(TrinketOffer.Kind)];
             t.Level = System.Math.Min(TrinketBook.MaxLevel, t.Level + 1);
             RecomputeTrinkets();

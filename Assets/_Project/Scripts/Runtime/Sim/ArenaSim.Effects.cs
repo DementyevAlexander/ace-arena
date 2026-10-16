@@ -85,7 +85,7 @@ namespace Arena.Sim
             var c = CasketCfg;
             f.Life -= dt;
             var to = Player.Pos - f.Pos;
-            if (to.sqrMagnitude > 0.0001f && Player.Hidden <= 0f)
+            if (!f.Straight && to.sqrMagnitude > 0.0001f && Player.Hidden <= 0f)
             {
                 float a = Vector2.SignedAngle(f.Dir, to);
                 float turn = Mathf.Clamp(a, -c.boltTurn * dt, c.boltTurn * dt) * Mathf.Deg2Rad;

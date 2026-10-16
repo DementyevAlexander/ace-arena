@@ -16,6 +16,7 @@ namespace Arena.Sim
         public readonly WitchTuning WitchCfg;
         public readonly WastrelTuning WastrelCfg;
         public readonly CasketTuning CasketCfg;
+        public readonly MegaeraTuning MegaeraCfg = new();
         public readonly ArenaTuning ArenaCfg;
 
         /// <summary>Комната как есть в данных и её вариант в игре (может быть отражена, как в Hades).</summary>
@@ -796,14 +797,14 @@ namespace Arena.Sim
                 R = kind switch
                 {
                     EnemyKind.Ghost => GhostCfg.radius, EnemyKind.Stomper => StomperCfg.radius, EnemyKind.Thug => ThugCfg.radius,
-                    EnemyKind.Witch => WitchCfg.radius, EnemyKind.Wastrel => WastrelCfg.radius, _ => CasketCfg.radius,
+                    EnemyKind.Witch => WitchCfg.radius, EnemyKind.Wastrel => WastrelCfg.radius, EnemyKind.Megaera => MegaeraCfg.radius, _ => CasketCfg.radius,
                 },
                 Cd = Rand(0.3f, 1f),
             };
             e.MaxHp = e.Hp = kind switch
             {
                 EnemyKind.Ghost => GhostCfg.hp, EnemyKind.Stomper => StomperCfg.hp, EnemyKind.Thug => ThugCfg.hp,
-                EnemyKind.Witch => WitchCfg.hp, EnemyKind.Wastrel => WastrelCfg.hp, _ => CasketCfg.hp,
+                EnemyKind.Witch => WitchCfg.hp, EnemyKind.Wastrel => WastrelCfg.hp, EnemyKind.Megaera => MegaeraCfg.hp, _ => CasketCfg.hp,
             };
             Enemies.Add(e);
             Events.Add(new SimEvent { Kind = EventKind.EnemySpawned, Pos = pos, Enemy = e });

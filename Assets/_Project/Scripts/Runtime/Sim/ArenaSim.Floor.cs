@@ -132,7 +132,10 @@ namespace Arena.Sim
             else { Obstacles.Clear(); Traps.Clear(); Hazards.Clear(); Breakables.Clear(); doorStand.Clear(); }
             Enemies.Clear(); Effects.Clear(); Bolts.Clear();
             pending.Clear(); plan.Clear(); planIndex = 0;
+            megaFight = false; megaera = null;
             ClearLoot();
+            shopStock.Clear(); shopFilled = false;
+            ShopRoom = FormsMode ? PickShopRoom(f) : -1;
             DoorsOpen = false;
             if (FormsMode) ResetFormRoom();
             var p = Player;
@@ -299,8 +302,9 @@ namespace Arena.Sim
             if (!room.Combat && RoomStates[r] != FloorRoomState.Cleared)
             {
                 RoomStates[r] = FloorRoomState.Cleared;
-                if (room.Kind == EtgRoomKind.Reward && FormsMode) DropLootAt(room.Center);
+                if (room.Kind == EtgRoomKind.Reward && FormsMode && r != ShopRoom) DropLootAt(room.Center);
             }
+            if (r == ShopRoom && FormsMode && !lootShop) OpenShop(); // магазин: прилавок при каждом входе
             Events.Add(new SimEvent { Kind = EventKind.FloorRoomEnter, Value = r });
         }
 
@@ -355,11 +359,13 @@ namespace Arena.Sim
             pending.Clear(); plan.Clear(); planIndex = 0;
             Depth = FloorDepthLevel;
             activeCap = 10;
-            if (boss) plan.AddRange(BossPlan());
+            bool mega = boss && FormsMode; // босс этажа — Мегера; её бой — она и фоновая подмога, без волн
+            if (boss && !mega) plan.AddRange(BossPlan());
             waveTimer = 0.6f;
             spawnTimer = 0f;
             if (Floor.Polygonal) LockDoors(room);
-            if (room.Elite > 0) SpawnElite(room);
+            if (mega) StartMegaeraFight(room);
+            else if (room.Elite > 0) SpawnElite(room);
             Events.Add(new SimEvent { Kind = EventKind.FloorRoomLocked, Value = r });
         }
 
@@ -407,6 +413,7 @@ namespace Arena.Sim
             e.Elite = true;
             e.MaxHp = e.Hp = e.MaxHp * (room.Elite == 2 ? ArenaCfg.eliteHpBoss : ArenaCfg.eliteHpMini);
             if (IsHades2(kind)) e.SpawnAggro = true;
+            if (FormsMode && room.Elite == 1) GiveEliteSkills(e); // мини-босс: два скилла-формы
         }
 
         /// <summary>Босс: три волны на бюджет комнаты (30% + 30% + 40%).</summary>
@@ -432,6 +439,7 @@ namespace Arena.Sim
         void UpdateFloorEncounter(float dt)
         {
             if (RewardPending) return;
+            if (megaFight) { UpdateMegaeraFight(dt); return; }
             if (pending.Count > 0)
             {
                 spawnTimer -= dt;
