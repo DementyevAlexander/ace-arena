@@ -40,7 +40,7 @@ namespace Arena.Core
 
         public RectInt Rect => new(Pos.x, Pos.y, Room.w, Room.h);
         /// <summary>Бой при входе: обычные комнаты, хабы (кроме этажа из арен) и босс.</summary>
-        public bool Combat => Kind is EtgRoomKind.Normal or EtgRoomKind.Boss || Kind == EtgRoomKind.Hub && !PeacefulHubs;
+        public bool Combat => Kind is EtgRoomKind.Normal or EtgRoomKind.Boss or EtgRoomKind.Connector || Kind == EtgRoomKind.Hub && !PeacefulHubs;
         /// <summary>Смещение арены: точка арены q стоит в мире в q + ArenaOffset.</summary>
         public Vector2 ArenaOffset => Arena == null ? Vector2.zero : new Vector2(Pos.x, Pos.y) - Arena.Origin;
         public Vector2 Center => new(Pos.x + Room.w * 0.5f, Pos.y + Room.h * 0.5f);

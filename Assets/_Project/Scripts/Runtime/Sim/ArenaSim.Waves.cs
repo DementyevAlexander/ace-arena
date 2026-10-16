@@ -51,6 +51,7 @@ namespace Arena.Sim
             pending.Clear();
             plan.Clear();
             planIndex = 0;
+            Wave = 0; // волны — заново в каждой комнате
             Depth = depth;
             var enc = Enc;
             activeCap = enc != null && enc.activeCap > 0 ? enc.activeCap : 10;

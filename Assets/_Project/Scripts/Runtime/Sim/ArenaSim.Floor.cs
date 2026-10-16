@@ -132,7 +132,7 @@ namespace Arena.Sim
             else { Obstacles.Clear(); Traps.Clear(); Hazards.Clear(); Breakables.Clear(); doorStand.Clear(); }
             Enemies.Clear(); Effects.Clear(); Bolts.Clear();
             pending.Clear(); plan.Clear(); planIndex = 0;
-            megaFight = false; megaera = null;
+            megaFight = false; megaera = null; eliteOnly = false;
             ClearLoot();
             shopStock.Clear(); shopFilled = false;
             ShopRoom = FormsMode ? PickShopRoom(f) : -1;
@@ -359,7 +359,9 @@ namespace Arena.Sim
             pending.Clear(); plan.Clear(); planIndex = 0;
             Depth = FloorDepthLevel;
             activeCap = 10;
-            bool mega = boss && FormsMode; // босс этажа — Мегера; её бой — она и фоновая подмога, без волн
+            Wave = 0; // волны считаются заново в каждой комнате
+            bool mega = boss && FormsMode; // босс этажа — Мегера: без волн, подмога — только её «Ко мне!»
+            eliteOnly = room.Elite == 1 && FormsMode; // мини-босс — без волн, только он (и его дух)
             if (boss && !mega) plan.AddRange(BossPlan());
             waveTimer = 0.6f;
             spawnTimer = 0f;
@@ -440,6 +442,7 @@ namespace Arena.Sim
         {
             if (RewardPending) return;
             if (megaFight) { UpdateMegaeraFight(dt); return; }
+            if (eliteOnly) { if (AliveCount() == 0) { eliteOnly = false; ClearRoom(); } return; }
             if (pending.Count > 0)
             {
                 spawnTimer -= dt;

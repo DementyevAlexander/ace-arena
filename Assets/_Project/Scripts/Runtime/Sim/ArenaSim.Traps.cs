@@ -86,7 +86,8 @@ namespace Arena.Sim
         {
             foreach (var t in Traps)
             {
-                if (!TrapArmed(t))
+                bool fuseLit = t.Kind == TrapKind.BlastCube && t.Phase is TrapPhase.Pre or TrapPhase.Cooldown; // куб с фитилём взрывается и вне боя
+                if (!TrapArmed(t) && !fuseLit)
                 {
                     // бой кончился (или не начался): ловушка сброшена и стоит, облако рассеялось; разбитая — так и остаётся
                     if (t.Phase != TrapPhase.Gone) { t.Phase = TrapPhase.Idle; t.T = 0f; }

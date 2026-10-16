@@ -258,12 +258,9 @@ namespace Arena.Core
                 foreach (var d in l.Rooms[r].Doors)
                     if (dist[d.To] < 0) { dist[d.To] = dist[r] + 1; q.Enqueue(d.To); }
             }
-            // хабы — с боем, кроме стартового (ближайшего ко входу)
-            EtgPlacedRoom startHub = null;
+            // хабы и коннекторы — с боем, все (пустых комнат на этаже нет; мирные — вход, выход, награды, магазин и фойе босса)
             foreach (var r in l.Rooms)
-                if (r.Kind == EtgRoomKind.Hub && dist[r.Index] >= 0 && (startHub == null || dist[r.Index] < dist[startHub.Index])) startHub = r;
-            foreach (var r in l.Rooms)
-                if (r.Kind == EtgRoomKind.Hub) r.PeacefulHubs = r == startHub;
+                if (r.Kind == EtgRoomKind.Hub) r.PeacefulHubs = false;
             var cand = new List<EtgPlacedRoom>();
             foreach (var r in l.Rooms)
             {

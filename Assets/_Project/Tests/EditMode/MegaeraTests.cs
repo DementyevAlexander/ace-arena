@@ -132,8 +132,11 @@ namespace Arena.Tests
             Enemy mega = null;
             for (int k = 0; k < 300 && mega == null; k++) { s.Step(T.Dt, default); mega = s.Enemies.FirstOrDefault(e => e.Kind == EnemyKind.Megaera); }
             Assert.IsNotNull(mega, "в комнате босса — Мегера");
-            T.Run(s, 20f); // фоновая подмога с 15-й секунды, проявляется 2 с
-            Assert.IsTrue(s.Enemies.Any(e => !e.Dead && e.Kind != EnemyKind.Megaera), "подмога пришла");
+            T.Run(s, 20f);
+            Assert.IsFalse(s.Enemies.Any(e => !e.Dead && e.Kind != EnemyKind.Megaera), "волн и фоновой подмоги нет");
+            mega.Armed[(int)MegaWeapon.Spawns] = true; // её «Ко мне!» — единственная подмога
+            for (int k = 0; k < 600 && !s.Enemies.Any(e => !e.Dead && e.Owner == mega); k++) s.Step(T.Dt, default);
+            Assert.IsTrue(s.Enemies.Any(e => !e.Dead && e.Owner == mega), "подмога — её призыв");
             for (int k = 0; k < 4 && !mega.Dead; k++) { s.Damage(mega, 1e7f, false); T.Run(s, s.MegaeraCfg.stageShift + 0.1f); }
             Assert.IsTrue(mega.Dead);
             Assert.IsFalse(s.Enemies.Any(e => e.Alive), "подмога погибла с ней");

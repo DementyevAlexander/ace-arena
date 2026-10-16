@@ -216,7 +216,7 @@ namespace Arena.Sim
             e.Hp -= amount;
             // Hades: красная вспышка 0.03 с и дрожь 6 ед. за 0.15 с (CombatPresentation.lua:1901, 1930)
             e.Flash = 0.03f;
-            e.Shake = 0.15f;
+            if (!dot) e.Shake = 0.15f; // урон со временем (горение, гниль, яд) не трясёт — иначе горящий враг дрожит без конца
             bool kill = e.Hp <= 0f;
             Events.Add(new SimEvent { Kind = EventKind.EnemyHit, Pos = e.Pos, Value = amount, Crit = crit, Enemy = e, Color = dot ? 10 + (int)dotKind : -1, Stop = dot ? HitStop.None : stop, Kill = kill || crit });
             if (e.DoomT > 0f && !doomBursting) e.DoomAcc += amount;

@@ -348,10 +348,8 @@ namespace Arena.Core
         public float spawnRecover = 1f;
         public int spawnGap = 10;                          // MinAttacksBetweenUse 10
 
-        // BossHarpy1: фоновая подмога весь бой
-        public float addsStart = 15f;                      // StartDelay 15
-        public float addsIntervalMin = 5f, addsIntervalMax = 7f; // SpawnIntervalMin/Max
-        public int addsCap = 4;                            // ActiveEnemyCapBase 4 (вместе с ней)
+        // BossHarpy1 в Hades ещё и подсылает фоновую подмогу (StartDelay 15, раз в 5–7 с, до 4) — у нас её нет:
+        // у боссов и мини-боссов подмога только своим призывом
         public float floorHpGrowth = 0.3f;                 // этажи 2–5 — пока она же, здоровье +30% за этаж (наше)
     }
 

@@ -8,13 +8,12 @@ namespace Arena.Sim
     /// ниже порога, на пороге она 2 с неуязвима (BossStageTransition) и берёт новое оружие. Фаза 1 — рывок и кнут; 2 — ещё веер или
     /// молнии; 3 — подмога «Ко мне!»; 4 — оставшееся из веера и молний. Оружие выбирается как в Hades (SelectWeapon): подмога — как
     /// только можно, иначе случайно из доступных (MinAttacksBetweenUse, MaxConsecutiveUses, дистанция кнута), ничего — рывок.
-    /// Атака: подойти на дистанцию оружия (или по таймауту), замах с красным телеграфом, удар, пауза. Весь бой идёт фоновая подмога
-    /// (BossHarpy1): с 15-й секунды раз в 5–7 с, пока врагов меньше 4. Умерла — подмога умирает с ней.</summary>
+    /// Атака: подойти на дистанцию оружия (или по таймауту), замах с красным телеграфом, удар, пауза. Волн нет — подмога только
+    /// её «Ко мне!» (фоновую подмогу BossHarpy1 не делаем). Умерла — подмога умирает с ней.</summary>
     public sealed partial class ArenaSim
     {
         Enemy megaera;
-        bool megaFight;
-        float megaAddsT;
+        bool megaFight, eliteOnly;
 
         /// <summary>Мегера в комнате босса: на дальней от Смерти точке появления, сразу в бою. Этажи 2–5 — пока она же, крепче.</summary>
         void StartMegaeraFight(EtgPlacedRoom room)
@@ -31,7 +30,6 @@ namespace Arena.Sim
             e.MaxHp = e.Hp = c.hp * (1f + c.floorHpGrowth * FloorIndex + 0.5f * FloorLap);
             megaera = e;
             megaFight = true;
-            megaAddsT = c.addsStart;
         }
 
         /// <summary>Поставить Мегеру (бой босса, проверки): стоит на арене сразу, как в Hades, и вступает в бой через AISetupDelay.</summary>
@@ -49,10 +47,10 @@ namespace Arena.Sim
             return e;
         }
 
-        /// <summary>Бой с Мегерой: фоновая подмога; Мегера умерла — подмога тоже, комната пройдена.</summary>
+        /// <summary>Бой с Мегерой — без волн (фоновую подмогу BossHarpy1 не делаем: только её «Ко мне!»). Умерла — подмога тоже,
+        /// комната пройдена.</summary>
         void UpdateMegaeraFight(float dt)
         {
-            var c = MegaeraCfg;
             if (megaera == null || megaera.Dead)
             {
                 megaFight = false;
@@ -61,14 +59,6 @@ namespace Arena.Sim
                 ClearRoom();
                 return;
             }
-            if (megaera.State == AiState.Spawn) return;
-            megaAddsT -= dt;
-            if (megaAddsT > 0f) return;
-            megaAddsT = Rand(c.addsIntervalMin, c.addsIntervalMax);
-            if (AliveCount() >= c.addsCap) return;
-            var kind = rng.Next(2) == 0 ? EnemyKind.Thug : EnemyKind.Witch;
-            var add = SpawnEnemy(kind, PickSpawnPoint(false, kind));
-            add.SpawnAggro = true;
         }
 
         // ---------- ИИ ----------

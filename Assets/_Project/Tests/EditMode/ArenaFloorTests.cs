@@ -41,7 +41,8 @@ namespace Arena.Tests
                     Assert.AreEqual(1, f.Rooms.Count(r => r.Elite == 2), $"{tag}: один босс");
                     Assert.AreEqual(2, f.Rooms.Count(r => r.Elite == 1), $"{tag}: два мини-босса");
                     var hubs = f.Rooms.Where(r => r.Kind == EtgRoomKind.Hub).ToList();
-                    if (hubs.Count > 0) Assert.AreEqual(1, hubs.Count(r => !r.Combat), $"{tag}: без боя — только стартовый хаб");
+                    Assert.IsTrue(hubs.All(r => r.Combat), $"{tag}: хабы — с боем");
+                    Assert.IsTrue(f.Rooms.Where(r => r.Kind == EtgRoomKind.Connector).All(r => r.Combat), $"{tag}: коннекторы — с боем");
                     Assert.IsTrue(s.InsideRoom(s.Player.Pos, s.PlayerCfg.radius), $"{tag}: старт на полу");
                     AssertWalkable(s, tag);
                 }
