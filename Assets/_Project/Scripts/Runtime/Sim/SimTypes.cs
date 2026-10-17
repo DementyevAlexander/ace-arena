@@ -407,6 +407,8 @@ namespace Arena.Sim
         public float EnemyDamage, Knock;
         /// <summary>Пила: крупная, не исчезает при попадании.</summary>
         public bool Pierce;
+        /// <summary>Летит по дуге: перелетает и высокие препятствия (низкие и так пропускают снаряды). Носителя пока нет.</summary>
+        public bool Lob;
         public readonly HashSet<object> Hit = new();
     }
 

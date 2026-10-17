@@ -50,7 +50,7 @@ namespace Arena.Tests
 
         /// <summary>Поиск в ширину по сетке 0.25 ю от старта: клетка проходима, если там пол и круг Смерти ни во что не упирается.
         /// Каждая комната достижима — хотя бы одна её клетка пола (у арены — точка появления врагов).</summary>
-        static void AssertWalkable(ArenaSim s, string tag)
+        internal static void AssertWalkable(ArenaSim s, string tag)
         {
             var f = s.Floor;
             const float step = 0.25f;

@@ -90,17 +90,32 @@ namespace Arena.Sim
             LoadFloor(NewFloor(FloorOrder[0], seed), 0);
         }
 
-        /// <summary>Арены этажа: все комнаты биома и их отражения.</summary>
+        /// <summary>Арены этажа: все комнаты биома и их отражения, плюс арены из редактора (Resources/Arenas, включённые
+        /// и без ошибок). Флаг index.json onlyEditor — только арены из редактора (если их нет — как обычно).</summary>
         static ArenaSet LoadArenas()
         {
-            var defs = new List<RoomDef>();
-            foreach (var name in RoomLibrary.All)
+            var index = ArenaLibrary.LoadIndex();
+            var edited = ArenaLibrary.Templates(index);
+            var list = new List<ArenaTemplate>();
+            if (!index.onlyEditor || edited.Count == 0)
             {
-                var d = RoomLibrary.Get(name);
-                if (d != null && d.biome == ArenaBiome) defs.Add(d);
+                var defs = new List<RoomDef>();
+                foreach (var name in RoomLibrary.All)
+                {
+                    var d = RoomLibrary.Get(name);
+                    if (d != null && d.biome == ArenaBiome) defs.Add(d);
+                }
+                list.AddRange(ArenaTemplates.Build(defs, ScreenRight));
             }
-            return new ArenaSet(ArenaTemplates.Build(defs, ScreenRight));
+            list.AddRange(edited);
+            return new ArenaSet(list);
         }
+
+        /// <summary>Сбросить кэш арен этажа (редактор арен после сохранения).</summary>
+        public static void ReloadArenas() => arenaCache = null;
+
+        /// <summary>Свой набор арен для следующих этажей (тесты); null — снова из ресурсов.</summary>
+        public static void UseArenas(ArenaSet set) => arenaCache = set;
 
         /// <summary>Новый этаж: схема ETG; на этаже из арен — ещё и геометрия многоугольниками.</summary>
         EtgFloorLayout NewFloor(string floorId, int seed)

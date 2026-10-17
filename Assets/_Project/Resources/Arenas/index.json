@@ -1,0 +1,31 @@
+{
+    "arenas": [
+        "l_lava",
+        "eight_hall",
+        "square_yard",
+        "t_A_Combat01",
+        "t_A_Combat04",
+        "t_A_Combat08A",
+        "t_A_Combat09",
+        "t_A_Combat14",
+        "t_A_Combat16",
+        "t_A_Combat18",
+        "t_A_Combat19",
+        "t_A_MiniBoss01"
+    ],
+    "enabled": [
+        "l_lava",
+        "eight_hall",
+        "square_yard",
+        "t_A_Combat01",
+        "t_A_Combat04",
+        "t_A_Combat08A",
+        "t_A_Combat09",
+        "t_A_Combat14",
+        "t_A_Combat16",
+        "t_A_Combat18",
+        "t_A_Combat19",
+        "t_A_MiniBoss01"
+    ],
+    "onlyEditor": true
+}

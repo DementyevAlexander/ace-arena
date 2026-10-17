@@ -260,7 +260,7 @@ namespace Arena.Sim
                 float step = b.Speed * dt;
                 b.Pos += b.Dir * step;
                 b.Travelled += step;
-                if (b.Travelled >= b.Range || !InsideRoom(b.Pos, b.R * 0.5f)) { b.Done = true; continue; }
+                if (b.Travelled >= b.Range || !OnFloor(b.Pos) || !b.Lob && BlocksShot(b.Pos, b.R * 0.5f)) { b.Done = true; continue; }
                 var p = Player;
                 if (p.Hidden <= 0f && !b.Hit.Contains(p) && (p.Pos - b.Pos).magnitude < b.R + PlayerCfg.radius)
                 {

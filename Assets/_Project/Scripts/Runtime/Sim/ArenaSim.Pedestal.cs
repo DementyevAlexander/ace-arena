@@ -180,10 +180,10 @@ namespace Arena.Sim
                     if (!room.Indoor || room.Arena == null) continue;
                     var doors = ArenaFloorBuilder.DoorPoints(room);
                     var off = room.ArenaOffset;
-                    foreach (var f in room.Arena.Def.floor)
+                    foreach (var outline in room.Arena.Outlines)
                     {
-                        var poly = new Vector2[f.p.Length];
-                        for (int i = 0; i < poly.Length; i++) poly[i] = f.p[i] + off;
+                        var poly = new Vector2[outline.Length];
+                        for (int i = 0; i < poly.Length; i++) poly[i] = outline[i] + off;
                         foreach (var (c, r) in PolisDressing.HallPieces(poly, doors)) hides.Add((c, r, PolisDressing.HallHeight));
                     }
                 }

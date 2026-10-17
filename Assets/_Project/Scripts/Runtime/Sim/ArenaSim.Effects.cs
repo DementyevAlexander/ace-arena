@@ -93,7 +93,7 @@ namespace Arena.Sim
             }
             f.Pos += f.Dir * (f.Speed * dt);
             f.T += f.Speed * dt; // пройденный путь
-            if (f.Life <= 0f || f.T >= c.boltRange || !InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R)) { f.Done = true; return; }
+            if (f.Life <= 0f || f.T >= c.boltRange || !OnFloor(f.Pos) || BlocksShot(f.Pos, f.R)) { f.Done = true; return; }
             if (FormsMode && CatchBolt(f)) return; // барьер или его копия
             if ((Player.Pos - f.Pos).magnitude <= f.R + PlayerCfg.radius && !Player.Invulnerable)
             {
@@ -107,7 +107,7 @@ namespace Arena.Sim
         {
             f.Life -= dt;
             f.Pos += f.Dir * (f.Speed * dt);
-            if (f.Life <= 0f || !InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R * 0.5f)) { HitRoomObjects(f.Pos, f.R); f.Done = true; return; }
+            if (f.Life <= 0f || !OnFloor(f.Pos) || BlocksShot(f.Pos, f.R * 0.5f)) { HitRoomObjects(f.Pos, f.R); f.Done = true; return; }
             HitRoomObjects(f.Pos, f.R);
             foreach (var e in Enemies)
             {
@@ -123,7 +123,7 @@ namespace Arena.Sim
         {
             f.Life -= dt;
             f.Pos += f.Dir * (f.Speed * dt);
-            bool boom = f.Life <= 0f || !InsideRoom(f.Pos, 0.2f) || BlocksShot(f.Pos, f.R);
+            bool boom = f.Life <= 0f || !OnFloor(f.Pos) || BlocksShot(f.Pos, f.R);
             foreach (var e in Enemies) if (e.Alive && (e.Pos - f.Pos).magnitude < f.R + e.R) boom = true;
             if (!boom) return;
             HitRoomObjects(f.Pos, 0.9f);

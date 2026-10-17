@@ -41,10 +41,10 @@ namespace Arena.View
                     if (!r.Indoor || r.Arena == null) continue;
                     var doors = ArenaFloorBuilder.DoorPoints(r);
                     var off = r.ArenaOffset;
-                    foreach (var f in r.Arena.Def.floor)
+                    foreach (var outline in r.Arena.Outlines)
                     {
-                        var poly = new Vector2[f.p.Length];
-                        for (int i = 0; i < poly.Length; i++) poly[i] = f.p[i] + off;
+                        var poly = new Vector2[outline.Length];
+                        for (int i = 0; i < poly.Length; i++) poly[i] = outline[i] + off;
                         var (walls, roof) = PolisKit.Hall(Root, poly, doors, pal);
                         foreach (var w in walls) Add(w, -1);
                         Add(roof, r.Index);

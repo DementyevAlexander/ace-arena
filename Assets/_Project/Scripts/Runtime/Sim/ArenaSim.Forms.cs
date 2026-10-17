@@ -1520,7 +1520,7 @@ namespace Arena.Sim
             var prev = f.Pos;
             f.Pos += f.Dir * step;
             HitRoomObjects(f.Pos, f.R); // снаряд поджигает фитили взрывных кубов и разбивает урны по пути
-            if (f.Phase == 0 && (!InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R * 0.5f)))
+            if (f.Phase == 0 && (!OnFloor(f.Pos) || BlocksShot(f.Pos, f.R * 0.5f)))
             {
                 if (f.Bounces > 0)
                 {
@@ -1620,7 +1620,7 @@ namespace Arena.Sim
             float probe = Mathf.Max(step, 0.15f);
             var hx = new Vector2(-dir.x, dir.y);
             var hy = new Vector2(dir.x, -dir.y);
-            bool Free(Vector2 d) => InsideRoom(at + d * probe, 0f) && !BlocksShot(at + d * probe, 0.1f);
+            bool Free(Vector2 d) => OnFloor(at + d * probe) && !BlocksShot(at + d * probe, 0.1f);
             bool blockedX = Mathf.Abs(dir.x) > 0.01f && !Free(new Vector2(Mathf.Sign(dir.x), 0f));
             bool blockedY = Mathf.Abs(dir.y) > 0.01f && !Free(new Vector2(0f, Mathf.Sign(dir.y)));
             if (blockedX && !blockedY) return hx;
@@ -1650,7 +1650,7 @@ namespace Arena.Sim
             float step = f.Speed * dt;
             f.Pos += f.Dir * step;
             HitRoomObjects(f.Pos, f.R); // выстрел духа — тоже
-            if (f.Phase != 1 && (!InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, f.R * 0.5f)))
+            if (f.Phase != 1 && (!OnFloor(f.Pos) || BlocksShot(f.Pos, f.R * 0.5f)))
             {
                 if (f.Bounces > 0) { f.Pos = prev; f.Dir = BounceDir(f, prev, step); f.Bounces--; f.Life += 0.3f; Bounced(f, null); }
                 else { EndBolt(f); return; }

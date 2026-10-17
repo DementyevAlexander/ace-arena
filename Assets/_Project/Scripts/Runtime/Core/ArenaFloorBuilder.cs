@@ -14,6 +14,8 @@ namespace Arena.Core
     public static class ArenaFloorBuilder
     {
         public const float TallWall = 1.6f, LowWall = 0.4f;
+        /// <summary>Арена из редактора: враги не появляются ближе этого к клеткам используемых дверей.</summary>
+        const float EditedDoorClear = 2.5f;
         const int FrontReach = 3;
 
         public static void Build(EtgFloorLayout l, string biome)
@@ -27,6 +29,7 @@ namespace Arena.Core
             var traps = new List<RoomDef.Trap>();
             var breakables = new List<RoomDef.Prop>();
             var decor = new List<RoomDef.Prop>();
+            var hazards = new List<RoomDef.Hazard>();
 
             // клетки мостов и комнат ETG — пол; у арены сюда же клетки её занятых выходов (мост встык с краем пола)
             int w = b.width, h = b.height;
@@ -77,7 +80,10 @@ namespace Arena.Core
             foreach (var r in l.Rooms)
             {
                 if (r.Arena == null) continue;
-                r.Indoor = r.Kind == EtgRoomKind.Boss || hallRnd.NextDouble() < 1.0 / 3.0;
+                // зал: у арены из редактора — как задано (auto — как у арен Hades), босс — всегда
+                bool hall = hallRnd.NextDouble() < 1.0 / 3.0;
+                r.Indoor = r.Kind == EtgRoomKind.Boss || r.Arena.Roof switch { ArenaLayout.RoofClosed => true, ArenaLayout.RoofOpen => false, _ => hall };
+                bool edited = r.Arena.Layout != null;
                 var arenaWalls = new List<RoomDef.Poly>();
                 var def = r.Arena.Def;
                 var t = r.ArenaOffset;
@@ -98,6 +104,7 @@ namespace Arena.Core
                     return false;
                 }
                 foreach (var f in def.floor) floors.Add(new RoomDef.Poly { p = Move(f.p, t), type = f.type, h = f.h, shots = f.shots });
+                foreach (var hz in def.hazards) hazards.Add(new RoomDef.Hazard { type = hz.type, p = Move(hz.p, t), damage = hz.damage });
                 var area = r.Rect;
                 bool OutsideArena(Vector2[] poly)
                 {
@@ -113,14 +120,26 @@ namespace Arena.Core
                     arenaWalls.Add(new RoomDef.Poly { p = p, type = wl.type, h = wl.h, shots = wl.shots });
                 }
                 var spawns = new List<RoomDef.Point>();
-                foreach (var s in def.spawns) spawns.Add(new RoomDef.Point { pos = s.pos + t, angle = s.angle, role = s.role });
+                // арена из редактора: точки появления — весь свободный пол, кроме клеток у дверей
+                var doorCells = new List<Vector2>();
+                if (edited)
+                    foreach (var d in r.Doors)
+                        foreach (var c in r.Room.exits[d.Exit].cells) doorCells.Add(new Vector2(r.Pos.x + c.x + 0.5f, r.Pos.y + c.y + 0.5f));
+                bool NearDoor(Vector2 p)
+                {
+                    foreach (var c in doorCells) if ((c - p).sqrMagnitude < EditedDoorClear * EditedDoorClear) return true;
+                    return false;
+                }
+                foreach (var s in def.spawns)
+                    if (!NearDoor(s.pos + t)) spawns.Add(new RoomDef.Point { pos = s.pos + t, angle = s.angle, role = s.role });
                 r.ArenaSpawns = spawns.ToArray();
                 // полис: мелкие препятствия слиты, все — городские объекты (оболочка не накрывает точки появления и ловушки)
                 var keep = new List<Vector2>();
                 foreach (var s in spawns) keep.Add(s.pos);
                 foreach (var tr in def.traps) keep.Add(tr.pos + t);
                 foreach (var bk in def.breakables) keep.Add(bk.pos + t);
-                var dressed = PolisDressing.DressArena(arenaWalls, r.Indoor, keep, l.Seed * 31 + r.Index);
+                // объекты арены из редактора — уже объекты полиса, ставятся как есть (без слияния)
+                var dressed = edited ? arenaWalls : PolisDressing.DressArena(arenaWalls, r.Indoor, keep, l.Seed * 31 + r.Index);
                 walls.AddRange(dressed);
                 // что закрывает арену от камеры: её объекты и стены зала
                 var hides = new List<(Vector2 c, float r, float h)>();
@@ -133,8 +152,8 @@ namespace Arena.Core
                     hides.Add((c, rad, dw.h));
                 }
                 if (r.Indoor)
-                    foreach (var f in def.floor)
-                        foreach (var (c, rad) in PolisDressing.HallPieces(Move(f.p, t), DoorPoints(r)))
+                    foreach (var outline in r.Arena.Outlines)
+                        foreach (var (c, rad) in PolisDressing.HallPieces(Move(outline, t), DoorPoints(r)))
                             hides.Add((c, rad, PolisDressing.HallHeight));
                 bool Hidden(Vector2 p)
                 {
@@ -177,7 +196,7 @@ namespace Arena.Core
                 name = l.Flow, biome = biome, source = "Этаж из арен Hades: " + l.Flow, zoom = zoom,
                 heroStart = new Vector2(start.x + 0.5f, start.y + 0.5f), heroAngle = 90f,
                 min = new Vector2(b.xMin, b.yMin), max = new Vector2(b.xMax, b.yMax),
-                floor = floors.ToArray(), walls = walls.ToArray(), traps = traps.ToArray(),
+                floor = floors.ToArray(), walls = walls.ToArray(), traps = traps.ToArray(), hazards = hazards.ToArray(),
                 breakables = breakables.ToArray(), decor = decor.ToArray(), city = city.ToArray(),
                 encounter = new RoomDef.Encounter { name = "ArenaFloor", generated = true, budgetPerDepth = 0f },
             };

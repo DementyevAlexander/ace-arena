@@ -18,6 +18,14 @@ namespace Arena.Core
         public EtgData.Room Grid;
         /// <summary>Площадь пола в клетках — для выбора арены босса.</summary>
         public int FloorCells;
+        /// <summary>Арена из редактора (ArenaCheck.ToTemplate); null — арена Hades.</summary>
+        public ArenaLayout Layout;
+        /// <summary>Открытая или закрытая (ArenaLayout.Roof*): у арен Hades — auto.</summary>
+        public string Roof => Layout?.roof ?? ArenaLayout.RoofAuto;
+        Vector2[][] outlines;
+        /// <summary>Край пола в координатах арены — по нему встают стены и крыша зала. У арены Hades — её контуры пола,
+        /// у арены из редактора (пол — набор прямоугольников) — внешний контур клеток пола и лавы.</summary>
+        public Vector2[][] Outlines => outlines ??= Layout != null ? ArenaCheck.Outlines(Layout).ToArray() : System.Array.ConvertAll(Def.floor, f => f.p);
     }
 
     /// <summary>Арены для генератора этажа: пул обычных комнат и пул босса (самые большие арены).</summary>

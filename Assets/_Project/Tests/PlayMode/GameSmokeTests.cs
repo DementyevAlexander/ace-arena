@@ -285,6 +285,65 @@ namespace Arena.Tests
             yield return CaptureUi("25_arena_floor2");
         }
 
+        /// <summary>Этаж только из арен редактора (Resources/Arenas): на каждой — решётки, враги на свободном полу (не в лаве),
+        /// зачистка. Кадры: бой на каждой арене-примере.</summary>
+        [UnityTest, Timeout(600000)]
+        public IEnumerator EditorArenasPlayOnFloor()
+        {
+            LogAssert.ignoreFailingMessages = true;
+            GameController.SkipTitle = true;
+            GameController.ArenaFloors = true;
+            ArenaSim.UseArenas(new ArenaSet(ArenaLibrary.Templates()));
+            SceneManager.LoadScene("Game");
+            yield return null;
+            GameController.ArenaFloors = false;
+            var gc = Object.FindAnyObjectByType<GameController>();
+            var sim = gc.Sim;
+            yield return EnterGate(sim);
+            ArenaSim.UseArenas(null);
+            Assert.IsTrue(sim.FloorMode && sim.Floor.Polygonal);
+            sim.Player.BuffInvuln = 9999f;
+            var shot = new System.Collections.Generic.HashSet<string>();
+            int played = 0;
+            for (int r = 0; r < sim.Floor.Rooms.Count; r++)
+            {
+                var room = sim.Floor.Rooms[r];
+                if (!room.Combat || room.Arena == null) continue;
+                Assert.IsNotNull(room.Arena.Layout, room.Arena.Name + ": арена из редактора");
+                string name = room.Arena.Layout.name;
+                // встать ближе к середине арены — в кадре вся арена, а не дома у края
+                Vector2 at = default;
+                float best = float.MaxValue;
+                foreach (var sp in room.ArenaSpawns)
+                    if (sim.InsideRoom(sp.pos, 0.4f) && (sp.pos - room.Center).sqrMagnitude < best) { at = sp.pos; best = (sp.pos - room.Center).sqrMagnitude; }
+                sim.Player.Pos = at;
+                for (int i = 0; i < 30 && sim.ActiveRoom != r; i++) yield return null;
+                Assert.AreEqual(r, sim.ActiveRoom, name + ": вход запирает комнату");
+                for (int i = 0; i < 400 && sim.Enemies.Count == 0; i++) yield return null;
+                Assert.Greater(sim.Enemies.Count, 0, name + ": враги");
+                foreach (var e in sim.Enemies) Assert.IsFalse(sim.OnLava(e.Pos), name + ": враг появился в лаве");
+                if (shot.Add(name))
+                {
+                    for (int i = 0; i < 60; i++) yield return null;
+                    sim.Player.BuffInvuln = 0f;
+                    yield return CaptureUi("28_editor_" + name);
+                    yield return CaptureUi("28_editor_" + name + "_overview", 2.2f); // вся арена в кадре
+                    sim.Player.BuffInvuln = 9999f;
+                }
+                for (int i = 0; i < 6000 && sim.ActiveRoom == r; i++)
+                {
+                    foreach (var e in sim.Enemies) if (e.Alive) sim.Damage(e, 99999f, false);
+                    if (sim.RewardPending) sim.LeaveLoot();
+                    yield return null;
+                }
+                Assert.AreEqual(ArenaSim.FloorRoomState.Cleared, sim.RoomStates[r], name + ": пройдена");
+                played++;
+            }
+            Assert.Greater(played, 3, "на этаже бои на аренах редактора");
+            if (sim.Floor.Rooms.Exists(x => x.Arena?.Layout?.name == "l_lava"))
+                Assert.IsTrue(sim.Hazards.Exists(h => h.Type == "Lava"), "лава арены на этаже");
+        }
+
         /// <summary>Встать во врата хаба и нажать «взаимодействие» — забег начинается после шага.</summary>
         static IEnumerator EnterGate(ArenaSim sim)
         {
@@ -401,7 +460,7 @@ namespace Arena.Tests
         }
 
         /// <summary>Кадр вместе с интерфейсом: экранные холсты на время снимка переводятся на камеру.</summary>
-        static IEnumerator CaptureUi(string name)
+        static IEnumerator CaptureUi(string name, float zoomOut = 1f)
         {
             var dir = System.Environment.GetEnvironmentVariable("ARENA_CAPTURE_DIR");
             if (string.IsNullOrEmpty(dir)) yield break;
@@ -423,7 +482,10 @@ namespace Arena.Tests
                 c.planeDistance = cam.nearClipPlane + 0.05f + 0.01f * (100 - c.sortingOrder);
             }
             Canvas.ForceUpdateCanvases();
+            float size = cam.orthographicSize;
+            cam.orthographicSize = size * zoomOut;
             cam.Render();
+            cam.orthographicSize = size;
             foreach (var c in canvases) { c.renderMode = RenderMode.ScreenSpaceOverlay; c.worldCamera = null; }
             if (volume != null) volume.enabled = true;
             camData.antialiasing = aa;

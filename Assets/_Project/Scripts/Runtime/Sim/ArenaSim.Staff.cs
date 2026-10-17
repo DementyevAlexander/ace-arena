@@ -463,7 +463,7 @@ namespace Arena.Sim
             f.Pos += f.Dir * step;
             f.Life -= step; // оставшаяся дальность
             bool omega = f.Phase == 1;
-            bool end = f.Life <= 0f || !InsideRoom(f.Pos, 0f) || BlocksShot(f.Pos, 0.1f);
+            bool end = f.Life <= 0f || !OnFloor(f.Pos) || BlocksShot(f.Pos, 0.1f);
             foreach (var e in Enemies)
             {
                 if (!e.Alive || f.Hit.Contains(e) || (e.Pos - f.Pos).magnitude > f.R + e.R) continue;
