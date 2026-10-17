@@ -134,6 +134,7 @@ namespace Arena.Sim
             pending.Clear(); plan.Clear(); planIndex = 0;
             megaFight = false; megaera = null; eliteOnly = false;
             ClearLoot();
+            PlaceFountain();
             shopStock.Clear(); shopFilled = false;
             ShopRoom = FormsMode ? PickShopRoom(f) : -1;
             DoorsOpen = false;

@@ -19,6 +19,8 @@ namespace Arena.UI
         readonly Text hpText, roomText, waveText, infoText, banner, buffText, hint;
         readonly Text graceText; // Милость забега — под полоской здоровья
         int lastGrace = -1;
+        readonly Text sardisText; // Сардис — мета-валюта, под Милостью (и в хабе)
+        int lastSardis = -1;
         const float BossW = 900f, BossH = 20f;
         readonly GameObject bossBar; // здоровье босса — сверху по центру, засечки фаз
         readonly Image bossFill;
@@ -64,6 +66,8 @@ namespace Arena.UI
             hpText = UiKit.Label(hpBg.transform, "", 21, Color.white, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(HpW, HpH));
             graceText = UiKit.Label(t, "", 28, Art.Grace, new Vector2(0f, 1f), new Vector2(50f, -128f), new Vector2(300f, 36f), TextAnchor.MiddleLeft, FontStyle.Bold);
             graceText.rectTransform.pivot = new Vector2(0f, 0.5f);
+            sardisText = UiKit.Label(t, "", 28, Art.Sardis, new Vector2(0f, 1f), new Vector2(50f, -166f), new Vector2(300f, 36f), TextAnchor.MiddleLeft, FontStyle.Bold);
+            sardisText.rectTransform.pivot = new Vector2(0f, 0.5f);
             var bossFrame = UiKit.Image(t, "BossFrame", Pal.GoldDim, new Vector2(0.5f, 1f), new Vector2(0f, -78f), new Vector2(BossW + 4f, BossH + 4f), new Vector2(0.5f, 1f));
             bossBar = bossFrame.gameObject;
             var bossBg = UiKit.Image(bossFrame.transform, "Bg", new Color(0.16f, 0.09f, 0.19f, 0.95f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(BossW, BossH));
@@ -156,6 +160,9 @@ namespace Arena.UI
                 bossFill.color = boss.Invuln > 0f ? Pal.Gold : new Color(0.85f, 0.18f, 0.25f);
                 bossName.text = $"Мегера, фурия  <size=20><color=#{ColorUtility.ToHtmlStringRGB(Pal.Muted)}>фаза {boss.Stage + 1}</color></size>";
             }
+            bool sardisOn = sim.FormsMode && (sim.HubMode || sim.FloorMode);
+            if (sardisText.gameObject.activeSelf != sardisOn) sardisText.gameObject.SetActive(sardisOn);
+            if (sardisOn && sim.Meta.sardis != lastSardis) { lastSardis = sim.Meta.sardis; sardisText.text = $"◆ {lastSardis}  <size=20><color=#{ColorUtility.ToHtmlStringRGB(Pal.Muted)}>Сардис</color></size>"; }
             bool graceOn = sim.FormsMode && !sim.HubMode;
             if (graceText.gameObject.activeSelf != graceOn) graceText.gameObject.SetActive(graceOn);
             if (graceOn && sim.Grace != lastGrace) { lastGrace = sim.Grace; graceText.text = $"◆ {sim.Grace}  <size=20><color=#{ColorUtility.ToHtmlStringRGB(Pal.Muted)}>Милость</color></size>"; }
@@ -287,18 +294,25 @@ namespace Arena.UI
                 speech.rectTransform.anchoredPosition = new Vector2(vp.x * size.x, vp.y * size.y + Gap + PromptH + 44f);
             }
 
-            bool near = nearCard != null || hubNear != null;
+            var fountain = cam != null && !paused && nearCard == null ? sim.FountainNear : null;
+            bool near = nearCard != null || hubNear != null || fountain != null;
             if (prompt.gameObject.activeSelf != near) prompt.gameObject.SetActive(near);
             if (near)
             {
-                var vp = cam.WorldToViewportPoint(nearCard != null ? Art.W(nearCard.Pos, LootView.CardTop) : Art.W(hubNear.Pos, HubLabelY(hubNear)));
+                var vp = cam.WorldToViewportPoint(nearCard != null ? Art.W(nearCard.Pos, LootView.CardTop) : fountain != null ? Art.W(fountain.Pos, 1.3f) : Art.W(hubNear.Pos, HubLabelY(hubNear)));
                 string key = useMouse ? "E" : "RB";
                 if (promptKeyText.text != key)
                 {
                     promptKeyText.text = key;
                     promptKey.rectTransform.sizeDelta = new Vector2(promptKeyText.preferredWidth + 20f, PromptH);
                 }
-                promptText.text = nearCard != null ? (nearCard.Price > 0 ? "Купить" : "Взять") : hubNear.Kind == Arena.Core.HubSpotKind.Gate ? "Начать забег" : hubNear.Kit ? "Стартовый набор" : "Говорить";
+                promptText.text = nearCard != null ? (nearCard.Price > 0 ? "Купить" : "Взять")
+                    : fountain != null ? $"Испить источник  <color=#{ColorUtility.ToHtmlStringRGB(Pal.Muted)}>+{sim.ArenaCfg.fountainHeal * 100f:0}% здоровья</color>"
+                    : hubNear.Kind == Arena.Core.HubSpotKind.Gate ? "Начать забег" : hubNear.Role switch
+                    {
+                        Arena.Core.HubRole.Mentor => "Наборы", Arena.Core.HubRole.Merchant => "Лавка", Arena.Core.HubRole.Keeper => "Коллекция",
+                        Arena.Core.HubRole.Chronicler => "Летопись", _ => "Говорить",
+                    };
                 // ключ и слово — по центру под названием
                 float keyW = promptKey.rectTransform.sizeDelta.x;
                 float w = keyW + 10f + promptText.preferredWidth;

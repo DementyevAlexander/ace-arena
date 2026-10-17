@@ -53,6 +53,7 @@ namespace Arena.Sim
         {
             if (megaera == null || megaera.Dead)
             {
+                if (megaera != null) { Meta.megaeraKills++; Meta.Dirty = true; DropSardis(megaera.Pos, 1); } // босс — 1 Сардис
                 megaFight = false;
                 foreach (var o in Enemies) if (!o.Dead && !o.Dummy) Kill(o); // WipeEnemiesOnKill — и те, что ещё проявляются
                 megaera = null;

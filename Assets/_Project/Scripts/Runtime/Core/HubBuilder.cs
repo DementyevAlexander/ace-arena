@@ -5,6 +5,10 @@ namespace Arena.Core
 {
     public enum HubSpotKind { Gate, Npc }
 
+    /// <summary>Что делает персонаж хаба: Наставник — наборы карт на забег, Торговец — открытие за Сардис, Хранитель — коллекция,
+    /// Летописец — летопись забегов.</summary>
+    public enum HubRole { None, Mentor, Merchant, Keeper, Chronicler }
+
     /// <summary>Место в хабе, с которым можно взаимодействовать: врата в забег или персонаж (пока заглушка с репликами).</summary>
     public sealed class HubSpot
     {
@@ -13,8 +17,8 @@ namespace Arena.Core
         public Vector2 Pos;
         public Color Color;
         public string[] Lines = System.Array.Empty<string>();
-        /// <summary>Персонаж открывает выбор стартового набора вместо реплики (Наставник).</summary>
-        public bool Kit;
+        /// <summary>Что открывает «взаимодействие» с персонажем (None — только реплика).</summary>
+        public HubRole Role;
     }
 
     /// <summary>Хаб, как Breach в Enter the Gungeon: площадь полиса между забегами, вокруг — кварталы. Строится в коде, координаты —
@@ -59,23 +63,23 @@ namespace Arena.Core
                 new() { Kind = HubSpotKind.Gate, Name = "Врата", Pos = S(0f, 23.2f), Color = new Color(0.7f, 0.45f, 1f) },
                 new()
                 {
-                    Kind = HubSpotKind.Npc, Name = "Торговец", Pos = S(-8f, 4f), Color = new Color(1f, 0.75f, 0.35f),
-                    Lines = new[] { "Скоро здесь будет лавка: карты и тринкеты за валюту забега.", "Приходи, когда будет что продать. И чем платить." },
+                    Kind = HubSpotKind.Npc, Name = "Торговец", Pos = S(-8f, 4f), Color = new Color(1f, 0.75f, 0.35f), Role = HubRole.Merchant,
+                    Lines = new[] { "Сардис — за новые формы, свойства и тринкеты. Открытое начнёт попадаться в забеге." },
                 },
                 new()
                 {
-                    Kind = HubSpotKind.Npc, Name = "Хранитель", Pos = S(-8.5f, -3f), Color = new Color(0.45f, 0.85f, 1f),
-                    Lines = new[] { "Здесь будут открываться новые карты и тринкеты — сначала покупка, потом они начнут выпадать.", "Пока все открыты. Не привыкай." },
+                    Kind = HubSpotKind.Npc, Name = "Хранитель", Pos = S(-8.5f, -3f), Color = new Color(0.45f, 0.85f, 1f), Role = HubRole.Keeper,
+                    Lines = new[] { "Всё, что ты открыл, хранится у меня: формы, свойства, тринкеты и найденные связки." },
                 },
                 new()
                 {
-                    Kind = HubSpotKind.Npc, Name = "Летописец", Pos = S(-3.5f, 8.5f), Color = new Color(0.85f, 0.85f, 0.75f),
-                    Lines = new[] { "Боги послали тебя за теми, кто украл бессмертие. Остальное я запишу позже.", "Каждый забег — новая страница. Пока пустая." },
+                    Kind = HubSpotKind.Npc, Name = "Летописец", Pos = S(-3.5f, 8.5f), Color = new Color(0.85f, 0.85f, 0.75f), Role = HubRole.Chronicler,
+                    Lines = new[] { "Каждый забег — новая страница летописи." },
                 },
                 new()
                 {
-                    Kind = HubSpotKind.Npc, Name = "Наставник", Pos = S(4.5f, -1f), Color = new Color(0.55f, 0.95f, 0.5f), Kit = true,
-                    Lines = new[] { "Выбери, с чем идёшь в забег. Мишени справа не умирают — пробуй на них.", "Отпусти заряд в белом окне — получишь усиление." },
+                    Kind = HubSpotKind.Npc, Name = "Наставник", Pos = S(4.5f, -1f), Color = new Color(0.55f, 0.95f, 0.5f), Role = HubRole.Mentor,
+                    Lines = new[] { "Возьми один из трёх наборов — с ним пойдёшь в забег. Мишени справа не умирают — пробуй на них." },
                 },
             };
             dummies = new List<Vector2> { S(7.5f, 2.5f), S(9f, -1.5f), S(7f, -4.5f) };

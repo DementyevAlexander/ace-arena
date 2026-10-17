@@ -20,6 +20,8 @@ namespace Arena.View
         public bool Paused { get; private set; }
         /// <summary>Тесты и проверка билда: начать сразу с боя, без стартового экрана.</summary>
         public static bool SkipTitle;
+        /// <summary>Файл мета-прогресса в Application.persistentDataPath; null — без сохранения, всё открыто (проверки).</summary>
+        public static string MetaFile = "meta.json";
         /// <summary>Забег по этажам Enter the Gungeon (ArenaSim.Floor, FloorView, мини-карта). Выключен: по ощущениям не подошло,
         /// забег снова по комнатам Hades; код оставлен на будущее, тест прохода этажа включает его сам.</summary>
         public static bool EtgFloors;
@@ -43,7 +45,7 @@ namespace Arena.View
         Hud hud;
         RewardScreen reward; // выбор карточки и просмотр скиллов; прежняя колода (DeckScreen) из интерфейса убрана
         TrinketScreen trinkets; // выбор тринкета с пятачка мини-босса
-        KitScreen kit;          // стартовый набор у Наставника в хабе
+        HubMenuScreen hubMenu;  // меню персонажей хаба: Наставник, Торговец, Хранитель, Летописец
         RunEndScreen runEnd;    // итоги забега → хаб
         HubView hubView;        // врата и персонажи хаба
         CityView cityView;      // полис: кварталы, залы, прозрачность заслоняющего
@@ -71,6 +73,7 @@ namespace Arena.View
             // подключённые комнаты — Resources/Rooms/index.json (enabled): первая — старт, дверь ведёт в следующую
             Sim = new ArenaSim(System.Environment.TickCount);
             Sim.EnableForms(); // скиллы — формы со свойствами; посох и карты DandyAce остаются в коде, но не предлагаются
+            Sim.SetMeta(LoadMeta()); // сохранённая коллекция, Сардис и летопись
             if (EtgFloors) Sim.StartFloors(System.Environment.TickCount);
             else if (ArenaFloors) Sim.EnterHub(); // игра начинается в хабе, забег — через врата
             world = new GameObject("World").transform;
@@ -84,7 +87,7 @@ namespace Arena.View
             hud = new Hud();
             reward = new RewardScreen(Sim);
             trinkets = new TrinketScreen(Sim);
-            kit = new KitScreen(Sim);
+            hubMenu = new HubMenuScreen(Sim);
             runEnd = new RunEndScreen(() => toHubPending = true);
             pause = new PauseScreen(
                 resume: () => pauseMenu = false,
@@ -259,11 +262,11 @@ namespace Arena.View
             else
             {
                 bool backUsed = pauseMenu && pause.Navigate(input); // меню паузы: пункты, B закрывает «Управление»
-                if (input.DeckPressed && !Sim.GameOver && !Sim.RewardPending && !Sim.KitOpen && !pauseMenu) viewSkills = !viewSkills;
+                if (input.DeckPressed && !Sim.GameOver && !Sim.RewardPending && !Sim.MenuOpen && !pauseMenu) viewSkills = !viewSkills;
                 else if (input.PausePressed)
                 {
                     if (viewSkills) viewSkills = false;
-                    else if (!Sim.RewardPending && !Sim.KitOpen) pauseMenu = !pauseMenu;
+                    else if (!Sim.RewardPending && !Sim.MenuOpen) pauseMenu = !pauseMenu;
                 }
                 else if (viewSkills && input.NavBack) viewSkills = false;          // B — закрыть просмотр
                 else if (pauseMenu && input.NavBack && !backUsed) pauseMenu = false; // B — продолжить
@@ -274,10 +277,10 @@ namespace Arena.View
                 if (!Paused && input.RerollPressed) Sim.RerollLoot(); // F / LB у пятачка — переброс наград
             }
             bool wasPaused = Paused;
-            if (!title.Visible) { reward.Sync(viewSkills, input); trinkets.Sync(input); kit.Sync(input); runEnd.Sync(input); }
+            if (!title.Visible) { reward.Sync(viewSkills, input); trinkets.Sync(input); hubMenu.Sync(input); runEnd.Sync(input); }
             if (pauseMenu) pause.Show(); else pause.Hide();
             pause.Sync(Sim, runTime, input);
-            bool choosing = reward.Visible || trinkets.Visible || kit.Visible || runEnd.Visible;
+            bool choosing = reward.Visible || trinkets.Visible || hubMenu.Visible || runEnd.Visible;
             hud.SetVisible(!title.Visible && !pauseMenu && !choosing); // как в Hades: в паузе и выборе HUD скрыт
             Paused = title.Visible || pauseMenu || choosing;
             if (wasPaused && !Paused) input.Flush(); // клик по карточке не должен стать выстрелом
@@ -321,6 +324,27 @@ namespace Arena.View
             watch.Restart();
             using (HudMarker.Auto()) hud.Sync(Sim, Rig.Cam, input.UseMouse, dt, Paused);
             HudMs = (float)watch.Elapsed.TotalMilliseconds;
+            SaveMeta();
+        }
+
+        static string MetaPath => MetaFile == null ? null : System.IO.Path.Combine(Application.persistentDataPath, MetaFile);
+
+        /// <summary>Мета-прогресс из файла; файла нет — новое сохранение (стартовая коллекция); MetaFile = null — всё открыто.</summary>
+        static MetaProgress LoadMeta()
+        {
+            var path = MetaPath;
+            if (path == null) return MetaProgress.AllUnlocked();
+            return System.IO.File.Exists(path) ? MetaProgress.FromJson(System.IO.File.ReadAllText(path)) : MetaProgress.Starter();
+        }
+
+        /// <summary>Есть изменения (Сардис, открытия, летопись) — сразу в файл: смерть и выход их не теряют.</summary>
+        void SaveMeta()
+        {
+            var m = Sim.Meta;
+            if (!m.Dirty) return;
+            m.Dirty = false;
+            var path = MetaPath;
+            if (path != null) System.IO.File.WriteAllText(path, m.ToJson());
         }
 
         /// <summary>Врата хаба: новый забег по этажам из арен.</summary>
@@ -431,8 +455,12 @@ namespace Arena.View
                     case EventKind.PlayerHealed: // Поглощение: зелёная цифра, мелкие тики зоны — без цифры
                         if (ev.Value >= 1f) hud.Number(ev.Pos, ev.Value, false, new Color(0.45f, 1f, 0.55f));
                         break;
-                    case EventKind.GraceCollected: // Милость подобрана: малахитовая искра у героини
+                    case EventKind.GraceCollected: // Милость подобрана: малахитовая искра у героя
                         effects.Puff(ev.Pos, 0.45f, Art.Grace, 0.2f, 0.7f);
+                        break;
+                    case EventKind.SardisCollected:
+                    case EventKind.SardisSpent:
+                        effects.Ring(ev.Pos, 1.3f, Art.Sardis.WithAlpha(0.95f), 0.4f);
                         break;
                     case EventKind.GraceSpent:
                         effects.Ring(ev.Pos, 1.1f, Art.Grace.WithAlpha(0.9f), 0.35f);

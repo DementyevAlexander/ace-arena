@@ -16,7 +16,11 @@ namespace Arena.Tests
     {
         /// <summary>Эти тесты — про отдельные комнаты Hades: забег по этажам из арен (по умолчанию в игре) выключен.</summary>
         [SetUp]
-        public void SingleRooms() => GameController.ArenaFloors = false;
+        public void SingleRooms()
+        {
+            GameController.ArenaFloors = false;
+            GameController.MetaFile = null; // без сохранения: всё открыто, файл игрока не трогаем
+        }
 
         [UnityTest]
         public IEnumerator SceneRunsAndShowsTelegraphs()
@@ -315,13 +319,15 @@ namespace Arena.Tests
             for (int i = 0; i < 30; i++) yield return null;
             Assert.IsFalse(dummy.Dead, "мишень не умирает");
             Assert.Less((dummy.Pos - home).magnitude, 0.01f, "мишень стоит");
-            // персонаж отвечает репликой
-            var npc = sim.HubSpots.Find(x => x.Kind == HubSpotKind.Npc);
+            // персонаж открывает своё меню (Торговец — лавка за Сардис)
+            var npc = sim.HubSpots.Find(x => x.Role == HubRole.Merchant);
             sim.Player.Pos = npc.Pos + (sim.Room.heroStart - npc.Pos).normalized * 1.2f;
             Assert.IsTrue(sim.Interact());
-            Assert.AreSame(npc, sim.SpeechSpot);
-            Assert.IsFalse(string.IsNullOrEmpty(sim.SpeechText));
+            Assert.AreEqual(HubRole.Merchant, sim.Menu);
             for (int i = 0; i < 20; i++) yield return null;
+            yield return CaptureUi("26_hub_merchant");
+            sim.CloseMenu();
+            for (int i = 0; i < 5; i++) yield return null;
             yield return CaptureUi("26_hub");
 
             // врата → забег; карта забега меняется — в хабе снова старт

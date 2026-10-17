@@ -96,8 +96,6 @@ namespace Arena.Core
             TrinketKind.Bell => FormKind.Summon, TrinketKind.Ward => FormKind.Barrier, _ => null,
         };
 
-        /// <summary>Открыт ли с начала. Открытие покупкой в хабе — когда будут хаб и сохранения; пока открыты все.</summary>
-        public static bool UnlockedAtStart(TrinketKind k) => true;
 
         public static string Name(TrinketKind k) => k switch
         {

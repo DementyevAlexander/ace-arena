@@ -94,7 +94,7 @@ namespace Arena.Tests
             T.Run(s, s.MegaeraCfg.setupDelay + s.MegaeraCfg.boltsWindup + 0.2f);
             var strikes = s.Effects.Where(f => f.Kind == EffectKind.MegaStrike && !f.Done).ToList();
             Assert.That(strikes.Count, Is.InRange(3, 4), "3–4 круга");
-            Assert.IsTrue(strikes.All(f => (f.Pos - s.Player.Pos).magnitude <= s.MegaeraCfg.boltsRing + 0.5f), "вокруг героини");
+            Assert.IsTrue(strikes.All(f => (f.Pos - s.Player.Pos).magnitude <= s.MegaeraCfg.boltsRing + 0.5f), "вокруг героя");
         }
 
         [Test]

@@ -50,8 +50,6 @@ namespace Arena.Sim
         public readonly FormTuning FormBase = new();
         /// <summary>Итоговые числа с тринкетами — их читают скиллы (TrinketBook.Apply поверх FormBase).</summary>
         public FormTuning FormCfg { get; private set; } = new();
-        /// <summary>Стартовый набор: карта в ЛКМ в начале каждого забега (выбирается у Наставника в хабе).</summary>
-        public readonly StartKit Kit = new();
         /// <summary>Сколько ещё можно перебросить награды пятачка (ArenaTuning.rerollsPerDrop за выдачу).</summary>
         public int RerollsLeft { get; private set; }
         int pedestalTrinketLevel;
@@ -138,8 +136,9 @@ namespace Arena.Sim
         void ResetForms()
         {
             foreach (var s in Forms) { s.Card = null; s.Reset(); }
-            Forms[0].Card = Kit.Card();
+            Forms[0].Card = new SkillCard(FormKind.Shot);
             Forms[DashSlot].Card = new SkillCard(FormKind.Dash);
+            ApplyMentorSet(); // набор Наставника — в ПКМ и Q
             fDashing = false; fShotSlow = 0f; Rewards = 0;
             healLeft = FormCfg.siphonRoomCap * PlayerCfg.hp;
             RewardPending = false; Offers.Clear();
@@ -230,10 +229,11 @@ namespace Arena.Sim
         SkillCard RandomLootCard(List<GroundCard> already)
         {
             var formW = new float[FormDropWeights.Length];
-            for (int i = 0; i < formW.Length; i++) formW[i] = FormDropWeights[i] * TrinketBook.FormWeight((FormKind)i, TrinketSlots, TrinketCfg);
+            for (int i = 0; i < formW.Length; i++)
+                formW[i] = Meta.Has((FormKind)i) ? FormDropWeights[i] * TrinketBook.FormWeight((FormKind)i, TrinketSlots, TrinketCfg) : 0f; // только открытые
             var traitW = new float[Traits.Count];
             for (int i = 0; i < traitW.Length; i++)
-                traitW[i] = already.Exists(g => g.Card?.Own == (Trait)i) ? 0f : TrinketBook.TraitWeight((Trait)i, TrinketSlots, TrinketCfg);
+                traitW[i] = !Meta.Has((Trait)i) || already.Exists(g => g.Card?.Own == (Trait)i) ? 0f : TrinketBook.TraitWeight((Trait)i, TrinketSlots, TrinketCfg);
             var card = new SkillCard((FormKind)WeightedPick(formW), (Trait)WeightedPick(traitW));
             card.Rarity = Rarities.Roll(rng, ArenaCfg.rarityWeights);
             return card;
@@ -243,7 +243,7 @@ namespace Arena.Sim
         {
             float sum = 0f;
             foreach (var x in w) sum += x;
-            if (sum <= 0f) return rng.Next(w.Length);
+            if (sum <= 0f) return 0; // ничего не открыто — первое (снаряд, пламя)
             double r = rng.NextDouble() * sum;
             for (int i = 0; i < w.Length; i++)
             {
@@ -338,6 +338,7 @@ namespace Arena.Sim
             foreach (var f in Forms[slot].Active) f.Done = true;
             Forms[slot].Card = Offers[offer];
             Forms[slot].Reset();
+            MarkBonds();
             FinishReward();
         }
 
@@ -345,6 +346,7 @@ namespace Arena.Sim
         {
             if (!CanFuse(offer, slot)) return;
             Forms[slot].Card.Souls.Add(Offers[offer].Own.Value);
+            MarkBonds();
             FinishReward();
         }
 
@@ -1480,6 +1482,8 @@ namespace Arena.Sim
                 case EffectKind.EliteSpirit: UpdateEliteSpirit(f, dt); break;
                 case EffectKind.EliteShield: UpdateEliteShield(f, dt); break;
                 case EffectKind.MegaStrike: UpdateMegaStrike(f, dt); break;
+                case EffectKind.Sardis: UpdateSardisOrb(f, dt); break;
+                case EffectKind.Fountain: break; // стоит, пока этаж
                 case EffectKind.FormDetonation:
                     f.T -= dt;
                     if (f.T > 0f) break;

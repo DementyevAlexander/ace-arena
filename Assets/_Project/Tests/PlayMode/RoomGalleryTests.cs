@@ -15,7 +15,11 @@ namespace Arena.Tests
     {
         /// <summary>Эти тесты — про отдельные комнаты Hades: забег по этажам из арен (по умолчанию в игре) выключен.</summary>
         [SetUp]
-        public void SingleRooms() => GameController.ArenaFloors = false;
+        public void SingleRooms()
+        {
+            GameController.ArenaFloors = false;
+            GameController.MetaFile = null; // без сохранения: всё открыто, файл игрока не трогаем
+        }
 
         [UnityTest, Timeout(1800000)] // 30 комнат по 4 с игры
         public IEnumerator EveryRoomPlays()

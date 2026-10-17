@@ -26,8 +26,9 @@ namespace Arena.Sim
         public bool RunRequested { get; private set; }
         /// <summary>Боевых комнат пройдено за забег — для итогов.</summary>
         public int RunRoomsCleared { get; private set; }
-        /// <summary>Открыт выбор стартового набора (Наставник): бой стоит, ввод — у экрана выбора.</summary>
-        public bool KitOpen { get; private set; }
+        /// <summary>Открыто меню персонажа хаба (Наставник, Торговец, Хранитель, Летописец): бой стоит, ввод — у экрана меню.</summary>
+        public HubRole Menu { get; private set; }
+        public bool MenuOpen => Menu != HubRole.None;
 
         /// <summary>В хаб: площадь, места, мишени; билд и здоровье — как в начале забега.</summary>
         public void EnterHub()
@@ -41,8 +42,9 @@ namespace Arena.Sim
             hubTalks.Clear();
             SpeechSpot = null; SpeechText = null;
             RunRequested = false;
-            KitOpen = false;
+            Menu = HubRole.None;
             WavesEnabled = false;
+            NewMentorSets(); // после каждого забега — новые наборы
             Restart();
         }
 
@@ -51,7 +53,8 @@ namespace Arena.Sim
         {
             HubMode = false;
             RunRequested = false;
-            KitOpen = false;
+            Menu = HubRole.None;
+            runRecorded = false;
             HubSpots.Clear(); hubDummies.Clear();
             SpeechSpot = null; SpeechText = null;
             RunWon = false; RunRoomsCleared = 0;
@@ -76,7 +79,7 @@ namespace Arena.Sim
         {
             get
             {
-                if (!HubMode || GameOver || RewardPending || KitOpen) return null;
+                if (!HubMode || GameOver || RewardPending || MenuOpen) return null;
                 HubSpot best = null;
                 float bd = HubReach * HubReach;
                 foreach (var s in HubSpots)
@@ -88,10 +91,11 @@ namespace Arena.Sim
             }
         }
 
-        /// <summary>«Взаимодействие» (E / RB): в хабе — врата или разговор, в забеге — подобрать награду с пятачка.</summary>
+        /// <summary>«Взаимодействие» (E / RB): в хабе — врата или меню персонажа, в забеге — испить из источника или подобрать
+        /// награду с пятачка.</summary>
         public bool Interact()
         {
-            if (!HubMode) return PickUpLoot();
+            if (!HubMode) return DrinkFountain() || PickUpLoot();
             var s = HubNear;
             if (s == null) return false;
             if (s.Kind == HubSpotKind.Gate)
@@ -100,9 +104,9 @@ namespace Arena.Sim
                 Events.Add(new SimEvent { Kind = EventKind.HubGate, Pos = s.Pos });
                 return true;
             }
-            if (s.Kit)
+            if (s.Role != HubRole.None)
             {
-                KitOpen = true;
+                Menu = s.Role;
                 Events.Add(new SimEvent { Kind = EventKind.HubTalk, Pos = s.Pos });
                 return true;
             }
@@ -115,27 +119,15 @@ namespace Arena.Sim
             return true;
         }
 
-        /// <summary>Закрыть выбор стартового набора.</summary>
-        public void CloseKit() => KitOpen = false;
-
-        /// <summary>Стартовый набор: карта в ЛКМ — форма (снаряд, зона, призыв) и своё свойство (null — без свойства).
-        /// В хабе карта сразу встаёт в ЛКМ — её можно попробовать на мишенях; в забег идёт с ней же.</summary>
-        public void SetKit(FormKind main, Trait? soul)
-        {
-            if (System.Array.IndexOf(StartKit.Mains, main) < 0) return;
-            Kit.Main = main;
-            Kit.Soul = soul;
-            if (!HubMode) return;
-            foreach (var f in Forms[0].Active) f.Done = true;
-            Forms[0].Card = Kit.Card();
-            Forms[0].Reset();
-        }
+        /// <summary>Закрыть меню персонажа хаба.</summary>
+        public void CloseMenu() => Menu = HubRole.None;
 
         /// <summary>Выход с пятого этажа забега из арен: забег пройден.</summary>
         void WinRun()
         {
             RunWon = true;
             GameOver = true;
+            RecordRun(true);
             Events.Add(new SimEvent { Kind = EventKind.RunEnd, Value = 1f });
         }
     }

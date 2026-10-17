@@ -325,11 +325,22 @@ namespace Arena.View
             switch (f.Kind)
             {
                 case EffectKind.Grace:
+                case EffectKind.Sardis:
                 {
-                    // Милость: малахитовый ромбик — две пирамиды основаниями друг к другу
-                    var m = Art.LitMat(Art.Grace, 2.2f);
+                    // Милость — малахитовый ромбик, Сардис — тёмно-красный, крупнее: две пирамиды основаниями друг к другу
+                    var m = Art.LitMat(f.Kind == EffectKind.Sardis ? Art.Sardis : Art.Grace, f.Kind == EffectKind.Sardis ? 2.8f : 2.2f);
                     Add(Art.Part(root, MeshKit.Prism(4, 0f), m, new Vector3(0f, 0.4f, 0f), new Vector3(0.2f, 0.2f, 0.2f), default, false));
                     Add(Art.Part(root, MeshKit.Prism(4, 0f), m, new Vector3(0f, 0.4f, 0f), new Vector3(0.2f, 0.2f, 0.2f), new Vector3(180f, 0f, 0f), false));
+                    break;
+                }
+                case EffectKind.Fountain:
+                {
+                    // источник: мраморная чаша на ножке, вода светится, пока не выпит
+                    var marble = Art.LitMat(new Color(0.86f, 0.84f, 0.8f));
+                    Add(Art.Part(root, MeshKit.Prism(8), marble, Vector3.zero, new Vector3(0.9f, 0.25f, 0.9f), default, false));
+                    Add(Art.Part(root, MeshKit.Prism(8, 0.6f), marble, new Vector3(0f, 0.25f, 0f), new Vector3(0.35f, 0.55f, 0.35f), default, false));
+                    Add(Art.Part(root, MeshKit.Prism(10, 1.3f), marble, new Vector3(0f, 0.8f, 0f), new Vector3(0.8f, 0.2f, 0.8f), default, false));
+                    Add(Art.Part(root, MeshKit.Prism(10), Art.LitMat(new Color(0.45f, 0.85f, 1f), 2.5f), new Vector3(0f, 0.97f, 0f), new Vector3(0.92f, 0.04f, 0.92f), default, false));
                     break;
                 }
                 case EffectKind.EliteSpirit:
@@ -429,12 +440,16 @@ namespace Arena.View
                 case EffectKind.FormShot:
                     root.localScale = Vector3.one * f.Grow * (0.85f + 0.3f * f.Mul);
                     break;
+                case EffectKind.Fountain:
+                    parts[3].gameObject.SetActive(f.Phase == 0); // выпит — вода ушла
+                    break;
                 case EffectKind.Grace:
+                case EffectKind.Sardis:
                 {
                     root.rotation = Quaternion.Euler(0f, time * 140f + f.Id * 37f, 0f);
                     float bob = 0.4f + 0.07f * Mathf.Sin(time * 4f + f.Id);
                     parts[0].localPosition = parts[1].localPosition = new Vector3(0f, bob, 0f);
-                    root.localScale = Vector3.one * (f.Charges > 1 ? 1.5f : 1f);
+                    root.localScale = Vector3.one * (f.Kind == EffectKind.Sardis ? 2f : f.Charges > 1 ? 1.5f : 1f);
                     break;
                 }
                 case EffectKind.EliteSpirit:

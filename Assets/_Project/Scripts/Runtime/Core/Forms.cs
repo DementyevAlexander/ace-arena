@@ -116,17 +116,6 @@ namespace Arena.Core
         }
     }
 
-    /// <summary>Стартовый набор (как выбор снаряжения перед забегом в Nova Drift): форма карты в ЛКМ и её своё свойство.
-    /// Выбирается у Наставника в хабе, живёт между забегами. Рывок в Space — всегда без свойства.</summary>
-    public sealed class StartKit
-    {
-        public static readonly FormKind[] Mains = { FormKind.Shot, FormKind.Zone, FormKind.Summon };
-
-        public FormKind Main = FormKind.Shot;
-        public Trait? Soul;
-
-        public SkillCard Card() => new(Main, Soul);
-    }
 
     /// <summary>Редкость карты. Одна и та же карта бывает разной редкости и отличается только числом вливаний
     /// (ячеек душ): редкая — 2, эпическая — 3, легендарная — 4.</summary>

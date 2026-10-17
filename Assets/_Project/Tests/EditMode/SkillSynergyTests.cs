@@ -365,31 +365,5 @@ namespace Arena.Tests
             foreach (var t in new[] { Trait.Homing, Trait.Orbit, Trait.Trigger })
                 Assert.IsTrue(own.Contains(t), $"{FormText.Name(t)} выпадает");
         }
-
-        [Test]
-        public void MentorKitSetsStartCardForRun()
-        {
-            var s = new ArenaSim(5);
-            s.EnableForms();
-            s.EnterHub();
-            var mentor = s.HubSpots.Single(x => x.Kit);
-            s.Player.Pos = mentor.Pos;
-            Assert.IsTrue(s.Interact());
-            Assert.IsTrue(s.KitOpen, "Наставник открывает стартовый набор");
-            Assert.IsNull(s.HubNear, "пока выбор открыт — с местами не говорить");
-            s.SetKit(FormKind.Dash, null);
-            Assert.AreEqual(FormKind.Shot, s.Kit.Main, "рывок в ЛКМ не ставится");
-            s.SetKit(FormKind.Zone, Trait.Frost);
-            Assert.AreEqual(FormKind.Zone, s.Forms[0].Card.Form, "в хабе карта сразу в ЛКМ — пробовать на мишенях");
-            s.CloseKit();
-            Assert.IsFalse(s.KitOpen);
-            s.StartRun();
-            var c = s.Forms[0].Card;
-            Assert.AreEqual(FormKind.Zone, c.Form);
-            Assert.AreEqual(Trait.Frost, c.Own);
-            Assert.AreEqual(Rarity.Rare, c.Rarity);
-            Assert.AreEqual(FormKind.Dash, s.Forms[ArenaSim.DashSlot].Card.Form);
-            Assert.IsNull(s.Forms[ArenaSim.DashSlot].Card.Own);
-        }
     }
 }

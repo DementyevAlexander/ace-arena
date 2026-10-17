@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Arena.View
 {
-    /// <summary>Серафина, ангел-хранитель (Screenshots/mockups/enemy_caste_reference.webp): светлая роба с золотой каймой,
+    /// <summary>Серафим, ангел-хранитель (Screenshots/mockups/enemy_caste_reference.webp): светлая роба с золотой каймой,
     /// капюшон с маской и светящимися глазами, нимб, крылья, сияющий меч остриём вверх в правой руке, кадило на цепях
     /// в левой. Собрана из low-poly частей. Под ней — стрелка прицела (направление следующего удара).</summary>
     public sealed class PlayerView
@@ -68,7 +68,7 @@ namespace Arena.View
             return Art.Part(parent, mesh, mat, a, new Vector3(r * 2f, d.magnitude, r * 2f), Quaternion.FromToRotation(Vector3.up, d).eulerAngles, shadows);
         }
 
-        /// <summary>Серафина ростом ~1.3 (как прежняя героиня, рост Мелинои в Hades). Смотрит в +Z, правая рука — +X.</summary>
+        /// <summary>Серафим ростом ~1.3 (как прежний герой, рост Мелинои в Hades). Смотрит в +Z, правая рука — +X.</summary>
         static void BuildSeraphina(Transform body, out Transform censer, out Transform blade, out Transform smoke)
         {
             var robe = Art.LitMat(new Color(0.94f, 0.88f, 0.76f));
@@ -321,7 +321,7 @@ namespace Arena.View
                 case EnemyKind.Megaera: BuildMegaera(); break;
                 default: BuildCasket(out legL, out legR, out lid, out vortex); break;
             }
-            if (e.Kind == EnemyKind.Megaera) model.localScale = Vector3.one * 1.15f; // фурия выше героини
+            if (e.Kind == EnemyKind.Megaera) model.localScale = Vector3.one * 1.15f; // фурия выше героя
             if (e.Kind == EnemyKind.Wastrel) model.localScale = Vector3.one * 0.95f; // Wastrel крупнее Мелинои
             renderers = body.GetComponentsInChildren<Renderer>();
             flashMats = new Material[renderers.Length];

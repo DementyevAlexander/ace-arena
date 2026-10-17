@@ -424,6 +424,8 @@ namespace Arena.Core
         public int shopCards = 6, shopTrinkets = 2;
         public int[] shopCardPrice = { 30, 50, 80 }; // редкая, эпическая, легендарная
         public int shopTrinketPrice = 60;
+        /// <summary>Источник в фойе босса: один раз лечит на столько от наибольшего здоровья.</summary>
+        public float fountainHeal = 0.3f;
 
         /// <summary>Элитки (мини-боссы): по два скилла-формы с перезарядкой. Телеграф красный, на время каста стоит.</summary>
         public float[] eliteSkillCd = { 6f, 9f, 12f, 10f, 7f }; // залп, круг, дух, щит, рывок

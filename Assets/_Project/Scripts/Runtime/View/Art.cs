@@ -215,6 +215,8 @@ namespace Arena.View
 
         /// <summary>Милость — мягкий малахит: ромбики на полу, счётчик в HUD, цены в магазине.</summary>
         public static readonly Color Grace = new(0.3f, 0.78f, 0.58f);
+        /// <summary>Сардис — мета-валюта: тёмно-красный камень (Откр. 4:3).</summary>
+        public static readonly Color Sardis = new(0.72f, 0.1f, 0.16f);
         /// <summary>Скиллы элиток — красные, как телеграфы врагов.</summary>
         public static readonly Color EliteRed = new(1f, 0.28f, 0.22f);
 

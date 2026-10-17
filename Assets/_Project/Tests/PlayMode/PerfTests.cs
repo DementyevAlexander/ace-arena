@@ -22,7 +22,11 @@ namespace Arena.Tests
     {
         /// <summary>Эти тесты — про отдельные комнаты Hades: забег по этажам из арен (по умолчанию в игре) выключен.</summary>
         [SetUp]
-        public void SingleRooms() => GameController.ArenaFloors = false;
+        public void SingleRooms()
+        {
+            GameController.ArenaFloors = false;
+            GameController.MetaFile = null; // без сохранения: всё открыто, файл игрока не трогаем
+        }
 
         sealed class Phase
         {

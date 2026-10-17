@@ -77,7 +77,7 @@ namespace Arena.Sim
             var owned = new List<TrinketKind>();
             foreach (var k in TrinketBook.All)
             {
-                if (!TrinketBook.UnlockedAtStart(k)) continue;
+                if (!Meta.Has(k)) continue; // только открытые у Торговца
                 int slot = TrinketSlotOf(k);
                 if (slot >= 0 && TrinketSlots[slot].Level >= TrinketBook.MaxLevel) continue;
                 pool.Add(k);
